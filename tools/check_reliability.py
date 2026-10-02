@@ -47,7 +47,12 @@ require(transport, "cfg_.timeout_ms = 1", "bounded async TLS select")
 require(transport, "cfg_.common_name = host_", "TLS hostname and SNI")
 require(transport, "QUEUE_CAP = 8", "bounded TX queue")
 require(hub, "acceptWebSocket(server)", "hibernating GA Durable Object sockets")
-require(hub, "blockConcurrencyWhile", "serialized anti-replay checks")
+if "blockConcurrencyWhile" in hub:
+    raise SystemExit("FAIL: external validation must not block all DeviceHub events")
+require(hub, "this.serial(ws,", "per-browser serialized anti-replay checks")
+require(hub, "this.authorized(ws, epoch)", "post-await authorization fence")
+require(hub, "this.queued >= 80", "Hub-wide bound including stalled old sockets")
+require(hub, "realtime_replay", "durable exact-retry fence across reconnect")
 require(hub, "SLOW_CONSUMER", "bounded peer receive credit")
 require(wrangler, "new_sqlite_classes", "GA SQLite Durable Object migration")
 if "PubSubClient" in build_workflow or "MAYAP_MQTT_" in build_workflow:

@@ -171,7 +171,7 @@
     {
       "file": "app.js",
       "signature": "function retrySameRequest(",
-      "sha256": "737b91f84a7f9fd40943cb9183c677ccca709c8da557499e78ee94530daffb80"
+      "sha256": "187f7ab425f93f19c039e3b314fffe92b90ee201b2fdc2034401d6f1ee3a1e6e"
     },
     {
       "file": "app.js",
@@ -181,7 +181,7 @@
     {
       "file": "app.js",
       "signature": "function moveToUncertain(",
-      "sha256": "a5498c03112b2a3f8bd8578d61fe8baa575fa8dfd30f8667b05e4ffaca4f0668"
+      "sha256": "53129a07d1897a99f0324f535d6b48a1d31d04b160005cc4b5a797c1402e792c"
     },
     {
       "file": "app.js",
@@ -215,7 +215,7 @@
     {
       "file": "app.js",
       "signature": "function sweepUncertain() {",
-      "sha256": "7c60ce714d8bda92dc9abc81ed896ef848e16f32c7f3b6e6ab575e377cb17e52",
+      "sha256": "6f9f1ce45d5c9c6df39270ea0c56f9fb1ab5cdf509a7bae5d307e7cab18558aa",
       "copyReplacements": [
         [
           "'Đã nhận lịch sử trong bộ nhớ máy; không nhận được ACK cuối'",
@@ -240,7 +240,7 @@
     {
       "file": "app.js",
       "signature": "async function sendConfig(formId, group) {",
-      "sha256": "22cf34036b64863173d63aacd85df1a2479740bd8ce16917478ed455dd6664b2",
+      "sha256": "00eab415463f4b322b7bc07cdfb0e0bb4cea0b0fc0e724607143160db2403b34",
       "copyReplacements": [
         [
           "'Hãy thêm máy trước'",
@@ -263,7 +263,7 @@
     {
       "file": "app.js",
       "signature": "async function sendCommand(action, options = {}) {",
-      "sha256": "53a204bbdea4ac20578d44553d02d6fbb809d1721135388887420e4c74a09c8e",
+      "sha256": "9554b2d66dab25634fcb285dfe7cf0288ff8d47fb894911491c5ce4b2c7c542f",
       "copyReplacements": [
         [
           "'Máy đang ngoại tuyến'",
@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "96136496484b8d3b11ed616d435c1a42e4f6fe2ebbc25c2097894795b8991db2",
+      "sha256": "e8ec40834a397795e4d49edca5041c2345829f1dd6c58f5b6192c1b8e3fb0c9d",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -364,5 +364,6 @@
   ],
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
   "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
-  "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed."
+  "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed.",
+  "transactionHardeningReviewNote": "2026-10-02: reviewed retrySameRequest, moveToUncertain, sweepUncertain, sendConfig, sendCommand and handleAck. Retain signed envelope before receipt; bounded reconnect/UNCERTAIN retries never re-sign or cross boot/device/expiry; terminal ACK cancels retries and incomplete history cannot settle. All controller, safety, storage, HMI display, ATtiny, boot/recovery/OTA preservation entries unchanged."
 }

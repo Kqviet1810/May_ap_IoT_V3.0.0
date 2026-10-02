@@ -115,6 +115,9 @@ static uint32_t webRemindersRevision = 0U;
 // mayapWebConfirmConfigSave khi MachineController xu ly xong) - can webMux.
 struct PendingCommand {
   bool used = false;
+  bool uncertainSent = false, completed = false, completionOk = false;
+  uint32_t completedAt = 0U;
+  char completionMessage[64] = "";
   uint32_t commandId = 0;
   uint32_t queuedAt = 0;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
@@ -130,6 +133,9 @@ static PendingCommand pendingCommands[COMMAND_QUEUE_SIZE];
 // chac chan la cua web, vi HMI khong the mo giao dich thu hai cung luc.
 struct PendingConfigSave {
   bool used = false;
+  bool uncertainSent = false, completed = false, completionOk = false;
+  uint32_t completedAt = 0U;
+  char completionMessage[64] = "";
   uint32_t transactionId = 0U;
   uint32_t queuedAt = 0;
   uint32_t revision = 0;
@@ -161,10 +167,11 @@ struct AckOutboxItem {
 };
 static AckOutboxItem ackOutbox[COMMAND_QUEUE_SIZE + 2U];
 
-inline void enqueueAckLocked(const char *requestId, const char *result,
+inline bool enqueueAckLocked(const char *requestId, const char *result,
                              const char *message, const char *operation = "",
-                             uint32_t receivedAt = 0U, const uint8_t *ackKey = nullptr) {
-  if (!requestId || !requestId[0]) return;
+                             uint32_t receivedAt = 0U, const uint8_t *ackKey = nullptr,
+                             uint32_t completedAt = 0U) {
+  if (!requestId || !requestId[0]) return false;
   for (AckOutboxItem &slot : ackOutbox) {
     if (slot.used) continue;
     slot.used = true;
@@ -173,13 +180,12 @@ inline void enqueueAckLocked(const char *requestId, const char *result,
     snprintf(slot.message, sizeof(slot.message), "%s", message ? message : "");
     snprintf(slot.operation, sizeof(slot.operation), "%s", operation ? operation : "");
     slot.receivedAt = receivedAt;
-    slot.completedAt = millis();
+    slot.completedAt = completedAt ? completedAt : millis();
     slot.signedAck = ackKey != nullptr;
     if (ackKey) memcpy(slot.ackKey, ackKey, sizeof(slot.ackKey));
-    return;
+    return true;
   }
-  // Outbox day (rat hiem, toi da 6 ack cung luc): bo qua, web se tu timeout
-  // va coi lenh la "chua phan hoi" - khong anh huong an toan thiet bi.
+  return false; // Caller keeps the completed result in its bounded pending slot.
 }
 
 // -------------------------- Hop thu nhat ky (event log) -------------------------
@@ -255,7 +261,7 @@ inline void serviceHistoryResponse() {
 
   if (historySnapshotEpoch == 0U || historyCandidateCount == 0U) {
     doc["done"] = true;
-    publishJson("history/reported", doc, false);
+    if (!publishJson("history/reported", doc, false)) return;
     historyResponsePending = false;
     publishAck(historyRequestId, "applied", "HISTORY_EMPTY", "history.read",
                0U, 0U, historySignedAck ? historyAckKey : nullptr);
@@ -268,22 +274,26 @@ inline void serviceHistoryResponse() {
   const uint16_t end = static_cast<uint16_t>(
       min<uint32_t>(historyCandidateCount, static_cast<uint32_t>(historyCursor) + 12U));
 
+  uint16_t chunkSamples = 0U;
+  bool chunkReadError = false;
   for (uint16_t i = historyCursor; i < end; ++i) {
     const uint32_t absoluteBucket = firstBucket + i;
     MayapTemperatureHistoryPoint point{};
     const uint8_t status = mayapTemperatureHistoryReadStatus(absoluteBucket, point);
-    if (status == 0U) { historyReadError = true; continue; }
+    if (status == 0U) { chunkReadError = true; continue; }
     if (status != 2U) continue;
-    ++historySampleCount;
+    ++chunkSamples;
     JsonArray row = samples.add<JsonArray>();
     row.add(point.epoch);
     row.add(static_cast<float>(point.temperatureX10) / 10.0f);
   }
 
-  historyCursor = end;
-  const bool done = historyCursor >= historyCandidateCount;
+  const bool done = end >= historyCandidateCount;
   doc["done"] = done;
-  publishJson("history/reported", doc, false);
+  if (!publishJson("history/reported", doc, false)) return;
+  historyCursor = end;
+  historySampleCount += chunkSamples;
+  historyReadError = historyReadError || chunkReadError;
   if (done) {
     historyResponsePending = false;
     publishAck(historyRequestId, historyReadError ? "rejected" : "applied",
@@ -617,8 +627,10 @@ inline bool publishAck(const char *requestId, const char *result,
   const bool uncertain = !strcmp(result, "expired");
   const bool ok = !strcmp(result, "applied");
   const uint8_t *key = ackKey ? ackKey : (activeAckKeyValid ? activeAckKey : nullptr);
-  if (!received) {
-    TerminalResult &slot = terminalCache[terminalCursor++ % 16U];
+  if (!received && !uncertain) {
+    TerminalResult *existing = nullptr;
+    for (auto &item : terminalCache) if (item.used && !strcmp(item.requestId, requestId)) { existing = &item; break; }
+    TerminalResult slot{}; // Separate copy avoids aliasing replayTerminal() input.
     slot.used = true;
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", op);
@@ -626,6 +638,7 @@ inline bool publishAck(const char *requestId, const char *result,
     snprintf(slot.message, sizeof(slot.message), "%s", message ? message : "");
     slot.signedAck = key != nullptr;
     if (key) memcpy(slot.ackKey, key, sizeof(slot.ackKey));
+    (existing ? *existing : terminalCache[terminalCursor++ % 16U]) = slot;
     lastSnapshotPublishAt = 0U;
     forceSnapshotPublish = true;
     lastDeviceCompletedAt = millis();
@@ -897,21 +910,15 @@ inline void handleCommandMessage(const JsonDocument &doc) {
   // F-09: danh dau lenh nay den tu realtime (tu xa) - AlarmAck se tu choi rieng
   // 2 hanh dong can xac nhan vat ly (xoa loi dao/tat coi khan cap) neu nguon
   // la Remote, xem case HmiCommandType::AlarmAck trong processHmiTransactions().
-  const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId,
-                                    HmiCommandSource::Remote);
-  if (!queued) {
-    publishAck(requestId, "busy", "");
-    return;
-  }
-
-  if (doc["v"].as<int>() != 2) lastCommandSequence = sequence;
-  snprintf(lastCommandRequestId, sizeof(lastCommandRequestId), "%s", requestId);
-
+  // Reserve tracking before queue admission. A full tracker must never execute
+  // an uncorrelated remote command, even if the HMI queue has room.
+  PendingCommand *reserved = nullptr;
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
     if (slot.used) continue;
+    reserved = &slot;
+    slot = PendingCommand{};
     slot.used = true;
-    slot.commandId = commandId;
     slot.queuedAt = millis();
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", activeOperation);
@@ -920,6 +927,23 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     break;
   }
   portEXIT_CRITICAL(&webMux);
+  if (!reserved) { publishAck(requestId, "busy", "TRACKING_FULL"); return; }
+  const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId,
+      HmiCommandSource::Remote, [](uint32_t id, void *context) {
+        // Lock order is HMI -> Web; callers never hold Web while entering HMI.
+        portENTER_CRITICAL(&webMux);
+        static_cast<PendingCommand *>(context)->commandId = id;
+        portEXIT_CRITICAL(&webMux);
+      }, reserved);
+  if (!queued) {
+    portENTER_CRITICAL(&webMux);
+    reserved->used = false;
+    portEXIT_CRITICAL(&webMux);
+    publishAck(requestId, "busy", "");
+    return;
+  }
+  if (doc["v"].as<int>() != 2) lastCommandSequence = sequence;
+  snprintf(lastCommandRequestId, sizeof(lastCommandRequestId), "%s", requestId);
   publishAck(requestId, "accepted", "");
 }
 
@@ -1084,6 +1108,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
 
   // Register the transaction before the control task can observe readyForHost.
   portENTER_CRITICAL(&webMux);
+  pendingConfigSave = PendingConfigSave{};
   pendingConfigSave.used = true;
   pendingConfigSave.queuedAt = millis();
   pendingConfigSave.revision = revision;
@@ -1158,21 +1183,29 @@ inline void handleReminderSetMessage(const JsonDocument &doc) {
     ++slot;
   }
 
-  if (!startReminderSave(candidate)) {
-    publishAck(requestId, "busy", "");
-    return;
-  }
-
+  // Prepare metadata and transaction ID before readyForHost becomes visible.
   portENTER_CRITICAL(&webMux);
+  pendingReminderSave = PendingConfigSave{};
   pendingReminderSave.used = true;
   pendingReminderSave.queuedAt = millis();
   pendingReminderSave.revision = revision;
   pendingReminderSave.signedAck = activeAckKeyValid;
-  if (activeAckKeyValid) memcpy(pendingReminderSave.ackKey, activeAckKey,
-                                sizeof(pendingReminderSave.ackKey));
-  snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s",
-           requestId);
+  if (activeAckKeyValid) memcpy(pendingReminderSave.ackKey, activeAckKey, 32U);
+  snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s", requestId);
   portEXIT_CRITICAL(&webMux);
+  uint32_t transactionId = 0U;
+  if (!startReminderSave(candidate, true, &transactionId)) {
+    portENTER_CRITICAL(&webMux);
+    pendingReminderSave.used = false;
+    portEXIT_CRITICAL(&webMux);
+    publishAck(requestId, "busy", ""); return;
+  }
+  portENTER_CRITICAL(&webMux);
+  pendingReminderSave.transactionId = transactionId;
+  portEXIT_CRITICAL(&webMux);
+  portENTER_CRITICAL(&hmiApiMux);
+  reminderSave.readyForHost = true;
+  portEXIT_CRITICAL(&hmiApiMux);
   publishAck(requestId, "accepted", "");
 }
 
@@ -1327,7 +1360,26 @@ inline void attemptConnect(uint32_t now) {
   socketTransport.begin(CLOUD_API_HOST, deviceId, mayapDeviceSecret(), bootId, TLS_ROOT_CA, now);
 }
 
+inline void flushCompletedTransactions() {
+  portENTER_CRITICAL(&webMux);
+  for (PendingCommand &slot : pendingCommands) {
+    if (slot.used && slot.completed && enqueueAckLocked(slot.requestId,
+        slot.completionOk ? "applied" : "rejected", slot.completionMessage,
+        slot.operation, slot.queuedAt, slot.signedAck ? slot.ackKey : nullptr, slot.completedAt))
+      slot.used = false;
+  }
+  PendingConfigSave *saves[] = {&pendingConfigSave, &pendingReminderSave};
+  for (PendingConfigSave *slot : saves) {
+    if (slot->used && slot->completed && enqueueAckLocked(slot->requestId,
+        slot->completionOk ? "applied" : "rejected", slot->completionMessage,
+        slot == &pendingConfigSave ? "config.save" : "reminders.save", slot->queuedAt,
+        slot->signedAck ? slot->ackKey : nullptr, slot->completedAt)) slot->used = false;
+  }
+  portEXIT_CRITICAL(&webMux);
+}
+
 inline void expirePendingCommands(uint32_t now) {
+  flushCompletedTransactions();
   char requestIdsToExpire[COMMAND_QUEUE_SIZE][WEB_REQUEST_ID_CAPACITY];
   char operationsToExpire[COMMAND_QUEUE_SIZE][40];
   uint8_t keysToExpire[COMMAND_QUEUE_SIZE][32];
@@ -1340,7 +1392,11 @@ inline void expirePendingCommands(uint32_t now) {
 
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
-    if (!slot.used) continue;
+    if (!slot.used || slot.completed) continue;
+    if (slot.uncertainSent) {
+      if (timeReached(now, slot.queuedAt) && elapsedMs(now, slot.queuedAt) >= 120000U) slot.used = false;
+      continue;
+    }
     // socketTransport.loop() can create a slot after the caller captured `now`. Without
     // this ordering guard, now - queuedAt underflows and a fresh request looks
     // roughly 49 days old, so it is expired immediately.
@@ -1353,29 +1409,31 @@ inline void expirePendingCommands(uint32_t now) {
     signedToExpire[expireCount] = slot.signedAck;
     if (slot.signedAck) memcpy(keysToExpire[expireCount], slot.ackKey, 32U);
     ++expireCount;
-    slot.used = false;
+    slot.uncertainSent = true;
   }
-  if (pendingConfigSave.used && timeReached(now, pendingConfigSave.queuedAt) &&
+  if (pendingConfigSave.uncertainSent && !pendingConfigSave.completed && timeReached(now, pendingConfigSave.queuedAt) && elapsedMs(now, pendingConfigSave.queuedAt) >= 120000U) pendingConfigSave.used = false;
+  if (pendingConfigSave.used && !pendingConfigSave.completed && !pendingConfigSave.uncertainSent && timeReached(now, pendingConfigSave.queuedAt) &&
       elapsedMs(now, pendingConfigSave.queuedAt) >= WEB_CONFIG_SAVE_ACK_TIMEOUT_MS) {
     configExpired = true;
     snprintf(configRequestId, sizeof(configRequestId), "%s",
              pendingConfigSave.requestId);
     configSigned = pendingConfigSave.signedAck;
     if (configSigned) memcpy(configKey, pendingConfigSave.ackKey, 32U);
-    pendingConfigSave.used = false;
+    pendingConfigSave.uncertainSent = true;
   }
   bool remindersExpired = false;
   char reminderRequestId[WEB_REQUEST_ID_CAPACITY] = "";
   uint8_t reminderKey[32] = {};
   bool reminderSigned = false;
-  if (pendingReminderSave.used && timeReached(now, pendingReminderSave.queuedAt) &&
+  if (pendingReminderSave.uncertainSent && !pendingReminderSave.completed && timeReached(now, pendingReminderSave.queuedAt) && elapsedMs(now, pendingReminderSave.queuedAt) >= 120000U) pendingReminderSave.used = false;
+  if (pendingReminderSave.used && !pendingReminderSave.completed && !pendingReminderSave.uncertainSent && timeReached(now, pendingReminderSave.queuedAt) &&
       elapsedMs(now, pendingReminderSave.queuedAt) >= WEB_REMINDER_SAVE_ACK_TIMEOUT_MS) {
     remindersExpired = true;
     snprintf(reminderRequestId, sizeof(reminderRequestId), "%s",
              pendingReminderSave.requestId);
     reminderSigned = pendingReminderSave.signedAck;
     if (reminderSigned) memcpy(reminderKey, pendingReminderSave.ackKey, 32U);
-    pendingReminderSave.used = false;
+    pendingReminderSave.uncertainSent = true;
   }
   portEXIT_CRITICAL(&webMux);
 
@@ -1598,11 +1656,9 @@ inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
   using namespace MayapRealtimeInternal;
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
-    if (!slot.used || slot.commandId != commandId) continue;
-    enqueueAckLocked(slot.requestId, ok ? "applied" : "rejected", message,
-                     slot.operation, slot.queuedAt,
-                     slot.signedAck ? slot.ackKey : nullptr);
-    slot.used = false;
+    if (!slot.used || slot.completed || slot.commandId != commandId) continue;
+    slot.completed = true; slot.completionOk = ok; slot.completedAt = millis();
+    snprintf(slot.completionMessage, sizeof(slot.completionMessage), "%s", message ? message : "");
     break;
   }
   portEXIT_CRITICAL(&webMux);
@@ -1614,7 +1670,7 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
   using namespace MayapRealtimeInternal;
   (void)stored;  // config moi da/se toi qua mayapWebSetConfig() tu cung noi goi
   portENTER_CRITICAL(&webMux);
-  if (pendingConfigSave.used && pendingConfigSave.transactionId == transactionId) {
+  if (pendingConfigSave.used && !pendingConfigSave.completed && pendingConfigSave.transactionId == transactionId) {
     if (ok) {
       webConfigRevision = pendingConfigSave.revision > webConfigRevision
           ? pendingConfigSave.revision : webConfigRevision + 1U;
@@ -1623,10 +1679,9 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
                pendingConfigSave.requestId);
       configDirty = true; // Publish a complete verified report even if a prior report raced.
     }
-    enqueueAckLocked(pendingConfigSave.requestId, ok ? "applied" : "rejected",
-                     ok ? "" : failureCode, "config.save", pendingConfigSave.queuedAt,
-                     pendingConfigSave.signedAck ? pendingConfigSave.ackKey : nullptr);
-    pendingConfigSave.used = false;
+    pendingConfigSave.completed = true; pendingConfigSave.completionOk = ok;
+    pendingConfigSave.completedAt = millis();
+    snprintf(pendingConfigSave.completionMessage, sizeof(pendingConfigSave.completionMessage), "%s", ok ? "" : failureCode);
   }
   portEXIT_CRITICAL(&webMux);
 }
@@ -1634,9 +1689,8 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
 inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
                                         const ReminderSet *stored) {
   using namespace MayapRealtimeInternal;
-  (void)transactionId;
   portENTER_CRITICAL(&webMux);
-  if (pendingReminderSave.used) {
+  if (pendingReminderSave.used && !pendingReminderSave.completed && pendingReminderSave.transactionId == transactionId) {
     if (ok && stored) {
       knownReminders = *stored; // Only the EEPROM readback is authoritative.
       knownRemindersValid = true;
@@ -1644,11 +1698,9 @@ inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
           ? pendingReminderSave.revision : webRemindersRevision + 1U;
       remindersDirty = true; // Republish with the final revision even if a report raced.
     }
-    enqueueAckLocked(pendingReminderSave.requestId, ok ? "applied" : "rejected",
-                     ok ? "" : "LUU NHAC NHO BI TU CHOI", "reminders.save",
-                     pendingReminderSave.queuedAt,
-                     pendingReminderSave.signedAck ? pendingReminderSave.ackKey : nullptr);
-    pendingReminderSave.used = false;
+    pendingReminderSave.completed = true; pendingReminderSave.completionOk = ok;
+    pendingReminderSave.completedAt = millis();
+    snprintf(pendingReminderSave.completionMessage, sizeof(pendingReminderSave.completionMessage), "%s", ok ? "" : "LUU NHAC NHO BI TU CHOI");
   }
   portEXIT_CRITICAL(&webMux);
 }

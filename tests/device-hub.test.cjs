@@ -15,15 +15,16 @@ global.WebSocketPair=class{constructor(){this[0]=new Socket();this[1]=new Socket
 async function fixture(){
  const [hub,auth,account,worker]=await mod;const sql=new DatabaseSync(':memory:');sql.exec(fs.readFileSync('cloudflare/schema.sql','utf8'));
  for(const n of ['0003_telemetry_history','0004_accounts','0005_account_picture'])sql.exec(fs.readFileSync('cloudflare/migrations/'+n+'.sql','utf8'));
- let queries=0;const DB={prepare(s){const st=sql.prepare(s);let args=[];return {bind(...v){args=v;return this;},async first(){queries++;return st.get(...args)||null;},async run(){queries++;return {meta:st.run(...args)};}};}};
+ let queries=0,gate=null;const DB={prepare(s){const st=sql.prepare(s);let args=[];return {bind(...v){args=v;return this;},async first(){queries++;const value=st.get(...args)||null;const pending=gate;gate=null;if(pending){pending.enter();await pending.promise;}return value;},async all(){queries++;return {results:st.all(...args)};},async run(){queries++;return {meta:st.run(...args)};}};}};
+ DB.batch=async statements=>Promise.all(statements.map(st=>st.run()));
  const env={DB,MAYAP_SESSION_PEPPER:'test-session-pepper',DEVICE_KEY_PEPPER:'test-device-pepper',ALLOWED_ORIGIN:'https://web.test'};
  const session=await account.createSession(env,{sub:'owner-test',name:'Owner'}),id='MAP-1234567890AB',key='77'.repeat(32);
  sql.prepare('INSERT INTO devices(device_id,device_key_hash,created_at) VALUES(?,?,?)').run(id,await account.hash(key,{MAYAP_SESSION_PEPPER:env.DEVICE_KEY_PEPPER}),Date.now());
  sql.prepare("INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES(?,?,?,?)").run('owner-test',id,'owner',Date.now());
- const all=[],map=new Map();let alarm=null,queue=Promise.resolve();
+ const all=[],map=new Map();let alarm=null;
  const ctx={getWebSockets:()=>all,acceptWebSocket:s=>all.push(s),setWebSocketAutoResponse:p=>ctx.auto=p,
-  blockConcurrencyWhile:fn=>{const p=queue.then(fn);queue=p.catch(()=>{});return p;},
-  storage:{async get(k){return structuredClone(map.get(k));},async put(k,v){map.set(k,structuredClone(v));},async getAlarm(){return alarm;},async setAlarm(n){alarm=n;},async deleteAlarm(){alarm=null;},async transaction(fn){return fn(this);}}};
+  blockConcurrencyWhile:()=>{throw Error('Global event gate must not be used');},
+  storage:{sql:{exec(query,...args){const statement=sql.prepare(query);const rows=statement.columns().length ? statement.all(...args) : (statement.run(...args),[]);return {toArray:()=>rows};}},async get(k){return structuredClone(map.get(k));},async put(k,v){map.set(k,structuredClone(v));},async getAlarm(){return alarm;},async setAlarm(n){alarm=n;},async deleteAlarm(){alarm=null;},async transaction(fn){return fn(this);}}};
  let instance=new hub.DeviceHub(ctx,env);
  env.DEVICE_HUB={idFromName:n=>n,get:()=>({fetch:r=>instance.fetch(r)})};
  const claims={aud:'browser',deviceId:id,clientId:'w-browser123456',sessionId:session.id,userSub:'owner-test',role:'owner',sessionExpiresAt:session.expiry};
@@ -36,7 +37,7 @@ async function fixture(){
   return {v:1,channel,payload:wire};
  }
  return {env,sql,account,auth,worker:worker.default,ctx,all,id,key,claims,session,browser,device,command,get hub(){return instance;},hibernate(){instance=new hub.DeviceHub(ctx,env);},get queries(){return queries;},
-  message:(ws,msg)=>instance.webSocketMessage(ws,typeof msg==='string'?msg:JSON.stringify(msg)),clearQueries(){queries=0;},get alarm(){return alarm;}};
+  message:(ws,msg)=>instance.webSocketMessage(ws,typeof msg==='string'?msg:JSON.stringify(msg)),clearQueries(){queries=0;},get alarm(){return alarm;},holdNextQuery(){let release,enter;const entered=new Promise(r=>enter=r);gate={enter,promise:new Promise(r=>release=r)};return {entered,release};}};
 }
 const events=(ws,c)=>ws.sent.filter(m=>m.channel===c),lastError=ws=>ws.sent.filter(m=>m.kind==='error').at(-1)?.code;
 test('hibernation restores attachments and automatic ping response without telemetry D1',async()=>{
@@ -54,7 +55,7 @@ test('tickets are single-use across hibernation, bounded and tamper/expiry resis
  const h=await fixture(),b=await h.browser();h.hibernate();const c=await h.auth.verifyTicket(h.env,b.ticket);
  const replay=await h.hub.fetch(new Request('https://hub/connect',{headers:{Upgrade:'websocket','X-Mayap-Admission':JSON.stringify({...c,kind:'browser'})}}));assert.equal(replay.status,403);
  assert.equal(await h.auth.verifyTicket(h.env,b.ticket+'x'),null);assert.equal(await h.auth.verifyTicket(h.env,b.ticket,Date.now()+61000),null);
- assert.equal(h.ctx.storage ? (await h.ctx.storage.get('tickets') && Object.keys(await h.ctx.storage.get('tickets')).length) : 0,1);
+ assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM realtime_tickets').get().n,1);
 });
 test('eight browser cap, duplicate client replacement and bounded 4KiB attachments',async()=>{
  const h=await fixture();for(let i=0;i<8;i++)assert.equal((await h.browser({clientId:'w-browser00000'+i})).res.status,101);
@@ -119,7 +120,7 @@ test('a day of admitted telemetry has no D1 hot path and stable attachment/credi
  const h=await fixture(),d=await h.device(),b=await h.browser();await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:60000}});h.clearQueries();
  for(let i=0;i<86400;i++){
   if(i%3000===0){h.hibernate();b.ws.data.rateAt=Date.now()-10001;b.ws.data.until=Date.now()+300000;b.ws.data.watchUntil=Date.now()+60000;}
-  b.ws.data.rateAt=Date.now()-10001;
+  b.ws.data.rateAt=Date.now()-10001;d.ws.data.rateAt=Date.now()-10001;
   await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,i,runtime:{temperature:37.5}}});
   await h.message(b.ws,{kind:'received',deliveryId:b.ws.data.delivery});
   // Test sink drains just like an actual browser, avoiding a test-only queue.
@@ -144,4 +145,96 @@ test('maximum-length signed transaction cache remains bounded and exact retries 
  for(let i=1;i<=16;i++){const msg=await h.command(i,('r'+i+'x'.repeat(38)).slice(0,39));first ||= msg;await h.message(b.ws,msg);}
  assert.equal(b.ws.data.requests.length,16);assert.ok(Buffer.byteLength(JSON.stringify(b.ws.data))<4096);
  await h.message(b.ws,first);assert.equal(events(d.ws,'command').length,17);
+});
+
+test('a stalled browser D1 validation does not block device telemetry or another viewer',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser(),other=await h.browser({clientId:'w-independent123'});
+ await h.message(other.ws,{v:1,channel:'session',payload:{clientId:'w-independent123',active:true,ttlMs:45000}});
+ const cmd=await h.command(),gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,temperature:37.5}});
+ assert.equal(events(other.ws,'snapshot').length,1);assert.equal(events(d.ws,'command').length,0);
+ gate.release();await write;assert.equal(events(d.ws,'command').length,1);
+});
+test('revocation fences validation already in flight and closes reads immediately',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser(),cmd=await h.command();
+ const gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ h.sql.exec('DELETE FROM user_devices');
+ const response=await h.hub.fetch(new Request('https://hub/invalidate-browser',{method:'POST',body:JSON.stringify({userSub:h.claims.userSub})}));
+ assert.equal(response.status,200);assert.equal(b.ws.reason,'ACCESS_REVOKED');
+ const count=b.ws.sent.length;await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123}});assert.equal(b.ws.sent.length,count);
+ gate.release();await write;assert.equal(events(d.ws,'command').length,0);
+});
+test('admission already awaiting D1 cannot survive a revocation fence',async()=>{
+ const h=await fixture(),gate=h.holdNextQuery(),admission=h.browser();await gate.entered;
+ h.sql.exec('DELETE FROM user_devices');await h.hub.fetch(new Request('https://hub/invalidate-browser',{method:'POST',body:JSON.stringify({userSub:h.claims.userSub})}));
+ gate.release();assert.equal((await admission).res.status,403);assert.equal(h.hub.sockets('browser').length,0);
+});
+test('write validated against an old device cannot reach its replacement',async()=>{
+ const h=await fixture(),old=await h.device(),b=await h.browser(),cmd=await h.command(),gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ const next=await h.device(124);gate.release();await write;
+ assert.equal(events(old.ws,'command').length,0);assert.equal(events(next.ws,'command').length,0);
+});
+test('per-browser async queue is bounded while the device remains available',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser(),cmd=await h.command(),gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ const queued=Array.from({length:12},()=>h.message(b.ws,cmd));
+ await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123}});
+ assert.equal(d.ws.readyState,1);assert.equal(b.ws.code,1013);gate.release();await Promise.all([write,...queued]);
+ assert.equal(h.hub.queues.size,0);assert.equal(events(d.ws,'command').length,0);
+});
+test('persistent exact-retry and seq fences survive socket replacement and hibernation',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser(),cmd=await h.command(5,'stable');await h.message(b.ws,cmd);
+ const next=await h.browser();h.hibernate();await h.message(next.ws,cmd);assert.equal(events(d.ws,'command').length,2);
+ await h.message(next.ws,await h.command(6,'stable'));assert.equal(lastError(next.ws),'REPLAY');
+ await h.message(next.ws,await h.command(4,'older'));assert.equal(lastError(next.ws),'REPLAY');assert.equal(events(d.ws,'command').length,2);
+ h.sql.exec('UPDATE realtime_replay SET expiry=1');await h.hub.alarm();assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM realtime_replay').get().n,0);
+});
+test('more than 64 still-live one-use tickets do not poison admission; storm rate is bounded',async()=>{
+ const h=await fixture(),real=Date.now;let now=real();Date.now=()=>now;
+ try {
+  for(let i=0;i<96;i++) {if(i&&i%32===0)now+=10000;assert.equal(h.hub.consumeTicket({...h.claims,nonce:i.toString(16).padStart(32,'0'),exp:Math.floor(now/1000)+60}),true);}
+  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM realtime_tickets').get().n,96);
+  assert.equal(h.hub.consumeTicket({...h.claims,nonce:'0'.repeat(32),exp:Math.floor(now/1000)+60}),false);
+  for(let i=96;i<104;i++)assert.equal(h.hub.consumeTicket({...h.claims,nonce:i.toString(16).padStart(32,'0'),exp:Math.floor(now/1000)+60}),true);
+  assert.equal(h.hub.consumeTicket({...h.claims,nonce:'f'.repeat(32),exp:Math.floor(now/1000)+60}),false);
+ }finally{Date.now=real;}
+});
+test('device ingress bounds quota abuse without D1 access',async()=>{
+ const h=await fixture(),d=await h.device();h.clearQueries();
+ for(let i=0;i<161;i++)await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,i}});
+ assert.equal(d.ws.reason,'DEVICE_RATE_LIMIT');assert.equal(h.queries,0);
+});
+test('owner access revocation and session logout close sockets before successful API response',async()=>{
+ const h=await fixture();await h.device();
+ const viewer=await h.account.createSession(h.env,{sub:'viewer-test',name:'Viewer'});
+ h.sql.prepare("INSERT INTO user_devices VALUES(?,?,'viewer',?)").run('viewer-test',h.id,Date.now());
+ const v=await h.browser({userSub:'viewer-test',sessionId:viewer.id,sessionExpiresAt:viewer.expiry,role:'viewer',clientId:'w-viewer-test123'});
+ const call=(path,body,token=h.session.token)=>h.worker.fetch(new Request('https://web.test'+path,{method:'POST',headers:{Origin:'https://web.test',Authorization:'Bearer '+token,'Content-Type':'application/json'},body:JSON.stringify(body)}),h.env,{});
+ assert.equal((await call('/api/device/revoke-access',{device_id:h.id,user_sub:h.claims.userSub},viewer.token)).status,403);
+ assert.equal((await call('/api/device/revoke-access',{device_id:h.id,user_sub:'viewer-test'})).status,200);assert.equal(v.ws.reason,'ACCESS_REVOKED');
+ assert.equal((await call('/api/device/revoke-access',{device_id:h.id,user_sub:'viewer-test'})).status,200);
+ const own=await h.browser();assert.equal((await call('/api/account/logout',{})).status,200);assert.equal(own.ws.reason,'ACCESS_REVOKED');
+});
+
+test('receive credits and visibility leases bypass a stalled write FIFO',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:60000}});
+ const cmd=await h.command(),gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ for(let i=0;i<12;i++){await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,i}});await h.message(b.ws,{kind:'received',deliveryId:b.ws.data.delivery});}
+ await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,foreground:false,ttlMs:60000}});
+ assert.equal(b.ws.readyState,1);assert.equal(b.ws.data.received,b.ws.data.delivery);assert.equal(events(d.ws,'session').at(-1).payload.active,false);
+ gate.release();await write;assert.equal(events(d.ws,'command').length,1);
+});
+
+test('Hub-wide async cap includes old sockets whose external validation never settles',async()=>{
+ const h=await fixture(),d=await h.device();let release;const blocked=new Promise(r=>release=r);
+ const pending=Array.from({length:80},()=>h.hub.serial({},()=>blocked));
+ await assert.rejects(h.hub.serial({},()=>Promise.resolve()),/BUSY/);assert.equal(h.hub.queues.size,80);
+ await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123}});assert.equal(d.ws.readyState,1);
+ release();await Promise.all(pending);await Promise.resolve();assert.equal(h.hub.queues.size,0);assert.equal(h.hub.queued,0);
+});
+test('device freshness is rechecked after a slow external write validation',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser(),cmd=await h.command(1,'slow-config',123,'config/set'),gate=h.holdNextQuery(),write=h.message(b.ws,cmd);await gate.entered;
+ const real=Date.now;Date.now=()=>real()+211000;
+ try{gate.release();await write;assert.equal(events(d.ws,'config/set').length,0);assert.equal(lastError(b.ws),'CONNECTION_CHANGED');}
+ finally{Date.now=real;}
 });

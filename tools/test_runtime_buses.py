@@ -76,6 +76,33 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                 stop += 1
         parts.append(realtime[start:stop])
     (out / 'actual-web-connect.inc').write_text('\n'.join(parts), encoding='utf-8')
+    # Extract actual admission/confirmation/history implementations; no model copy.
+    def function(source, signature):
+        start = source.index(signature)
+        brace = source.index('{', start)
+        depth, end = 1, brace + 1
+        while depth:
+            depth += (source[end] == '{') - (source[end] == '}')
+            end += 1
+        return source[start:end]
+    hmi = (root / 'MAYAP_INDUSTRIAL_v1_0_0/hmi.h').read_text(encoding='utf-8')
+    (out / 'actual-transaction-hmi.inc').write_text('\n'.join(function(hmi, sig) for sig in
+        ('bool queueCommand(', 'bool startReminderSave(')), encoding='utf-8')
+    start = realtime.index('struct PendingCommand {')
+    stop = realtime.index('// -------------------------- Hop thu nhat ky', start)
+    (out / 'actual-transaction-state.inc').write_text(realtime[start:stop], encoding='utf-8')
+    (out / 'actual-transaction-dispatch.inc').write_text('\n'.join(function(realtime, sig) for sig in
+        ('inline void handleCommandMessage(', 'inline void handleReminderSetMessage(',
+         'inline void flushCompletedTransactions(', 'inline void expirePendingCommands(',
+         'inline void serviceHistoryResponse(')), encoding='utf-8')
+    start = realtime.index('struct TerminalResult {')
+    stop = realtime.index('inline bool replayTerminal(', start)
+    (out / 'actual-transaction-terminal.inc').write_text(realtime[start:stop] + '\n' +
+        function(realtime, 'inline bool publishAck(const char *requestId') + '\n' +
+        function(realtime, 'inline bool replayTerminal('), encoding='utf-8')
+    (out / 'actual-transaction-confirm.inc').write_text('\n'.join(function(realtime, sig) for sig in
+        ('inline void mayapWebConfirmCommand(', 'inline void mayapWebConfirmConfigSave(',
+         'inline void mayapWebConfirmReminderSave(')), encoding='utf-8')
     json_candidates = [Path(os.environ.get('MAYAP_ARDUINOJSON', 'missing')),
                        Path.home() / 'Arduino/libraries/ArduinoJson/src',
                        Path.home() / 'Documents/Arduino/libraries/ArduinoJson/src']
@@ -104,11 +131,12 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-web-connect'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-web-connect', 'runtime-transactions'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
-        if test == 'runtime-web-connect':
+        if test == 'runtime-transactions': command[1] = '-std=c++17'
+        if test in ('runtime-web-connect', 'runtime-transactions'):
             command += ['-I', str(json_include)]
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
@@ -129,3 +157,25 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         regression = subprocess.run([str(executable)], capture_output=True, text=True)
         assert regression.returncode != 0, 'Missing HIGH guard was not detected'
         print('Regression proof: legal >30 ms final LOW fails without production HIGH guard, as expected')
+        # Each targeted mutation restores one of the review's actual failure
+        # windows. Compilation must pass and the runtime assertions must fail.
+        for name, replacement, label in (
+            ('actual-transaction-hmi.inc',
+             ('if (onAdmitted) onAdmitted(id, admissionContext);', 'if (onAdmitted) (void)admissionContext;'), 'command correlation after queue visibility'),
+            ('actual-transaction-hmi.inc',
+             ('reminderSave.readyForHost = !deferForHost;', 'reminderSave.readyForHost = true; (void)deferForHost;'), 'Reminder visible before transaction ID'),
+            ('actual-transaction-terminal.inc',
+             ('if (!received && !uncertain)', 'if (!received)'), 'uncertain timeout poisons terminal cache'),
+            ('actual-transaction-dispatch.inc',
+             ('if (!publishJson("history/reported", doc, false)) return;', 'publishJson("history/reported", doc, false);'), 'history advances on failed send')):
+            target = out / name
+            original = target.read_text(encoding='utf-8')
+            assert replacement[0] in original
+            target.write_text(original.replace(*replacement), encoding='utf-8')
+            executable = out / 'runtime-transactions-regression'
+            subprocess.run([args.cxx, '-std=c++17', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                            '-I', str(json_include), str(root / 'tests/runtime-transactions.cpp'), '-o', str(executable)], check=True)
+            result = subprocess.run([str(executable)], capture_output=True, text=True)
+            target.write_text(original, encoding='utf-8')
+            assert result.returncode != 0, 'Mutation not detected: ' + label
+            print('Regression proof: rejected ' + label)

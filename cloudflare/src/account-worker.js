@@ -62,11 +62,26 @@ async function loginGoogle(request,env) {
   const own=await createSession(env,identity,request.headers.get('User-Agent') || '');
   return json({success:true,token:own.token,expiresAt:own.expiry});
 }
+async function invalidateBrowsers(env, devices, userSub, sessionId) {
+  if (!env.DEVICE_HUB) return; // Existing non-realtime account fixture/worker.
+  for (let offset = 0; offset < devices.length; offset += 8) {
+    await Promise.all(devices.slice(offset, offset + 8).map(async deviceId => {
+      const response = await env.DEVICE_HUB.get(env.DEVICE_HUB.idFromName(deviceId))
+        .fetch(new Request('https://device-hub/invalidate-browser', { method:'POST',
+          headers:{'Content-Type':'application/json'}, body:JSON.stringify({userSub, sessionId}) }));
+      if (!response.ok) throw new Error('REALTIME_REVOCATION_FAILED');
+    }));
+  }
+}
 async function revoke(env,id,sub) {
+  const devices = env.DEVICE_HUB ? (await env.DB.prepare('SELECT device_id FROM user_devices WHERE user_sub=?')
+    .bind(sub).all()).results.map(row => row.device_id) : [];
   await env.DB.batch([
     env.DB.prepare('UPDATE user_sessions SET revoked_at=? WHERE id=? AND user_sub=?').bind(Date.now(),id,sub),
     env.DB.prepare('DELETE FROM push_subscriptions WHERE user_session_id=? AND user_sub=?').bind(id,sub),
   ]);
+  // Do not report success until every corresponding Hub fenced and closed reads.
+  await invalidateBrowsers(env, devices, sub, id);
 }
 async function claim(request, env, auth, data) {
   const id=String(data.device_id || '').toUpperCase(), pin=String(data.pin || '');
@@ -191,6 +206,21 @@ async function fetchAccount(request, env, ctx) {
       sessionId:auth.id,userSub:auth.user_sub,role:device.role,sessionExpiresAt:auth.expires_at});
     return json({success:true,realtime:{url:`${url.origin.replace(/^http/, 'ws')}/realtime/browser/${id}`,ticket},
       control:device.role==='viewer' ? null : await controlGrant(env,id,cid)});
+  }
+  if (path==='/api/device/revoke-access' && method==='POST') {
+    const owner=await permission(env,auth.user_sub,id,true);
+    if (!owner || owner.role!=='owner') return deny();
+    const target=String(data.user_sub || '').trim();
+    if (!target || target===auth.user_sub || target.length>128) return deny();
+    const member=await env.DB.prepare('SELECT role FROM user_devices WHERE device_id=? AND user_sub=?').bind(id,target).first();
+    if (member?.role==='owner') return deny();
+    await env.DB.batch([
+      env.DB.prepare("DELETE FROM user_devices WHERE device_id=? AND user_sub=? AND role!='owner'").bind(id,target),
+      env.DB.prepare('DELETE FROM push_subscriptions WHERE device_id=? AND user_sub=?').bind(id,target),
+    ]);
+    // Idempotent: a retry still invalidates sockets if membership was deleted.
+    await invalidateBrowsers(env,[id],target);
+    return json({success:true});
   }
   if (path==='/api/device/rename' && method==='POST') {
     const device=await permission(env,auth.user_sub,id,true);

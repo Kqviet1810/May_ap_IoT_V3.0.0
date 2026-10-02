@@ -12,6 +12,14 @@ const attachment = ws => ws.deserializeAttachment();
 export class DeviceHub {
   constructor(ctx, env) {
     this.ctx = ctx; this.env = env;
+    this.queues = new Map(); this.queued = 0; this.authEpoch = 0;
+    // SQLite is private DO state, not D1. Only tickets/control writes use it.
+    this.sql = ctx.storage.sql;
+    this.sql.exec('CREATE TABLE IF NOT EXISTS realtime_tickets (nonce TEXT PRIMARY KEY, expiry INTEGER NOT NULL)');
+    this.sql.exec('CREATE INDEX IF NOT EXISTS realtime_ticket_expiry ON realtime_tickets(expiry)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS realtime_budget (id INTEGER PRIMARY KEY, at INTEGER, count INTEGER)');
+    this.sql.exec('CREATE TABLE IF NOT EXISTS realtime_replay (id TEXT PRIMARY KEY, expiry INTEGER NOT NULL, boot INTEGER, seq INTEGER, requests TEXT)');
+    this.sql.exec('CREATE INDEX IF NOT EXISTS realtime_replay_expiry ON realtime_replay(expiry)');
     this.ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair('{"kind":"ping"}', '{"kind":"pong"}'));
   }
   save(ws, value) {
@@ -49,27 +57,65 @@ export class DeviceHub {
     this.send(ws, { kind: 'error', code, requestId });
     console.warn(JSON.stringify({ event: 'realtime.reject', code, deviceId: attachment(ws)?.deviceId }));
   }
-  async consumeTicket(claims) {
-    const now = Date.now();
-    return this.ctx.storage.transaction(async txn => {
-      const used = await txn.get('tickets') || {};
-      for (const [nonce, expiry] of Object.entries(used)) if (expiry <= now) delete used[nonce];
-      if (used[claims.nonce] || Object.keys(used).length >= 64) return false;
-      used[claims.nonce] = claims.exp * 1000;
-      await txn.put('tickets', used); return true;
+  // Event-local FIFO: slow D1/crypto for one browser never stalls device frames
+  // or another viewer. Bounds apply before awaiting any external operation.
+  serial(key, fn, cap = 8) {
+    if (this.queued >= 80) return Promise.reject(new Error('BUSY'));
+    let q = this.queues.get(key);
+    if (!q) { q = { tail: Promise.resolve(), count: 0 }; this.queues.set(key, q); }
+    if (q.count >= cap) return Promise.reject(new Error('BUSY'));
+    ++q.count; ++this.queued;
+    const result = q.tail.then(fn);
+    q.tail = result.catch(() => {}).finally(() => {
+      --this.queued;
+      if (!--q.count && this.queues.get(key) === q) this.queues.delete(key);
     });
+    return result;
+  }
+  consumeTicket(claims) {
+    const now = Date.now();
+    this.sql.exec('DELETE FROM realtime_tickets WHERE expiry<=?', now);
+    if (this.sql.exec('SELECT nonce FROM realtime_tickets WHERE nonce=?', claims.nonce).toArray().length) return false;
+    const old = this.sql.exec('SELECT at,count FROM realtime_budget WHERE id=1').toArray()[0];
+    const budget = old && now - old.at < 10000 ? old : { at: now, count: 0 };
+    if (budget.count >= 40) return false;
+    this.sql.exec('INSERT OR REPLACE INTO realtime_budget VALUES(1,?,?)', budget.at, budget.count + 1);
+    this.sql.exec('INSERT INTO realtime_tickets VALUES(?,?)', claims.nonce, claims.exp * 1000);
+    return true;
+  }
+  authorized(ws, epoch) {
+    return epoch === this.authEpoch && ws.readyState === 1 && !attachment(ws)?.superseded && attachment(ws)?.until > Date.now();
   }
   async schedule() {
     const deadlines = this.sockets('browser').map(ws => attachment(ws).until);
     const device = this.device();
     if (device) deadlines.push(attachment(device).lastAt + DEVICE_STALE_MS);
+    const cleanup = this.sql.exec('SELECT MIN(expiry) AS expiry FROM realtime_replay').toArray()[0]?.expiry;
+    if (cleanup) deadlines.push(cleanup);
     if (!deadlines.length) { await this.ctx.storage.deleteAlarm(); return; }
     const due = Math.max(Date.now() + 1000, Math.min(...deadlines));
     const old = await this.ctx.storage.getAlarm();
     if (old === null || old > due) await this.ctx.storage.setAlarm(due);
   }
-  async fetch(request) { return this.ctx.blockConcurrencyWhile(() => this.admit(request)); }
+  async fetch(request) {
+    if (request.method === 'POST') return this.admit(request);
+    try { return await this.serial('admission', () => this.admit(request), 16); }
+    catch { return json({error:'ADMISSION_BUSY'}, 503); }
+  }
   async admit(request) {
+    if (request.method === 'POST' && new URL(request.url).pathname === '/invalidate-browser') {
+      const { userSub, sessionId } = await request.json();
+      if (typeof userSub !== 'string' || (sessionId !== undefined && typeof sessionId !== 'string')) return json({error:'INVALID_SCOPE'}, 400);
+      ++this.authEpoch; // Fence checks already awaiting D1/crypto, including admission.
+      for (const ws of this.sockets('browser')) {
+        const a = attachment(ws);
+        if (a.userSub !== userSub || (sessionId && a.sessionId !== sessionId)) continue;
+        a.superseded = true; this.save(ws, a); ws.close(4003, 'ACCESS_REVOKED');
+        const device = this.device();
+        if (device) this.event(device, 'session', { clientId: a.clientId, active: false, ttlMs: 1000 });
+      }
+      await this.schedule(); return json({success:true});
+    }
     if (request.method === 'POST' && new URL(request.url).pathname === '/invalidate-device') {
       for (const ws of this.sockets('device')) { const a = attachment(ws); a.superseded = true; this.save(ws, a); ws.close(4003, 'CREDENTIAL_ROTATED'); }
       this.broadcast('presence', {online:false, proto:2}); await this.schedule();
@@ -81,9 +127,11 @@ export class DeviceHub {
     const claims = JSON.parse(request.headers.get('X-Mayap-Admission') || 'null');
     if (!claims || !['device', 'browser'].includes(claims.kind)) return json({ error: 'AUTH_REQUIRED' }, 401);
     if (claims.kind === 'browser') {
+      const epoch = this.authEpoch;
       const role = await livePermission(this.env, claims);
-      if (!role || role.role !== claims.role || !await this.consumeTicket(claims)) return json({ error: 'ACCESS_DENIED' }, 403);
+      if (epoch !== this.authEpoch || !role || role.role !== claims.role || !this.consumeTicket(claims)) return json({ error: 'ACCESS_DENIED' }, 403);
       const same = this.sockets('browser').find(ws => attachment(ws).clientId === claims.clientId);
+      if (same && attachment(same).sessionId !== claims.sessionId) return json({error:'CLIENT_IN_USE'}, 409);
       if (!same && this.sockets('browser').length >= MAX_BROWSERS) return json({ error: 'CLIENT_LIMIT' }, 429);
       if (same) { const a = attachment(same); a.superseded = true; this.save(same, a); same.close(4001, 'REPLACED'); }
     }
@@ -94,7 +142,7 @@ export class DeviceHub {
       for (const old of this.sockets('device')) {
         const a = attachment(old); a.superseded = true; this.save(old, a); old.close(4001, 'REPLACED');
       }
-      this.save(server, { ...claims, generation: randomToken(8), lastAt: now });
+      this.save(server, { ...claims, generation: randomToken(8), lastAt: now, rateAt: now, rateCount: 0 });
       this.broadcast('presence', { online: true, bootId: claims.bootId, proto: 2 });
       // Restore viewers immediately after a router/device reconnect.
       for (const ws of this.sockets('browser')) {
@@ -117,14 +165,28 @@ export class DeviceHub {
     if (claims.kind === 'browser') headers.set('Sec-WebSocket-Protocol', 'mayap.v1');
     return new Response(null, { status: 101, webSocket: client, headers });
   }
-  async webSocketMessage(ws, text) { return this.ctx.blockConcurrencyWhile(() => this.message(ws, text)); }
+  async webSocketMessage(ws, text) {
+    let frame;
+    if (typeof text === 'string' && encoder.encode(text).length <= FRAME_CAP) {
+      try { frame = JSON.parse(text); } catch {}
+    }
+    // Credits/session leases are synchronous attachment updates. Keep them
+    // flowing during a slow write so normal 16-event reports cannot fill FIFO.
+    if (attachment(ws)?.kind === 'device' || frame?.kind === 'received' || frame?.channel === 'session')
+      return this.message(ws, text);
+    try { return await this.serial(ws, () => this.message(ws, text)); }
+    catch { try { ws.close(1013, 'BUSY'); } catch {} }
+  }
   async message(ws, text) {
     let a = attachment(ws);
-    if (!a || a.superseded) return;
+    if (!a || a.superseded || ws.readyState !== 1) return;
     if (typeof text !== 'string' || encoder.encode(text).length > FRAME_CAP) { ws.close(1009, 'FRAME_LIMIT'); return; }
     let msg; try { msg = JSON.parse(text); } catch { ws.close(1007, 'INVALID_JSON'); return; }
-    const now = Date.now();
+    const now = Date.now(), epoch = this.authEpoch;
+    if (!msg || typeof msg !== 'object' || Array.isArray(msg)) { ws.close(1007, 'INVALID_JSON'); return; }
     if (a.kind === 'device') {
+      if (now - a.rateAt >= 10000) { a.rateAt = now; a.rateCount = 0; }
+      if (++a.rateCount > 160) { ws.close(1008, 'DEVICE_RATE_LIMIT'); return; }
       if (this.device() !== ws || msg.v !== 1 || !DEVICE_CHANNELS.has(msg.channel) ||
           !msg.payload || typeof msg.payload !== 'object' || Array.isArray(msg.payload)) return this.reject(ws, 'INVALID_CHANNEL');
       if (['presence', 'bootstrap', 'snapshot', 'ack', 'config/reported', 'reminders/reported', 'history/reported'].includes(msg.channel) && msg.payload.bootId !== a.bootId)
@@ -150,7 +212,7 @@ export class DeviceHub {
     if (msg.kind === 'renew') {
       const claims = await verifyTicket(this.env, msg.ticket);
       if (!claims || claims.sessionId !== a.sessionId || claims.clientId !== a.clientId || claims.deviceId !== a.deviceId ||
-          claims.role !== a.role || !await livePermission(this.env, claims) || !await this.consumeTicket(claims)) return this.reject(ws, 'ACCESS_DENIED');
+          claims.role !== a.role || !await livePermission(this.env, claims) || !this.authorized(ws, epoch) || !this.consumeTicket(claims)) return this.reject(ws, 'ACCESS_DENIED');
       a = attachment(ws); a.until = Math.min(now + CONNECTION_LEASE_MS, claims.sessionExpiresAt); this.save(ws, a);
       this.send(ws, { kind: 'renewed', leaseMs: CONNECTION_LEASE_MS }); await this.schedule(); return;
     }
@@ -171,7 +233,7 @@ export class DeviceHub {
     }
     if (!WRITE_CHANNELS.has(msg.channel) || a.role === 'viewer') return this.reject(ws, 'ACCESS_DENIED');
     const permission = await livePermission(this.env, a, true);
-    if (!permission) return this.reject(ws, 'ACCESS_DENIED');
+    if (!permission || !this.authorized(ws, epoch)) return this.reject(ws, 'ACCESS_DENIED');
     if (device && attachment(device).keyHash !== permission.device_key_hash) {
       device.close(4003, 'CREDENTIAL_ROTATED');
       return this.reject(ws, 'DEVICE_REAUTH_REQUIRED');
@@ -179,13 +241,27 @@ export class DeviceHub {
     if (!device || now - attachment(device).lastAt >= DEVICE_STALE_MS) return this.reject(ws, 'DEVICE_OFFLINE');
     const body = await verifyWrite(this.env, a.deviceId, a.clientId, msg.channel, msg.payload, attachment(device).bootId);
     if (!body) return this.reject(ws, 'INVALID_SIGNATURE_OR_EXPIRY', typeof msg.payload.body === 'string' ? (() => { try { return JSON.parse(msg.payload.body).requestId; } catch { return ''; } })() : '');
-    // Exact retries are permitted, different bodies for one requestId are not.
-    // The ESP32 independently owns the final replay/terminal/in-flight fences.
-    const known = a.requests.find(r => r.id === body.requestId);
-    const fingerprint = msg.payload.sig;
-    if (known ? known.sig !== fingerprint : body.seq <= a.lastSeq) return this.reject(ws, 'REPLAY', body.requestId);
-    a = attachment(ws);
-    if (!known) { a.lastSeq = body.seq; a.requests.push({ id: body.requestId, sig: fingerprint }); a.requests = a.requests.slice(-16); this.save(ws, a); }
+    // Revalidate after external awaits; reconnect/rotation/revocation cannot
+    // let an old async validation commit against a replacement connection.
+    if (!this.authorized(ws, epoch) || this.device() !== device || attachment(device).keyHash !== permission.device_key_hash ||
+        Date.now() - attachment(device).lastAt >= DEVICE_STALE_MS)
+      return this.reject(ws, 'CONNECTION_CHANGED', body.requestId);
+    const commitSec = Math.floor(Date.now() / 1000);
+    if (Number(msg.payload.grant.split('|')[1]) < commitSec || (msg.channel === 'command' && body.expiresAt < commitSec))
+      return this.reject(ws, 'INVALID_SIGNATURE_OR_EXPIRY', body.requestId);
+    this.sql.exec('DELETE FROM realtime_replay WHERE expiry<=?', now);
+    const key = JSON.stringify([a.sessionId, a.clientId]);
+    const row = this.sql.exec('SELECT boot,seq,requests FROM realtime_replay WHERE id=?', key).toArray()[0];
+    const state = row && row.boot === body.bootId ? { lastSeq: row.seq, requests: JSON.parse(row.requests) } : { lastSeq: 0, requests: [] };
+    const known = state.requests.find(r => r.id === body.requestId);
+    if (known ? known.sig !== msg.payload.sig : body.seq <= state.lastSeq) return this.reject(ws, 'REPLAY', body.requestId);
+    if (!known) {
+      state.lastSeq = body.seq; state.requests.push({ id: body.requestId, sig: msg.payload.sig });
+      state.requests = state.requests.slice(-16);
+      this.sql.exec('INSERT OR REPLACE INTO realtime_replay VALUES(?,?,?,?,?)', key,
+        Math.min(a.until + 300000, now + 300000), body.bootId, state.lastSeq, JSON.stringify(state.requests));
+      a = attachment(ws); a.lastSeq = state.lastSeq; a.requests = state.requests; this.save(ws, a);
+    }
     if (!this.event(device, msg.channel, msg.payload)) return this.reject(ws, 'DEVICE_SEND_FAILED', body.requestId);
     this.send(ws, { kind: 'forwarded', requestId: body.requestId });
   }
@@ -201,6 +277,8 @@ export class DeviceHub {
   async webSocketError(ws) { try { ws.close(1011, 'SOCKET_ERROR'); } catch {} await this.webSocketClose(ws, 1011); }
   async alarm() {
     const now = Date.now();
+    this.sql.exec('DELETE FROM realtime_tickets WHERE expiry<=?', now);
+    this.sql.exec('DELETE FROM realtime_replay WHERE expiry<=?', now);
     for (const ws of this.sockets('browser')) if (attachment(ws).until <= now) ws.close(4003, 'SESSION_EXPIRED');
     const device = this.device();
     if (device && now - attachment(device).lastAt >= DEVICE_STALE_MS) { device.close(4002, 'STALE'); this.broadcast('presence', { online: false, bootId: attachment(device).bootId, proto: 2 }); }

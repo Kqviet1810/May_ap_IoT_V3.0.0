@@ -23,6 +23,8 @@ Cloudflare documentation was read from its official `cloudflare/cloudflare-docs`
 - [Workers Builds](https://developers.cloudflare.com/workers/ci-cd/builds/): GitHub integration is an available alternative to the repository's GitHub Actions deployment.
 - ESP-IDF `esp_tls.h` bundled in the pinned Arduino ESP32 3.3.11: `esp_tls_conn_new_async`, `non_block`, verified CA/hostname, partial reads/writes and WANT_READ/WANT_WRITE. These APIs permit a bounded incremental transport pump on the existing dedicated network owner.
 
+See [verified review findings and fixes](REALTIME_REVIEW_FIXES.md) for the follow-up transaction/concurrency/security hardening and exact revocation boundary.
+
 ## Cutover and evidence
 
 Implementation, quota calculations, configuration, validation results and the hardware bench checklist are maintained below as the migration is validated. No OTA release or device rollout is part of this PR.
@@ -44,7 +46,7 @@ history/request; device presence/bootstrap/snapshot/config/reported/
 reminders/reported/ack/log/history/reported. Writes retain the original signed
 body, grant, grantSig and sig. Both Hub and ESP32 validate clientId, bootId,
 sequence, nonce, grant expiry and HMAC; commands also have their original short
-execution expiry. The Hub serializes checks across async D1/crypto awaits.
+execution expiry. The Hub serializes checks per browser across async D1/crypto awaits; credits, visibility and device telemetry keep flowing independently. Generation/authorization fences guard the synchronous commit.
 Its 16-entry request cache permits exact retries and refuses a different body
 for one requestId. ESP32 terminal/in-flight/replay caches remain authoritative.
 
@@ -57,7 +59,7 @@ an application ACK. ACK and presence bypass the foreground telemetry filter.
 Browser socket read authorization has an absolute five-minute lease, renewed
 with another one-use ticket and a live session/ownership check. Revoked sessions
 or ownership stop **writes immediately** through the D1 check on every write;
-existing read access ends within five minutes. Viewer never receives a control
+successful logout/session/member revocation also invalidates matching Hub sockets immediately. Arbitrary direct SQL edits have no push hook; their existing read access ends within five minutes unless paired with Hub invalidation. Viewer never receives a control
 grant and cannot forward writes. Device key rotation closes the active device
 socket; a live key-hash check on writes also fences a socket if invalidation fails.
 Per-device command keys still derive from DEVICE_KEY_PEPPER as before. Changing
@@ -66,7 +68,7 @@ as a routine cutover action.
 
 The Hub holds no control state or durable telemetry history. Hibernation restores
 healthy sockets from attachments, including boot, last-seen, sparse bootstrap,
-lease, replay and receive-credit state. Device protocol Ping/Pong is automatic;
+lease, rate and receive-credit state. Exact replay fingerprints and sequence also persist in private DO SQLite across socket replacement. Device protocol Ping/Pong is automatic;
 the browser's exact JSON ping/pong uses the hibernation auto-response API. There
 are no interval timers in a Hub. Alarms bound stale device detection at 210 s
 and browser read lease expiry. The existing 180 s HTTPS/Push offline threshold
@@ -86,7 +88,7 @@ Bounds: application frames 2 KiB; browser sockets 8/device; Hub attachments
 4 KiB/socket (stricter than the **current official 16,384-byte limit**, not the
 older 2 KiB platform assumption); forwarding pending entries 16/browser;
 receive credit 16 events/browser; browser bufferedAmount admission 8 KiB;
-rate 80 browser messages/10 s; one-use ticket map 64 live tickets/device.
+rate 80 browser messages/10 s and 160 device application frames/10 s; ticket admissions 40/10 s, with indexed one-use nonce records instead of a 64-ticket ceiling. Async FIFO bounds: 8/browser and 16 admissions; credits/session updates bypass the FIFO.
 Slow receivers close rather than accumulating unlimited outgoing frames.
 ESP32 uses a fixed 8-frame TX ring, a 2 KiB message/fragment parser, async lwIP
 DNS and async esp-tls with a 1 ms select budget and 15 s overall handshake
@@ -145,7 +147,7 @@ operation; remote controls become unavailable/uncertain and fail closed.
    Reuse existing account/provisioning/Push secrets; **do not replace peppers**.
    The new resource is one GA SQLite DO namespace `DEVICE_HUB`/`DeviceHub`, created
    by migration `device-hub-v1`. Static Assets is binding ASSETS. No R2/KV/beta
-   resource is required. Only one-use ticket records and alarms use DO storage.
+   resource is required. One-use tickets, an admission rate budget, expiring exact-retry records and alarms use private DO storage; telemetry is not persisted.
 3. Cloudflare secrets: `DEVICE_KEY_PEPPER`, `MAYAP_SESSION_PEPPER`,
    `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT`; optional
    `GITHUB_TOKEN` for authenticated release reads. Existing OTA verification
@@ -191,10 +193,10 @@ Verified locally on 2026-10-02 against the proposed migration:
 
 | Check | Result |
 |---|---|
-| Node account/protocol/transaction/realtime regressions | 133 passed; none skipped |
+| Node account/protocol/transaction/realtime regressions | 149 passed; none skipped |
 | Real workerd + native Chromium WebSocket | Passed, including credential rotation |
 | Web connection/PWA and existing UX | Passed; 12 viewports, both themes |
-| Sanitized PID, boot, recovery and eight runtime host targets | Passed |
+| Sanitized PID, boot, recovery and nine runtime host targets | Passed |
 | EEPROM power-cut/recovery fault injection | 827 cut points passed |
 | Actual ESP transport accelerated reconnect test | 20,000 reconnects passed under ASan/UBSan |
 | ESP32-S3 DEV and PROD compile; linked ISR IRAM/DRAM | Passed |

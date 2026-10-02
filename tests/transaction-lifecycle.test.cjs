@@ -9,7 +9,7 @@ function browser() {
   const source = readFileSync(require.resolve('../app.js'), 'utf8').replace(/  init\(\);\s*\}\)\(\);\s*$/, `
     Object.assign(window.hooks, { state, transactions, startTransaction, handleAck,
       verifyDeviceAck, sweepUncertain, handleConfigReport, handleReminderReport,
-      moveToUncertain, publish, retrySameRequest, storeControlSession,
+      moveToUncertain, publish, retrySameRequest, resumeExactRetries, clearPending, telemetryChart, storeControlSession,
       signRealtimeWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
       buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
       refreshFaultPopupContent });
@@ -271,4 +271,40 @@ test('humidifier form is hardware gated and maps two thresholds to one bounded h
   assert.equal(h.buildConfig('humidifier'), null);
   h.syncHumidifierFeatureUi(h.device.config);
   assert.equal(h.elements.get('humidifierSetting').hidden, true);
+});
+
+test('retry during socket loss retains the exact wire and resumes after reconnect even when UNCERTAIN',async()=>{
+ const h=browser(),{pending}=await start(h,'resume-wire'),wire={body:'{"requestId":"resume-wire","bootId":123}',sig:'original'};
+ h.state.selectedId=h.device.id;const calls=[];h.state.realtime={deviceId:h.device.id,connected:true,send(route,envelope,callback){calls.push(envelope);callback?.();}};
+ h.retrySameRequest('resume-wire',{deviceId:h.device.id,channel:'command'},wire);
+ h.state.realtimeConnected=false;for(const fn of [...h.timers.values()])fn();assert.equal(calls.length,0);assert.ok(h.timers.size);
+ pending.onTimeout();assert.equal(h.state.uncertain.has('resume-wire'),true);
+ h.state.realtimeConnected=true;h.resumeExactRetries();await Promise.resolve();assert.equal(calls.length,1);assert.deepEqual(calls[0],wire);
+ h.clearPending('resume-wire');h.state.uncertain.delete('resume-wire');for(const fn of [...h.timers.values()])fn();assert.equal(calls.length,1);
+});
+test('reconnect retry never re-signs, extends expiry or crosses device/boot scope',async()=>{
+ for(const reason of ['boot','device','expiry']){
+  const h=browser();await start(h,'bounded-retry');h.state.selectedId=h.device.id;
+  let calls=0;h.state.realtimeConnected=true;h.state.realtime={deviceId:h.device.id,connected:true,send(){calls++;}};
+  h.retrySameRequest('bounded-retry',{deviceId:h.device.id,channel:'command'},{body:'{"requestId":"bounded-retry","bootId":123}',sig:'original'});
+  if(reason==='boot')h.device.bootId=124;else if(reason==='device')h.state.realtime.deviceId='MAP-000000000000';else h.advance(120001);
+  h.resumeExactRetries();assert.equal(calls,0);
+ }
+});
+test('terminal ACK cancels reconnect retry for both pending and uncertain transactions',async()=>{
+ for(const uncertain of [false,true]){
+  const h=browser(),{pending,key}=await start(h,'settle-retry');h.state.selectedId=h.device.id;
+  h.retrySameRequest('settle-retry',{deviceId:h.device.id,channel:'command'},{body:'{"requestId":"settle-retry"}',sig:'original'});
+  if(uncertain)pending.onTimeout();h.handleAck(h.device,await signedAck(h,'settle-retry','light.toggle',true,key));
+  assert.equal(h.timers.size,0);h.resumeExactRetries();assert.equal(h.state.pending.size+h.state.uncertain.size,0);
+ }
+});
+
+test('signed terminal history ACK cannot complete a transaction with missing chunks',async()=>{
+ const h=browser();const {pending,key}=await start(h,'history-missing','history.read');pending.kind='history';h.telemetryChart.activeRequestId='history-missing';
+ h.telemetryChart.historyLoaded=false;h.telemetryChart.historyGap=true;
+ const ack=await signedAck(h,'history-missing','history.read',true,key);
+ h.handleAck(h.device,ack);assert.equal(pending.phase,'UNCERTAIN');assert.equal(h.state.uncertain.has('history-missing'),true);
+ h.telemetryChart.historyGap=false;h.telemetryChart.historyLoaded=true;h.handleAck(h.device,ack);
+ assert.equal(pending.phase,'APPLIED');assert.equal(h.state.uncertain.has('history-missing'),false);
 });

@@ -1700,7 +1700,6 @@
   function moveToUncertain(id, pending) {
     if (state.pending.get(id) !== pending) return;
     clearTimeout(pending.timeout);
-    clearTimeout(pending.retryTimer);
     transactions.uncertain(id);
     pending.phase = 'UNCERTAIN';
     pending.uncertainAt = performance.now();
@@ -1713,6 +1712,7 @@
     for (const id of transactions.expireUncertain(now)) {
       const pending = state.uncertain.get(id);
       if (!pending) continue;
+      clearTimeout(pending.retryTimer);
       state.uncertain.delete(id);
       const device = state.devices.find((item) => item.id === pending.deviceId);
       if (pending.observed) {
@@ -1748,18 +1748,41 @@
     if (pending) { pending.phase = 'PUBLISHED'; pending.tPublished = performance.now(); }
   }
 
-  function retrySameRequest(id, topic, envelope) {
-    const pending = state.pending.get(id);
+  function retrySameRequest(id, route, envelope) {
+    const pending = state.pending.get(id) || state.uncertain.get(id);
     if (!pending) return;
-    let attempts = 0;
+    const body = JSON.parse(envelope.body);
+    const grantExpiry = Number(String(envelope.grant || '').split('|')[1]) * 1000;
+    const executionExpiry = Number(body.expiresAt) * 1000;
+    const remaining = Math.min(120000,
+      grantExpiry > 0 ? grantExpiry - Date.now() : Infinity,
+      executionExpiry > 0 ? executionExpiry - Date.now() : Infinity);
+    pending.retryWire = { route, envelope, bootId: body.bootId };
+    pending.retryDeadline = performance.now() + Math.max(0, remaining);
+    pending.retryAttempts = 0;
     const retry = () => {
-      if (state.pending.get(id) !== pending || !state.realtimeConnected) return;
-      // Reuse the signed envelope and requestId; ESP replays the cached result.
-      publish(topic, envelope, { awaitAck: true, requestId: id }).catch((error) =>
-        console.warn('[TX retry]', pending.operation, error));
-      if (++attempts < 2) pending.retryTimer = setTimeout(retry, 3500);
+      clearTimeout(pending.retryTimer);
+      if ((state.pending.get(id) || state.uncertain.get(id)) !== pending ||
+          performance.now() >= pending.retryDeadline || pending.retryAttempts >= 6) return;
+      const device = state.devices.find(item => item.id === pending.deviceId);
+      if (body.bootId && device?.bootId && body.bootId !== device.bootId) return;
+      if (state.realtimeConnected && state.realtime?.deviceId !== undefined &&
+          state.realtime.deviceId !== pending.deviceId) return;
+      if (state.realtimeConnected && !state.realtime?.pending?.has(id)) {
+        ++pending.retryAttempts;
+        // Never re-sign, extend expiry or invent a new requestId after uncertainty.
+        publish(route, envelope, { awaitAck: true, requestId: id }).catch(error =>
+          console.warn('[TX retry]', pending.operation, error));
+      }
+      pending.retryTimer = setTimeout(retry, 3500);
     };
+    pending.retry = retry;
     pending.retryTimer = setTimeout(retry, 3500);
+  }
+
+  function resumeExactRetries() {
+    for (const pending of [...state.pending.values(), ...state.uncertain.values()])
+      if (pending.deviceId === state.selectedId) pending.retry?.();
   }
 
   async function sendConfig(formId, group) {
@@ -1809,8 +1832,9 @@
       const envelope = await signRealtimeWrite(device, 'config/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(routes(device.id).config, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, routes(device.id).config, envelope);
+      await publish(routes(device.id).config, envelope, { awaitAck: true, requestId: id });
+
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
@@ -1867,8 +1891,9 @@
       const envelope = await signRealtimeWrite(device, 'command', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(routes(device.id).command, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, routes(device.id).command, envelope);
+      await publish(routes(device.id).command, envelope, { awaitAck: true, requestId: id });
+
       return true;
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return true;
@@ -1901,6 +1926,17 @@
     const id = String(ack.requestId || '');
     const pending = state.pending.get(id) || state.uncertain.get(id);
     if (!pending || pending.deviceId !== device.id) return;
+    if (Number(ack.v) === 2 && ack.operation === pending.operation && ack.phase === 'completed' &&
+        ack.ok === true && typeof ack.code === 'string' && pending.kind === 'history' && (telemetryChart.activeRequestId !== id ||
+        !telemetryChart.historyLoaded || telemetryChart.historyGap)) {
+      // A valid controller ACK proves execution, not delivery of every chunk.
+      if (state.pending.has(id)) moveToUncertain(id, pending);
+      pending.historyTerminalAck = ack;
+      telemetryChart.historyLoading = false;
+      telemetryChart.historyRetryAt = Date.now() + 10_000;
+      telemetrySetStatus('Thiếu gói lịch sử · sẽ đọc lại');
+      return;
+    }
     const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
     if (transition === 'IGNORED') return;
     if (transition === 'PROTOCOL_ERROR') {
@@ -1939,6 +1975,7 @@
     }
     const ok = v2 ? ack.ok : result === 'applied';
     const message = humanAckMessage(ack);
+    clearTimeout(pending.retryTimer);
     rememberOutcome(id, ok, pending);
     pending.phase = ok ? 'APPLIED' : 'REJECTED';
     const tAckBrowser = performance.now();
@@ -1993,7 +2030,9 @@
     }
     if (pending.kind === 'history') {
       telemetryChart.historyLoading = false;
-      telemetryChart.historyRetryAt = ok ? 0 : Date.now() + 30_000;
+      const complete = ok && telemetryChart.historyLoaded && !telemetryChart.historyGap;
+      telemetryChart.historyRetryAt = complete ? 0 : Date.now() + 10_000;
+      if (ok && !complete) { telemetrySetStatus('Thiếu gói lịch sử · sẽ đọc lại'); return; }
       if (!ok) telemetrySetStatus(ack.code === 'HISTORY_EEPROM_ERROR'
         ? 'Lỗi đọc bộ nhớ lịch sử' : message);
       else telemetrySetStatus(ack.code === 'HISTORY_EMPTY'
@@ -2262,8 +2301,9 @@
       const envelope = await signRealtimeWrite(device, 'reminders/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(routes(device.id).reminders, envelope, { awaitAck: true, requestId: id });
       retrySameRequest(id, routes(device.id).reminders, envelope);
+      await publish(routes(device.id).reminders, envelope, { awaitAck: true, requestId: id });
+
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
@@ -2584,8 +2624,9 @@
         armTransaction(requestId);
         transactionPublished(requestId);
       }
-      await publish(routes(device.id).historyRequest, envelope, { awaitAck: true, requestId });
       retrySameRequest(requestId, routes(device.id).historyRequest, envelope);
+      await publish(routes(device.id).historyRequest, envelope, { awaitAck: true, requestId });
+
       window.setTimeout(() => {
         if (state.pending.has(requestId)) return; // V2 transaction owns its timeout.
         if (telemetryChart.activeRequestId !== requestId || !telemetryChart.historyLoading) return;
@@ -2626,6 +2667,8 @@
       telemetryChart.historyLoading = false;
       telemetryChart.historyLoaded = !telemetryChart.historyGap;
       telemetryChart.historyLoadedAt = Date.now();
+      const transaction = state.pending.get(String(payload.requestId)) || state.uncertain.get(String(payload.requestId));
+      if (telemetryChart.historyLoaded && transaction?.historyTerminalAck) handleAck(device, transaction.historyTerminalAck);
       telemetryChart.historyRetryAt = telemetryChart.historyGap ? Date.now() + 10_000 : 0;
       telemetrySetStatus(telemetryChart.historyGap ? 'Thiếu gói lịch sử · sẽ đọc lại' : telemetryChart.points.length
         ? 'Lịch sử mỗi 5 phút · cập nhật trực tiếp'
@@ -2956,7 +2999,7 @@
       state.realtimeConnected = true; state.realtimeSessionState = 'ready'; state.subscriptionEpoch++;
       state.realtimeMessage = 'Đã kết nối máy chủ';
       state.devices.forEach(device => { device.logSyncAttempts = 0; });
-      syncSelectedDevice(true); renderDevice();
+      syncSelectedDevice(true); resumeExactRetries(); renderDevice();
     });
     client.on('close', () => {
       if (state.realtime !== client) return;

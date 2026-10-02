@@ -177,6 +177,14 @@ INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES('fixture-own
                 assert b.until(lambda m: m.get('channel') == 'ack')['payload']['sig'] == 'device-signature-fixture'
                 b.send(command)
                 assert d.until(lambda m: m.get('channel') == 'command')['payload'] == wire
+                # Same tab reconnect: DO SQLite keeps the exact-retry fingerprint.
+                reconnect_session = admission()
+                b = ws('/realtime/browser/' + DEVICE, {'Origin':'https://web.test', 'Sec-WebSocket-Protocol':'mayap.v1, ticket.'+reconnect_session['realtime']['ticket']})
+                assert b.status == 101
+                b.until(lambda m: m.get('kind') == 'ready')
+                b.send(command)
+                assert d.until(lambda m: m.get('channel') == 'command')['payload'] == wire
+                b.send({'v':1,'channel':'session','payload':{'clientId':'w-integration123','active':True,'ttlMs':45000}})
                 d2 = ws('/realtime/device/'+DEVICE, {'Authorization':'Bearer '+KEY,'X-Mayap-Boot':'124'})
                 assert d2.status == 101
                 assert d2.until(lambda m: m.get('channel') == 'session')['payload']['active'] is True
@@ -195,7 +203,15 @@ INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES('fixture-own
                 assert d2.until(lambda m: m.get('opcode') == 8)['payload'][:2] == struct.pack('!H',4003)
                 assert ws('/realtime/device/'+DEVICE, {'Authorization':'Bearer '+KEY,'X-Mayap-Boot':'124'}).status == 401
                 assert ws('/realtime/device/'+DEVICE, {'Authorization':'Bearer '+new_key,'X-Mayap-Boot':'124'}).status == 101
-                print('Real workerd: assets, per-device auth, one-use browser admission, auto-ping, snapshot, signed command, exact retry, controller ACK, reconnect/boot fence, hidden lease, frame cap and credential rotation PASS')
+                # Live read revocation is an API guarantee, independent of lease.
+                revoke_session = admission()
+                live = ws('/realtime/browser/' + DEVICE, {'Origin':'https://web.test', 'Sec-WebSocket-Protocol':'mayap.v1, ticket.'+revoke_session['realtime']['ticket']})
+                assert live.status == 101
+                logout = urllib.request.Request(base + '/api/account/logout', data=b'{}', headers={'Origin':'https://web.test','Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'})
+                with urllib.request.urlopen(logout, timeout=5) as response:
+                    assert json.load(response)['success'] is True
+                assert live.until(lambda m: m.get('opcode') == 8)['payload'][:2] == struct.pack('!H',4003)
+                print('Real workerd: assets, per-device auth, one-use browser admission, auto-ping, snapshot, signed command, exact retry, controller ACK, reconnect/boot fence, hidden lease, frame cap, credential rotation, persistent replay and immediate logout revocation PASS')
             except BaseException:
                 log.flush();log.seek(0)
                 print(log.read()[-8000:])

@@ -1237,7 +1237,9 @@ bool queueCommand(HmiCommandType type,
                   uint16_t actuatorLeaseMs = 0,
                   uint32_t alarmMask = AlarmNone,
                   uint32_t *commandId = nullptr,
-                  HmiCommandSource source = HmiCommandSource::Local) {
+                  HmiCommandSource source = HmiCommandSource::Local,
+                  void (*onAdmitted)(uint32_t, void *) = nullptr,
+                  void *admissionContext = nullptr) {
   bool full = false;
   bool duplicate = false;
   uint32_t id = 0;
@@ -1251,6 +1253,8 @@ bool queueCommand(HmiCommandType type,
       id, type, static_cast<uint32_t>(millis()), validForMs,
       actuatorLeaseMs, alarmMask, source
     };
+    // Publish correlation metadata before releasing the queue to the controller.
+    if (onAdmitted) onAdmitted(id, admissionContext);
     commandTail = static_cast<uint8_t>((commandTail + 1U) % COMMAND_QUEUE_SIZE);
     ++commandCount;
     ++commandOutstandingCount;
@@ -2071,14 +2075,16 @@ bool startConfigSave(const MachineConfig &candidate, bool deferForHost = false,
 
 // Goi tu realtime_link.h::handleReminderSetMessage() khi web gui "reminders/
 // set" - KHONG co duong nao khac tao giao dich nay (khong co man hinh HMI).
-bool startReminderSave(const ReminderSet &candidate) {
+bool startReminderSave(const ReminderSet &candidate, bool deferForHost = false,
+                       uint32_t *transactionId = nullptr) {
   if (reminderSave.active) return false;
   uint32_t id = nextReminderTransactionId++;
   if (id == 0) id = nextReminderTransactionId++;
   portENTER_CRITICAL(&hmiApiMux);
   reminderSave.active = true;
-  reminderSave.readyForHost = true;
+  reminderSave.readyForHost = !deferForHost;
   reminderSave.id = id;
+  if (transactionId) *transactionId = id;
   reminderSave.startedAt = millis();
   reminderSave.candidate = candidate;
   portEXIT_CRITICAL(&hmiApiMux);

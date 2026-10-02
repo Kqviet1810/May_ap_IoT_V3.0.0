@@ -15,5 +15,6 @@ test('notes bridge applies only EEPROM readback and reports the final revision',
   const confirm = realtime.slice(realtime.indexOf('inline void mayapWebConfirmReminderSave('),
                                 realtime.indexOf('inline void mayapWebPushEventLog('));
   assert.match(confirm, /if \(ok && stored\) \{[\s\S]*knownReminders = \*stored;[\s\S]*webRemindersRevision[\s\S]*remindersDirty = true;/);
-  assert.match(confirm, /ok \? "applied" : "rejected"/);
+  assert.match(confirm, /pendingReminderSave.completionOk = ok/);
+  assert.match(realtime, /slot->completionOk \? "applied" : "rejected"/);
 });
