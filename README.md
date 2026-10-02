@@ -14,7 +14,7 @@ Web 12.2.0 thêm Google Account và ownership nhiều máy trên GitHub Pages + 
 | ESP32 firmware | 1.0.0 |
 | HMI firmware | 1.0.0 |
 | Web cache | 1.0.0 |
-| ATtiny protocol | 1.0.0 |
+| ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
 | Node CI | 24 |
@@ -127,7 +127,7 @@ Trước build/release, pipeline bắt buộc:
 3. cấm private key trong firmware;
 4. kiểm contract ESP32 ↔ ATtiny;
 5. chạy `tools/check_release_sync.py`;
-6. chạy `tools/check_v381_reliability.py`;
+6. chạy `tools/check_reliability.py`;
 7. syntax-check toàn bộ entrypoint JS, gồm cả security/reliability wrapper;
 8. compile ATtiny với giới hạn 1 KB flash / 64 B static RAM;
 9. compile ESP32;
