@@ -1,0 +1,28 @@
+name = "mayap-push-worker"
+main = "src/account-worker.js"
+compatibility_date = "2026-10-01"
+# Bat buoc: thu vien gui Web Push (@block65/webcrypto-web-push) tham chieu
+# node:crypto lam fallback - thieu co nay Worker co the loi luc gui push that.
+compatibility_flags = ["nodejs_compat"]
+
+# Bien KHONG bi mat (khong nhay cam). Secret that van dat bang Dashboard/
+# wrangler secret put, KHONG commit vao repo.
+[vars]
+GOOGLE_CLIENT_ID = "327661992995-a46mlcjqrn83b225ljbdnsetlbqt0rru.apps.googleusercontent.com"
+ALLOWED_ORIGIN = "https://kqviet1810.github.io"
+# Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
+# quay lai che do factory allowlist bat buoc trong device_inventory.
+REQUIRE_DEVICE_INVENTORY = "0"
+# Gioi han admission may moi theo IP. Chi ap dung khi inventory chua co
+# device_id va REQUIRE_DEVICE_INVENTORY=0; may da dang ky khong bi tinh.
+MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR = "20"
+# Cua so dem admission. Dat rieng de co the doi policy sau nay ma khong sua code.
+NEW_DEVICE_REGISTRATION_WINDOW_MINUTES = "60"
+[[d1_databases]]
+binding = "DB"
+database_name = "mayap_push"
+database_id = "e92a393c-8596-4254-b274-68e57a6de290"
+
+# Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong.
+[triggers]
+crons = ["* * * * *"]

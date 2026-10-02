@@ -1,0 +1,370 @@
+{
+  "baseline": "d5a0233c6ed39e517938f09336cc1d06425e6c19",
+  "singleEepromReviewNote": "2026-10-01: reviewed config-only fingerprint update for one AT24C512 at 0x50, 32-bit 64KiB capacity, 128B pages/126B Wire payload and seven-day history in a separate region. Config/Batch/Reminder schemas and existing slot addresses, thermal/output safety, Tiny protocol and signed Web transactions remain unchanged.",
+  "stabilityReviewNote": "2026-09-30: reviewed changes limited to Tiny HIGH frame completion, network memory admission, build ID, nonblocking diagnostic drain/compact status, and OTA admission profile. Integrated origin/main E503 transition reconciliation and Arduino OTA window unchanged. Thermal control, fault/output safety, configuration schema and Web signed transaction bodies retain their existing fingerprints.",
+  "entries": [
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_policy.h",
+      "sha256": "e09223c248322bafb4169b4457d0cf878b94b85e99997eeca96b59c625f366f8"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_diagnostic.h",
+      "sha256": "facd0a11822eaf76db2adc4281775690bf63b6d71af9b2437ed88d8cfcdb16e1"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/boot_assets.h",
+      "sha256": "8f1beb32ed9b15edabe1b5fe669d5cfadf3c50ed2d419e71e0a214e101edcc19"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/thermal_control.h",
+      "sha256": "fb2b5828ccdd8997736f9618ae32f3635370c7253f2d1b8efbbd763002d15354"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/mqtt_transport.h",
+      "sha256": "af23f54d217f77f868c11c100282cbb897dd8a9abf05cbced9c4e68ef0413d0d"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/firmware_update_guard.h",
+      "sha256": "e669f1363f29ddc63e65616881c4f76efdf25a5219d4e0fd8eb418c08643d488"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/network_io_guard.h",
+      "sha256": "28e0b7462f4e634738f2bd839ad4e54273694894baf486f4ff522876e372f01a"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h",
+      "sha256": "58b52b9dce76d2287dee29e160f0ff225e6713d28c07fcd28ac9966efa5b54fb"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h",
+      "sha256": "40c1f97a1766b1ba953e9c6d41bc11268f43c29d0fafe7a6380205a1bd5a6dcc"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/gpio_interrupts.h",
+      "sha256": "751401b0d1b29ef573bf3addb3209a4438740cfd196ecb326787cc4b7c18962d"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/startup_output_policy.h",
+      "sha256": "0d8a5048e921347146dfc3ecc5f1a90b170339f727135e328288ae2ecf5c3348"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/history_store.h",
+      "sha256": "45b221554a4b4a127c66da8fd666b9d7745348d6bb01728a7679815963b671ba"
+    },
+    {
+      "file": "ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino",
+      "sha256": "6f5a6a337a344290c7eb5f1d76cb7d857709d8ba645ca2e134eb1e7610fba3be"
+    },
+    {
+      "file": "protocol_v2.js",
+      "sha256": "5d1680d292023aab4ea71995030b140587a42c3f0e7d7c598301d0491840d815"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/config.h",
+      "sha256": "0c5b897a0eca21b3d3f98b7e86c77805400e4a591be1151c92afab0fccbd3a1e",
+      "filter": "config"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "bcff5d09b4efc8f3504d5c72067a03ac3f2711901f696ea0d38a7e2e5a107f8d",
+      "signature": "class MachineController {"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "ddc101d8541e597848ab08ba2b3b8a0d2070ca9052c6bbc8e777bae6d38e93b5",
+      "signature": "class FaultManager {"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "eb5ce93e37b747cdccc93d338e422989892fec9bf59efafa3cb9ac7a4be4e564",
+      "signature": "class OutputArbiter {"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "024f55eed7e28143fb341dc695685103b49e7a02b279b5b182017279fc9937cc",
+      "signature": "inline const FaultDescriptor &faultDescriptor("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "7b3b320de08c90f46a39ccf4a2fdd5e06e28b527d4bb6410614d332af7b280ad",
+      "signature": "void parseByte("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "8589843192a60be132de36a1b91694099eb2ef10af772a91059be26daae39985",
+      "signature": "bool decodeFrame("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/machine_control.h",
+      "sha256": "17081306a45f22a0f879e6a36849339563c89a514e0744d0b64dcfc8a3103087",
+      "signature": "void updateFreshness("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
+      "sha256": "bae6f5049d527391660886977c344d2535b5382a45ccd9460d5d71105ec1e7d7",
+      "signature": "void drawSplash()"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
+      "sha256": "8ba5cd767754dde21a2b45d89694f35325cb501ae46a5a015d293894fc97b875",
+      "signature": "void hmiBootDisplayBegin()"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
+      "sha256": "a35a169869497733cfc340bc24bd65649eae03233c3a7fcfd2e56ba705964968",
+      "signature": "void hmiBootDisplayUpdate("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/hmi.h",
+      "sha256": "96c773e2ea20cac861968ffadf176a8161197cb8f4011da880afec2356e16138",
+      "signature": "void hmiBegin()"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
+      "sha256": "5841b024740a4e81ce8f9577ce8b0f89832653a48c8a9c6ce30688aaa0ecdf26",
+      "signature": "static void stagedStartupUpdate("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
+      "sha256": "d71825510821917702a1e24debee2d930e74e03ce6220bbe892601295c00504b",
+      "signature": "static void updateBootStability("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
+      "sha256": "9f17bf589a4b4b723a4ed1e934a02c3598190747adb265881b5678d7ce3ed21b",
+      "signature": "void setup()"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
+      "sha256": "736ce9dd526015f9711cf09001c4363046f923e20c13b5c22f1efde1ca5bf542",
+      "signature": "static bool localTasksHealthy("
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino",
+      "sha256": "b622dee60c3eb24c222d38d41fafdacae75935b22220e3fab005b1d4d3924eb7",
+      "signature": "void supervisorTask(",
+      "filter": "supervisor"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/ota_web_update.h",
+      "sha256": "b0a287d18e33278325d3094831903e6d2943f376253a9bea524dfebfb3da0c55",
+      "signature": "inline void mayapFirmwareWebApplyNow()",
+      "filter": "webBeat"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v4_0_0/ota_web_update.h",
+      "sha256": "bd6c0bd6c89ea89b8bba11f506ec55443c5f409320b23c8b480e6cfc8519a8c6",
+      "signature": "inline void mayapFirmwareWebUpdate("
+    },
+    {
+      "file": "app.js",
+      "signature": "async function signMqttWrite(",
+      "sha256": "56d19b1731bfc75dc316e74ce6d5a8a1197cd0e241a80a5cd637f265fa7ab2e4",
+      "copyReplacements": [
+        [
+          "'Đang nhận dữ liệu từ máy; vui lòng chờ một chút'",
+          "'Chưa nhận bootId từ ESP32; hãy chờ đồng bộ'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "async function verifyDeviceAck(",
+      "sha256": "40630910535470e11cdbb93555afe9f563f61bb950eb83a2fd39ee18e67bc9cd"
+    },
+    {
+      "file": "app.js",
+      "signature": "function retrySameRequest(",
+      "sha256": "d1449f0ee8a0fb7c9f0699f81652c98fbcb9571b3b05e2c0631575c6ded0c49e"
+    },
+    {
+      "file": "app.js",
+      "signature": "function clearPending(",
+      "sha256": "7189b83b486c9ddf0341cb83082fec4a29f0ef2b9cfa9c22c630e0bd9d38f72d"
+    },
+    {
+      "file": "app.js",
+      "signature": "function moveToUncertain(",
+      "sha256": "a5498c03112b2a3f8bd8578d61fe8baa575fa8dfd30f8667b05e4ffaca4f0668"
+    },
+    {
+      "file": "app.js",
+      "signature": "function rememberOutcome(",
+      "sha256": "42f694fef8f2f1239a6ae59a0b839957db021e45cf3180e4d2fd3b7972e83f7c"
+    },
+    {
+      "file": "app.js",
+      "signature": "function nextRevision(",
+      "sha256": "1563ed22cf1ae13b383954191b841bae898888938c3a21b7a62de77f86cbefb9"
+    },
+    {
+      "file": "app.js",
+      "signature": "function startTransaction(id, pending, timeoutMs) {",
+      "sha256": "9e332214a56382226a79df657167403371819419a9879373e8576a3eb58cfc23",
+      "copyReplacements": [
+        [
+          "'Chưa nhận xác nhận cuối từ máy · đang đồng bộ trạng thái'",
+          "'Chưa nhận xác nhận cuối từ ESP32 · đang đồng bộ trạng thái'"
+        ],
+        [
+          "'Máy chưa xác nhận đọc lịch sử · kết quả chưa chắc chắn'",
+          "'Chưa nhận xác nhận cuối từ EEPROM · kết quả chưa chắc chắn'"
+        ],
+        [
+          "'Chưa nhận xác nhận cuối từ máy; kết quả chưa chắc chắn'",
+          "'Chưa nhận xác nhận cuối từ ESP32; kết quả chưa chắc chắn'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function sweepUncertain() {",
+      "sha256": "7c60ce714d8bda92dc9abc81ed896ef848e16f32c7f3b6e6ab575e377cb17e52",
+      "copyReplacements": [
+        [
+          "'Đã nhận lịch sử trong bộ nhớ máy; không nhận được ACK cuối'",
+          "'Đã nhận lịch sử EEPROM; không nhận được ACK cuối'"
+        ],
+        [
+          "'Chưa xác nhận được lịch sử trong bộ nhớ máy · có thể thử đọc lại'",
+          "'Chưa xác nhận được lịch sử EEPROM · có thể thử đọc lại'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function armTransaction(id) {",
+      "sha256": "653a9a3d674585628c38dbf1ea8ac5780ee79a7f8d86ae1100535fa459e84564"
+    },
+    {
+      "file": "app.js",
+      "signature": "function transactionPublished(id) {",
+      "sha256": "7ea66de7af1b4a1f2ced64f527d6a62a18bb2675ae3b2856acd8f73b8dc9b3e5"
+    },
+    {
+      "file": "app.js",
+      "signature": "async function sendConfig(formId, group) {",
+      "sha256": "225b37508447d98cdbeff30bc2ee94d7496fc93746054566a57585dc009d7430",
+      "copyReplacements": [
+        [
+          "'Hãy thêm máy trước'",
+          "'Hãy thêm thiết bị trước'"
+        ],
+        [
+          "'Máy đang ngoại tuyến · chưa gửi'",
+          "'Thiết bị đang offline · chưa gửi'"
+        ],
+        [
+          "'Máy đang ngoại tuyến · chưa gửi'",
+          "'Thiết bị đang offline · chưa gửi'"
+        ],
+        [
+          "'Đang gửi tới máy…'",
+          "'Đang gửi tới ESP32…'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "async function sendCommand(action, options = {}) {",
+      "sha256": "374ca812c576586950be7012e7b62da724e1cf62d90ca0707fd553c463ee63a6",
+      "copyReplacements": [
+        [
+          "'Máy đang ngoại tuyến'",
+          "'Thiết bị đang offline'"
+        ],
+        [
+          "'Đang nhận dữ liệu từ máy. Vui lòng chờ một chút.'",
+          "'Chưa nhận bootId. Hãy chờ ESP32 đồng bộ.'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleAck(device, ack) {",
+      "sha256": "6aa5743ce346e2b4bc22b5ec5272e3978c9a0f8c5899ff0c56a03b0e60e781a9",
+      "copyReplacements": [
+        [
+          "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
+          "'PROTOCOL_ERROR: ACK từ máy không hợp lệ'"
+        ],
+        [
+          "'Máy đã nhận · đang lưu vào bộ nhớ máy…'",
+          "'Máy đã nhận · đang lưu EEPROM…'"
+        ],
+        [
+          "'Máy chưa xác nhận lưu vào bộ nhớ máy · đang đồng bộ'",
+          "'Máy chưa xác nhận lưu EEPROM · đang đồng bộ'"
+        ],
+        [
+          "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
+          "'PROTOCOL_ERROR: ACK từ máy không hợp lệ'"
+        ],
+        [
+          "'Máy đã lưu và xác nhận cài đặt'",
+          "'ESP32 đã lưu và kiểm tra EEPROM'"
+        ],
+        [
+          "'Đã lưu cấu hình trên máy'",
+          "'Đã lưu cấu hình vào ESP32'"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ],
+        [
+          "'Lỗi đọc bộ nhớ lịch sử'",
+          "'Lỗi đọc EEPROM lịch sử'"
+        ],
+        [
+          "'Bộ nhớ máy chưa có dữ liệu · cập nhật trực tiếp'",
+          "'EEPROM chưa có dữ liệu · cập nhật trực tiếp'"
+        ],
+        [
+          "'Đã đọc lịch sử trong bộ nhớ máy'",
+          "'Đã đọc lịch sử EEPROM'"
+        ],
+        [
+          "`Máy từ chối: ${message}`",
+          "`ESP32 từ chối: ${message}`"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleConfigReport(device, report) {",
+      "sha256": "b144f05f0a9dd1bbd9c3d1684f1ab15a6e58f2eff15c15f2518da7d410130570",
+      "copyReplacements": [
+        [
+          "'Máy đã lưu và xác nhận cài đặt'",
+          "'ESP32 đã lưu và đọc lại cấu hình'"
+        ],
+        [
+          "'Đã lưu cấu hình trên máy'",
+          "'Đã lưu cấu hình vào ESP32'"
+        ]
+      ]
+    },
+    {
+      "file": "app.js",
+      "signature": "function handleReminderReport(device, report) {",
+      "sha256": "2c32caf2934d26b8e822f3204e9399fe84b89a88995e4119704ce365c8fbe486"
+    },
+    {
+      "file": "app.js",
+      "signature": "function publish(topic, payload, options = {}) {",
+      "sha256": "bcdc25170cba1dff1bdcf145624d2d2a553cd20491cffe39f82bcd65db932944",
+      "copyReplacements": [
+        [
+          "'Chưa kết nối với máy chủ'",
+          "'MQTT chưa kết nối'"
+        ]
+      ]
+    }
+  ],
+  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged."
+}

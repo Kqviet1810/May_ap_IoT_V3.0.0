@@ -1,0 +1,15 @@
+Module,Detect,Retry,Recovery,AutoClear,ACK,E-code,Nguoi van hanh
+LCD,Co,"Co (vo han, 3s)",Co (I2C bus recovery + re-init),Co,Khong,Khong co,Cho; goi ky thuat neu keo dai
+EEPROM,Co,Co,Co (reconnect + verify 2 lan),Co (khi <3 loi),Co (301),"301, 302",Khong mo tu; goi ky thuat neu 301
+RTC,Co,Co,Co dieu kien (shadow clock),Co,Khong,306,Kiem tra gio; chinh tay neu can
+Sensor,Co,Co,Co (sau 3 mau tot lien tiep),Co,Khong,"101, 102, 103",Kiem tra day/dau do
+Wi-Fi,Co,"Co (vo han, backoff)",Co,Co,Khong,Khong co (chi hien thi online/offline),Khong can dung may
+MQTT/Cloud,Co,"Co (vo han, backoff)",Co,Co,Khong,Khong co,Khong can dung may
+Supervisor (task control),Co,Khong (chi reset),Khong tai cho - chi reset toan he thong,-,Gian tiep qua 303,303 (o lan boot ke),Kiem tra nguon neu lap lai
+Motor dao (201-204),Co,Khong (dung ngay khi loi),Khong tu - can ACK,Khong,Co,"201, 202, 203, 204",Kiem tra co khi; ACK
+Motor dao (205),Co,Khong,Khong tu - can Test Mode dual-verify,Khong (dac biet),Khong nhan ACK thuong,205,Dung me; Test Mode
+Heater (nhiet),Co (qua sensor/cong tac),-,Tu khi dieu kien het (khong latching),Co,Khong (tru khi kem 301/303/314),"110-115, 130",Theo Fault Card tuong ung
+Fan (quat),Gian tiep (bi ep bat khi co loi nhiet/sensor),-,-,-,-,Khong co E-code rieng cho quat,-
+Output (interlock tong),Co,Khong,Khong tu - can ACK + kiem tra phan cung,Khong,Co,304,Dung may; goi ky thuat ngay
+Batch (me ap),Co,Co (ghi EEPROM),Co dieu kien (resume tu dong/hoi xac nhan),Co,Co (313),"132, 133, 134, 135, 136, 313",Xem Phan 10/14 trong manual
+Giam sat suc khoe he thong (v3.6.0),Co (heap/xu huong nhiet/EEPROM retry),Khong ap dung,"Tu khoi dong lai co kiem soat khi RAM nguy cap/luc an toan (khong tu can thiep nhiet/dao)",Co,Khong,"401, 402, 403, 404",Theo doi; goi ky thuat neu lap lai thuong xuyen

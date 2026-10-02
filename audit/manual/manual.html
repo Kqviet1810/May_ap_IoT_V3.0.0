@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>MAYAP INDUSTRIAL — Operation &amp; Troubleshooting Manual</title>
+<style>
+@page { size: 148mm 210mm; margin: 16mm 14mm 18mm 16mm; }
+:root{
+  --ink:#16231f; --muted:#5b6b64; --line:#d9e2dd; --wash:#f3f6f4;
+  --primary:#0f6e56; --primary2:#0a5443; --danger:#b3261e; --warn:#8a5a00;
+  --stop:#9c2b1f; --ok:#1c7a4d; --surface:#ffffff;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{font-family:"Segoe UI","Noto Sans",Arial,sans-serif;color:var(--ink);font-size:9.5pt;line-height:1.45}
+h1{font-size:17pt;margin:0 0 4mm;letter-spacing:-.2px}
+h2{font-size:14pt;margin:0 0 3mm;color:var(--primary2);border-bottom:1.2pt solid var(--line);padding-bottom:1.5mm}
+h3{font-size:11pt;margin:4mm 0 2mm;color:var(--ink)}
+h4{font-size:9.5pt;margin:3mm 0 1.5mm}
+p{margin:0 0 2.4mm}
+small,.small{font-size:7.8pt;color:var(--muted)}
+.section{page-break-before:always;padding-top:1mm}
+.section:first-of-type{page-break-before:avoid}
+.nobreak{page-break-inside:avoid}
+table{border-collapse:collapse;width:100%;margin:2mm 0 3mm;font-size:8pt}
+th,td{border:0.6pt solid var(--line);padding:1.4mm 1.8mm;text-align:left;vertical-align:top}
+th{background:var(--wash);font-size:7.6pt;text-transform:uppercase;letter-spacing:.2px;color:var(--muted)}
+ul,ol{margin:1.5mm 0 2.4mm;padding-left:4.5mm}
+li{margin-bottom:0.8mm}
+code{font-family:"Consolas",monospace;font-size:8pt;background:var(--wash);padding:0 1mm;border-radius:2px}
+.tag{display:inline-block;font-size:7.2pt;font-weight:700;letter-spacing:.3px;padding:0.6mm 1.6mm;border-radius:3px;color:#fff}
+.tag-stop{background:var(--stop)}
+.tag-warn{background:var(--warn)}
+.tag-emergency{background:#5a1c14}
+.tag-ok{background:var(--ok)}
+.tag-info{background:#4a5a74}
+.callout{border-left:2.4pt solid var(--primary);background:var(--wash);padding:2mm 3mm;margin:2.5mm 0;font-size:8.6pt}
+.callout.warn{border-color:var(--warn)}
+.callout.danger{border-color:var(--stop)}
+.figure{margin:3mm 0;text-align:center}
+.figure img,.figure svg{max-width:100%;border:0.6pt solid var(--line);border-radius:2px}
+.figcaption{font-size:7.6pt;color:var(--muted);margin-top:1mm}
+.figcaption .badge{font-weight:700;letter-spacing:.3px}
+.badge-real{color:var(--ok)}
+.badge-illustration{color:#8a6d00}
+.badge-ref{color:#555}
+.cover{page-break-after:always;height:178mm;display:flex;flex-direction:column;justify-content:space-between}
+.cover .brand{font-size:11pt;font-weight:800;color:var(--primary2);letter-spacing:1px}
+.cover h1{font-size:24pt;margin-top:40mm;line-height:1.25}
+.cover .subtitle{font-size:12pt;color:var(--muted);margin-top:2mm}
+.cover .meta{font-size:8.5pt;color:var(--muted);border-top:0.6pt solid var(--line);padding-top:3mm}
+.cover .meta table{border:none;font-size:8.5pt}
+.cover .meta td,.cover .meta th{border:none;padding:0.6mm 0}
+.toc-item{display:flex;justify-content:space-between;border-bottom:0.4pt dotted var(--line);padding:1mm 0;font-size:8.6pt}
+.toc-item.l1{font-weight:700;margin-top:2mm}
+.checklist li{list-style:none;margin-left:-4.5mm;padding-left:5.5mm;position:relative}
+.checklist li:before{content:"\2610";position:absolute;left:0;color:var(--muted)}
+.faultcard{border:0.8pt solid var(--line);border-radius:2px;padding:2.6mm 3mm;margin-bottom:2.5mm;page-break-inside:avoid}
+.faultcard .fc-head{display:flex;align-items:baseline;gap:2mm;margin-bottom:1mm}
+.faultcard .fc-code{font-size:13pt;font-weight:800;color:var(--primary2)}
+.faultcard .fc-title{font-size:9.6pt;font-weight:700}
+.faultcard .fc-meta{font-size:7.4pt;color:var(--muted);margin-bottom:1.4mm}
+.faultcard h5{font-size:7.8pt;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);margin:1.4mm 0 0.5mm}
+.faultcard p, .faultcard ol, .faultcard ul{font-size:8pt;margin:0 0 1mm}
+.faultcard ol,.faultcard ul{padding-left:3.6mm}
+.two-col{columns:2;column-gap:5mm}
+.flow{font-family:"Consolas",monospace;font-size:7.6pt;white-space:pre;background:var(--wash);border:0.6pt solid var(--line);border-radius:2px;padding:2.4mm;line-height:1.35;overflow:hidden}
+.kv{display:grid;grid-template-columns:32mm 1fr;gap:0.6mm 2mm;font-size:8.4pt;margin:2mm 0}
+.kv div:nth-child(odd){color:var(--muted)}
+.src{font-size:7.4pt;color:var(--muted);font-family:"Consolas",monospace}
+</style>
+</head>
+<body>
+
+<!-- ===================== COVER ===================== -->
+<section class="cover">
+  <div class="brand">MAYAP INDUSTRIAL</div>
+  <div>
+    <h1>HƯỚNG DẪN SỬ DỤNG<br>&amp; KHẮC PHỤC SỰ CỐ</h1>
+    <div class="subtitle">OPERATION &amp; TROUBLESHOOTING MANUAL</div>
+  </div>
+  <div class="meta">
+    <table>
+      <tr><th>Model</th><td>MAYAP INDUSTRIAL v3.7.1</td></tr>
+      <tr><th>Firmware</th><td>v3.7.1 (điều khiển) / v3.7.1 (HMI)</td></tr>
+      <tr><th>Hardware</th><td>CTRL-S3-N8-R1 (ESP32-S3)</td></tr>
+      <tr><th>Document No.</th><td>MAYAP-OPS-A5-001</td></tr>
+      <tr><th>Revision</th><td>Rev. 1.1</td></tr>
+      <tr><th>Date</th><td>15/09/2026</td></tr>
+    </table>
+    <p class="small" style="margin-top:3mm">Tài liệu được xây dựng dựa trên phân tích source code và cấu hình
+    firmware tại thời điểm phát hành. Các hành vi thực tế trên phần cứng cần được xác nhận bằng kiểm thử thực tế
+    trước khi phát hành tài liệu chính thức cho khách hàng. Đây KHÔNG phải tuyên bố "firmware hoạt động đúng" —
+    đây là tài liệu mô tả hành vi đã được xác nhận qua đọc source code (static analysis), chưa qua kiểm thử vận
+    hành thật (runtime validation) trên phần cứng.</p>
+  </div>
+</section>
+
+<!-- ===================== TOC ===================== -->
+<section class="section" id="toc">
+<h2>MỤC LỤC</h2>
+<div id="toc-list">
+<div class="toc-item l1"><span>1. Giới thiệu</span><span data-page="p-intro">3</span></div>
+<div class="toc-item l1"><span>2. An toàn</span><span data-page="p-safety">4</span></div>
+<div class="toc-item l1"><span>3. Tổng quan máy</span><span data-page="p-overview">5</span></div>
+<div class="toc-item l1"><span>4. HMI (màn hình điều khiển tại máy)</span><span data-page="p-hmi">6</span></div>
+<div class="toc-item l1"><span>5. Web / Ứng dụng điều khiển từ xa</span><span data-page="p-web">7</span></div>
+<div class="toc-item l1"><span>6. Khởi động máy</span><span data-page="p-startup">10</span></div>
+<div class="toc-item l1"><span>7. Chế độ AUTO</span><span data-page="p-auto">11</span></div>
+<div class="toc-item l1"><span>8. Chế độ MANUAL</span><span data-page="p-manual">12</span></div>
+<div class="toc-item l1"><span>9. Chuyển đổi AUTO ↔ MANUAL</span><span data-page="p-switch">13</span></div>
+<div class="toc-item l1"><span>10. Quản lý mẻ ấp</span><span data-page="p-batch">14</span></div>
+<div class="toc-item l1"><span>11. Hệ thống tự phục hồi</span><span data-page="p-recovery">16</span></div>
+<div class="toc-item l1"><span>12. Bảng tra cứu mã lỗi (Fault Card)</span><span data-page="p-faults">17</span></div>
+<div class="toc-item l1"><span>13. Cây quyết định xử lý sự cố</span><span data-page="p-tree">23</span></div>
+<div class="toc-item l1"><span>14. Mất điện / Khởi động lại bất thường</span><span data-page="p-power">25</span></div>
+<div class="toc-item l1"><span>15. Checklist vận hành</span><span data-page="p-checklist">26</span></div>
+<div class="toc-item l1"><span>16. Được phép / Không được phép</span><span data-page="p-rules">27</span></div>
+<div class="toc-item l1"><span>17. Khi nào gọi kỹ thuật</span><span data-page="p-escalate">28</span></div>
+<div class="toc-item l1"><span>18. Phần dành cho kỹ thuật viên</span><span data-page="p-tech">29</span></div>
+<div class="toc-item l1"><span>19. Giới hạn đã biết (Known Limitations)</span><span data-page="p-limits">30</span></div>
+<div class="toc-item l1"><span>20. Bảng tổng hợp Recovery Matrix</span><span data-page="p-matrix">31</span></div>
+<div class="toc-item l1"><span>21. Lịch sử phát hành</span><span data-page="p-rev">32</span></div>
+</div>
+<p class="small" style="margin-top:3mm">Số trang trong mục lục là số trang tại thời điểm phát hành Rev. 1.0; nội dung Rev. 1.1 được chèn thêm vào các
+Phần 4/5/7/10/12/18/20 nên số trang thực tế của các phần phía sau Phần 4 có thể lệch nhẹ — dùng số Phần (1-21)
+để tra cứu thay vì số trang khi cần chính xác.</p>
+</section>
+
+<!-- ===================== 1. GIỚI THIỆU ===================== -->
+<section class="section" id="p-intro">
+<h2>1. GIỚI THIỆU</h2>
+<h3>Mục đích</h3>
+<p>Tài liệu này hướng dẫn vận hành, theo dõi và xử lý sự cố cơ bản cho máy ấp trứng
+công nghiệp MAYAP INDUSTRIAL, dựa trên đúng hành vi của firmware điều khiển
+(v3.7.1) và firmware HMI (v3.7.1) đang chạy trên thiết bị.</p>
+<h3>Đối tượng sử dụng</h3>
+<ul>
+<li>Người vận hành hằng ngày (không cần biết lập trình/điện tử).</li>
+<li>Kỹ thuật viên hiện trường cấp cơ bản (Phần 18 dành riêng cho nhóm này).</li>
+</ul>
+<h3>Phạm vi</h3>
+<p>Vận hành AUTO/MANUAL, thao tác trên HMI và Web, quản lý mẻ ấp, đọc và xử lý mã
+lỗi (E-code), các cơ chế tự phục hồi đã xác nhận trong firmware, và ranh giới rõ
+ràng giữa việc người vận hành được tự xử lý và việc bắt buộc phải gọi kỹ thuật.</p>
+<h3>Ký hiệu dùng trong tài liệu</h3>
+<table>
+<tr><th style="width:14mm">Ký hiệu</th><th>Ý nghĩa</th></tr>
+<tr><td><span class="tag tag-ok">BÌNH THƯỜNG</span></td><td>Trạng thái vận hành bình thường, không cần thao tác.</td></tr>
+<tr><td><span class="tag tag-warn">CẢNH BÁO</span></td><td>Cần chú ý/theo dõi, máy có thể vẫn tiếp tục vận hành.</td></tr>
+<tr><td><span class="tag tag-stop">LỖI (STOP)</span></td><td>Máy tự khoá một phần chức năng để bảo vệ an toàn.</td></tr>
+<tr><td><span class="tag tag-emergency">KHẨN CẤP</span></td><td>Mức nghiêm trọng nhất, hệ thống cắt nhiệt ngay lập tức.</td></tr>
+<tr><td>🔧 / <b>KỸ THUẬT VIÊN</b></td><td>Chỉ kỹ thuật viên được xử lý, người vận hành không tự ý can thiệp.</td></tr>
+</table>
+<div class="callout">
+<b>Ghi chú nguồn thông tin:</b> Toàn bộ nội dung kỹ thuật trong tài liệu này được truy vết trực tiếp
+từ source code firmware hiện tại (<code>machine_control.h</code>, <code>hmi.h</code>,
+<code>network_service.h</code>, <code>realtime_link.h</code>, <code>cloud_alert_link.h</code>,
+<code>config.h</code>, <code>app.js</code>, <code>index.html</code>) và đối chiếu với tài liệu audit
+<code>audit/OPERATION_RECOVERY_MANUAL.md</code>. Nội dung nào không tìm thấy bằng chứng trong code được
+ghi rõ là <b>CHƯA XÁC NHẬN</b> thay vì suy đoán.</div>
+</section>
+
+<!-- ===================== 2. AN TOÀN ===================== -->
+<section class="section" id="p-safety">
+<h2>2. AN TOÀN</h2>
+<h3>Người vận hành được phép</h3>
+<ul>
+<li>Kiểm tra dây/đầu nối bên ngoài tủ điện (không mở nắp tủ điện).</li>
+<li>Kiểm tra trạng thái công tắc AUTO/MANUAL và các công tắc tay (Heater/Fan/Light/Turn L/R).</li>
+<li>Gạt chuyển AUTO ↔ MANUAL theo đúng quy trình (Phần 9).</li>
+<li>Xác nhận (ACK) cảnh báo trên màn hình HMI sau khi đã kiểm tra nguyên nhân bên ngoài.</li>
+<li>Bắt đầu/Dừng/Huỷ mẻ ấp và xác nhận Áp lại (Resume) qua HMI hoặc Web.</li>
+<li>Vào Test Mode để xác nhận công tắc hành trình khi được hướng dẫn (mã lỗi 205), sau khi đã dừng mẻ ấp.</li>
+</ul>
+<h3>Người vận hành KHÔNG được phép</h3>
+<ul>
+<li>Mở tủ điện, tháo nắp bảo vệ mạch điều khiển.</li>
+<li>Đo điện áp/dòng điện bên trong tủ điện.</li>
+<li>Tháo board mạch, module cảm biến, module RTC, module EEPROM khi máy đang có điện.</li>
+<li>Cố ép output hoạt động khi hệ thống đang khoá vì lý do an toàn.</li>
+<li>Bỏ qua/vô hiệu hoá interlock an toàn dưới bất kỳ hình thức nào.</li>
+<li>Thay đổi firmware, cấu hình nâng cao, hoặc can thiệp trực tiếp vào dữ liệu EEPROM.</li>
+</ul>
+<h3>Khi nào phải dừng máy</h3>
+<ul>
+<li>Có cảnh báo mức <span class="tag tag-emergency">KHẨN CẤP</span> (E112) hoặc <span class="tag tag-stop">LỖI</span>
+liên quan an toàn nhiệt (E111, E130).</li>
+<li>Ngửi thấy mùi khét, thấy khói, hoặc nghe âm thanh bất thường từ tủ điện/động cơ.</li>
+<li>Mã lỗi thuộc nhóm "cần kỹ thuật viên" đang hiển thị (xem Phần 17).</li>
+</ul>
+<h3>Khi nào phải gọi kỹ thuật</h3>
+<p>Xem bảng đầy đủ tại Phần 17. Nguyên tắc chung: nếu đã thực hiện đúng các bước
+"Người vận hành làm" trong Fault Card (Phần 12) mà mã lỗi vẫn còn, hoặc mã lỗi
+thuộc nhóm 301/303/304/314/205 (khi Test Mode cũng thất bại) → luôn gọi kỹ thuật,
+không tự xử lý thêm.</p>
+</section>
+
+<!-- ===================== 3. TỔNG QUAN MÁY ===================== -->
+<section class="section" id="p-overview">
+<h2>3. TỔNG QUAN MÁY</h2>
+<p>Máy gồm tủ điều khiển (chứa HMI, công tắc vận hành) gắn trên buồng ấp trứng.
+Sơ đồ dưới đây minh hoạ vị trí các bộ phận người vận hành cần biết, dựng lại theo
+đúng danh sách input/output đã xác nhận trong firmware (<code>InputChannel</code>,
+<code>machine_control.h</code>) — KHÔNG phải ảnh chụp thiết bị thật.</p>
+<div class="figure nobreak">
+<svg viewBox="0 0 480 380" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#fff">
+  <rect x="10" y="10" width="460" height="360" rx="8" fill="#f3f6f4" stroke="#16231f" stroke-width="1.5"/>
+  <!-- control panel -->
+  <rect x="30" y="30" width="180" height="150" rx="4" fill="#0f6e56" stroke="#16231f" stroke-width="1.2"/>
+  <rect x="45" y="45" width="150" height="70" rx="2" fill="#0a5443"/>
+  <text x="120" y="85" font-size="11" fill="#fff" text-anchor="middle" font-family="Consolas,monospace">37.5C  62%</text>
+  <circle cx="170" cy="130" r="12" fill="#fff"/>
+  <text x="60" y="135" font-size="9" fill="#fff">① Man hinh LCD</text>
+  <text x="150" y="150" font-size="8" fill="#fff">② Nut xoay</text>
+  <rect x="45" y="155" width="16" height="10" fill="#e8b400"/>
+  <text x="65" y="163" font-size="8" fill="#fff">③ AUTO/MANUAL</text>
+  <!-- switches row -->
+  <rect x="230" y="30" width="220" height="60" rx="4" fill="#fff" stroke="#16231f"/>
+  <text x="240" y="44" font-size="8.5" font-weight="700">④ Cong tac tay (khi MANUAL)</text>
+  <text x="240" y="58" font-size="8">Nhiet  Quat  Den</text>
+  <text x="240" y="72" font-size="8">Dao trai   Dao phai</text>
+  <!-- buzzer/led -->
+  <circle cx="405" cy="45" r="7" fill="#b3261e"/>
+  <text x="418" y="48" font-size="7.5">⑤ Den/coi bao</text>
+  <!-- chamber -->
+  <rect x="30" y="200" width="420" height="150" rx="6" fill="#fff" stroke="#16231f" stroke-width="1.2"/>
+  <text x="40" y="215" font-size="9" font-weight="700">BUONG AP TRUNG</text>
+  <rect x="60" y="230" width="360" height="90" rx="3" fill="#f3f6f4" stroke="#5b6b64" stroke-dasharray="3,2"/>
+  <circle cx="120" cy="275" r="6" fill="#0f6e56"/>
+  <text x="55" y="345" font-size="8">⑥ Cam bien nhiet/am (RS485)</text>
+  <rect x="380" y="255" width="10" height="30" fill="#5b6b64"/>
+  <text x="330" y="345" font-size="8">⑦ Cong tac hanh trinh</text>
+  <rect x="180" y="240" width="80" height="14" fill="#e8b400"/>
+  <text x="170" y="215" font-size="8">⑧ Khay/dan dao trung</text>
+</svg>
+</div>
+<div class="figcaption"><span class="badge badge-illustration">HÌNH MINH HỌA</span> — sơ đồ khối, không theo tỉ lệ thật, không thay thế bản vẽ kỹ thuật của nhà sản xuất.</div>
+<table class="nobreak">
+<tr><th style="width:7mm">Số</th><th>Bộ phận</th><th>Chức năng</th></tr>
+<tr><td>①</td><td>Màn hình LCD</td><td>Hiển thị nhiệt độ, độ ẩm, trạng thái mẻ ấp, cảnh báo/mã lỗi</td></tr>
+<tr><td>②</td><td>Nút xoay (rotary)</td><td>Di chuyển menu, chọn mục, xác nhận (ACK), chỉnh giá trị</td></tr>
+<tr><td>③</td><td>Công tắc AUTO/MANUAL</td><td>Công tắc vật lý — gạt để chuyển giữa 2 chế độ vận hành</td></tr>
+<tr><td>④</td><td>Công tắc tay (Heater/Fan/Light/Turn L-R)</td><td>Chỉ có tác dụng khi đang ở MANUAL — điều khiển trực tiếp từng thiết bị</td></tr>
+<tr><td>⑤</td><td>Đèn báo / còi báo</td><td>Sáng/kêu khi có cảnh báo cần chú ý</td></tr>
+<tr><td>⑥</td><td>Cảm biến nhiệt độ/độ ẩm</td><td>Đầu dò gắn trong buồng ấp, truyền dữ liệu qua RS485</td></tr>
+<tr><td>⑦</td><td>Công tắc hành trình (2 cái)</td><td>Giới hạn hành trình đảo trứng 2 chiều trái/phải</td></tr>
+<tr><td>⑧</td><td>Khay/dàn đảo trứng</td><td>Được động cơ đảo theo chu kỳ đã cài đặt khi ở AUTO</td></tr>
+</table>
+</section>
+
+<!-- ===================== 4. HMI ===================== -->
+<section class="section" id="p-hmi">
+<h2>4. HMI (MÀN HÌNH ĐIỀU KHIỂN TẠI MÁY)</h2>
+<p>Toàn bộ tên màn hình dưới đây lấy trực tiếp từ <code>enum class View</code> và các
+hàm <code>draw*()</code> trong <code>hmi.h</code> — không có màn hình nào được thêm ngoài
+danh sách này.</p>
+<h3>Sơ đồ màn hình (HMI Screen Map)</h3>
+<div class="figure nobreak">
+<svg viewBox="0 0 480 300" xmlns="http://www.w3.org/2000/svg" style="width:100%;height:auto;background:#fff">
+<style>.n{font-size:8.5px;font-family:Arial}.b{fill:#fff;stroke:#16231f;stroke-width:1;rx:3}</style>
+<rect x="10" y="10" width="90" height="24" class="b" fill="#0f6e56"/><text x="55" y="26" class="n" fill="#fff" text-anchor="middle">HOME</text>
+<line x1="100" y1="22" x2="150" y2="22" stroke="#16231f"/>
+<rect x="150" y="10" width="90" height="24" class="b"/><text x="195" y="26" class="n" text-anchor="middle">MAIN MENU</text>
+<line x1="195" y1="34" x2="195" y2="55"/>
+<rect x="10" y="55" width="80" height="20" class="b"/><text x="50" y="69" class="n" text-anchor="middle">CAI DAT ME</text>
+<rect x="100" y="55" width="90" height="20" class="b"/><text x="145" y="69" class="n" text-anchor="middle">CAI DAT CHUNG</text>
+<rect x="200" y="55" width="80" height="20" class="b"/><text x="240" y="69" class="n" text-anchor="middle">CHE DO TEST</text>
+<rect x="290" y="55" width="80" height="20" class="b"/><text x="330" y="69" class="n" text-anchor="middle">NHAT KY ME</text>
+<line x1="145" y1="75" x2="145" y2="95"/>
+<rect x="20" y="95" width="70" height="18" class="b"/><text x="55" y="108" class="n" text-anchor="middle">NHIET DO</text>
+<rect x="100" y="95" width="70" height="18" class="b"/><text x="135" y="108" class="n" text-anchor="middle">QUAT HUT</text>
+<rect x="180" y="95" width="70" height="18" class="b"/><text x="215" y="108" class="n" text-anchor="middle">DAO TRUNG</text>
+<rect x="260" y="95" width="70" height="18" class="b"/><text x="295" y="108" class="n" text-anchor="middle">TU CHINH PID</text>
+<rect x="340" y="95" width="60" height="18" class="b"/><text x="370" y="108" class="n" text-anchor="middle">KET NOI</text>
+<line x1="215" y1="113" x2="215" y2="133"/>
+<rect x="170" y="133" width="90" height="18" class="b"/><text x="215" y="146" class="n" text-anchor="middle">SETTING LIST -&gt; EDIT SETTING</text>
+<line x1="340" y1="113" x2="340" y2="133"/>
+<rect x="300" y="133" width="80" height="18" class="b"/><text x="340" y="146" class="n" text-anchor="middle">WIFI CHANGE</text>
+<line x1="240" y1="75" x2="240" y2="175"/>
+<rect x="200" y="175" width="80" height="18" class="b"/><text x="240" y="188" class="n" text-anchor="middle">TEST MODE</text>
+<line x1="240" y1="193" x2="240" y2="213"/>
+<rect x="200" y="213" width="80" height="18" class="b"/><text x="240" y="226" class="n" text-anchor="middle">TEST SUMMARY</text>
+<line x1="55" y1="22" x2="55" y2="245"/>
+<rect x="10" y="245" width="90" height="20" class="b" fill="#8a5a00"/><text x="55" y="259" class="n" fill="#fff" text-anchor="middle">ALARM (tu Home)</text>
+<line x1="330" y1="75" x2="330" y2="245"/>
+<rect x="290" y="245" width="90" height="20" class="b"/><text x="335" y="259" class="n" text-anchor="middle">EVENT LOG</text>
+</svg>
+</div>
+<div class="figcaption"><span class="badge badge-illustration">HÌNH MINH HỌA</span> — sơ đồ điều hướng dựng lại từ <span class="src">hmi.h: enum View, MainMenu/ChungMenu items</span>.</div>
+<h3>Cách thao tác chung trên HMI</h3>
+<ul>
+<li>Xoay nút để di chuyển giữa các mục trong menu.</li>
+<li>Nhấn nút để chọn/vào mục đang chọn.</li>
+<li>Ở màn hình Alarm: nhấn giữ/nhấn theo hướng dẫn trên màn hình để <b>ACK</b> (xác nhận) cảnh báo — đây là kênh
+DUY NHẤT để xác nhận cảnh báo latching (xem callout dưới).</li>
+</ul>
+<div class="callout">
+<b>Chỉ có trên HMI, KHÔNG có trên Web:</b> xác nhận (ACK) cảnh báo latching (201-204, 301, 303, 304, 305, 314),
+vào/thoát Test Mode, xác nhận công tắc hành trình (gỡ khoá 205), chỉnh Wi-Fi tại chỗ, Tự chỉnh PID (AutoTune có
+thể khởi động từ Web nhưng các thao tác Test Mode thì không). Đây là giới hạn thực tế của
+<code>mapCommandAction()</code> trong <code>realtime_link.h</code> — chỉ ánh xạ 5 lệnh: <code>batch_start</code>,
+<code>batch_stop</code>, <code>resume_yes</code>, <code>resume_no</code>, <code>autotune_start</code>.</div>
+<h3>Bù nhiệt độ cảm biến (menu NHIỆT ĐỘ)</h3>
+<p>Mục "Bù nhiệt độ" (<code>MachineConfig::tempOffset</code>, lưu EEPROM) cộng thêm một lượng bù cố định
+(-5.0 đến +5.0 °C, bước 0.1) vào giá trị đọc từ cảm biến trước khi dùng cho điều khiển/hiển thị — dùng khi
+cảm biến lệch một khoảng ổn định so với nhiệt độ thật trong buồng ấp (đã hiệu chuẩn tham chiếu). Trước đây chỉ
+chỉnh được qua Web, nay đã có trực tiếp trên HMI (menu CAI DAT CHUNG → NHIET DO). Chỉ kỹ thuật viên/người có
+thẩm quyền hiệu chuẩn nên thay đổi giá trị này.</p>
+<h3>Màn hình "NÂNG CAO" (cài đặt PID/chẩn đoán nâng cao)</h3>
+<p>Từ firmware v3.7.1, menu CAI DAT CHUNG có thêm nhóm "NÂNG CAO" (13 mục) gồm các tham số PID thủ công và
+các ngưỡng chẩn đoán nhiệt/AutoTune trước đây là hằng số cứng trong firmware — nay chỉnh được trực tiếp khi
+lắp máy thật mà không cần nạp lại firmware. Giá trị mặc định giữ nguyên như hằng số cũ.</p>
+<table class="nobreak">
+<tr><th>Mục trên HMI</th><th>Trường (MachineConfig)</th><th>Khoảng cho phép</th><th>Mặc định</th></tr>
+<tr><td>He so Kp</td><td><code>kp</code></td><td>0 – 100</td><td>18.0</td></tr>
+<tr><td>He so Ki</td><td><code>ki</code></td><td>0 – 20</td><td>0.8</td></tr>
+<tr><td>He so Kd</td><td><code>kd</code></td><td>0 – 200</td><td>45.0</td></tr>
+<tr><td>Chu ky SSR</td><td><code>pidCycleSec</code></td><td>1 – 60 s</td><td>10 s</td></tr>
+<tr><td>Tran cong suat</td><td><code>maxHeaterPower</code></td><td>10 – 100 %</td><td>100 %</td></tr>
+<tr><td>Nguong ket dinh</td><td><code>heaterStuckMinRiseC</code></td><td>0.05 – 5.0 °C</td><td>0.3 °C</td></tr>
+<tr><td>TG xac nhan ket</td><td><code>heaterStuckDurationSec</code></td><td>60 – 3600 s</td><td>900 s (15 phút)</td></tr>
+<tr><td>Nguong toc do</td><td><code>tempRateLimitC</code></td><td>0.1 – 10.0 °C</td><td>1.0 °C</td></tr>
+<tr><td>Khung toc do</td><td><code>tempRateWindowSec</code></td><td>30 – 1800 s</td><td>120 s</td></tr>
+<tr><td>So lan doi dau</td><td><code>tempOscillationCrossLimit</code></td><td>2 – 30 lần</td><td>6</td></tr>
+<tr><td>Khung dao dong</td><td><code>tempOscillationWindowSec</code></td><td>60 – 3600 s</td><td>600 s</td></tr>
+<tr><td>Cong suat tune</td><td><code>autotuneRelayPowerPercent</code></td><td>10 – 80 %</td><td>30 %</td></tr>
+<tr><td>Bien do tune</td><td><code>autotuneBandC</code></td><td>0.05 – 1.0 °C</td><td>0.20 °C</td></tr>
+</table>
+<div class="callout warn">Đây là thông số ảnh hưởng trực tiếp đến kiểm soát nhiệt và ngưỡng phát hiện lỗi
+(E113/E114/E115 ở Phần 12 dùng chính các ngưỡng này). Người vận hành thường không cần chỉnh nhóm này —
+chỉ kỹ thuật viên lắp đặt/hiệu chỉnh PID mới nên thay đổi, và nên ghi lại giá trị trước khi sửa.</div>
+</section>
+
+<!-- ===================== 5. WEB ===================== -->
+<section class="section" id="p-web">
+<h2>5. WEB / ỨNG DỤNG ĐIỀU KHIỂN TỪ XA</h2>
+<p>Giao diện web (dùng được trên điện thoại/máy tính khi máy đang bật chế độ kết
+nối Online) chỉ hoạt động qua 2 kênh dữ liệu MQTT xác nhận trong
+<code>realtime_link.h</code>: <code>config/set</code> (lưu cấu hình) và
+<code>command</code> (5 lệnh cố định). Ảnh dưới đây là ảnh chụp thật từ chính mã
+nguồn giao diện trong repository.</p>
+<div class="figure nobreak">
+<img src="images/web_device.png" style="max-width:52%">
+<div class="figcaption"><span class="badge badge-real">GIAO DIỆN THỰC TẾ</span> — trang "Thiết bị": xem nhanh nhiệt độ/độ ẩm/trạng thái và các thông số vận hành.</div>
+</div>
+<h3 class="nobreak">Web CÓ THỂ điều khiển</h3>
+<ul>
+<li>Chọn thiết bị đang theo dõi (nhiều máy).</li>
+<li>Bắt đầu mẻ ấp (<code>batch_start</code>), Dừng mẻ ấp (<code>batch_stop</code>).</li>
+<li>Xác nhận Áp lại mẻ cũ sau mất điện: Đồng ý/Huỷ (<code>resume_yes</code> / <code>resume_no</code>).</li>
+<li>Khởi động Tự chỉnh PID (<code>autotune_start</code>).</li>
+<li>Lưu thay đổi cấu hình (nhiệt độ đặt, chu kỳ đảo, ngưỡng an toàn...) qua kênh <code>config/set</code>.</li>
+<li>Chỉnh khối cấu hình "Nâng cao" (PID Kp/Ki/Kd, chu kỳ SSR, trần công suất nhiệt, ngưỡng chẩn đoán tốc độ/dao
+động nhiệt, ngưỡng nghi kẹt rơ-le nhiệt, công suất AutoTune) — cùng danh sách và giá trị với màn hình "NÂNG CAO"
+trên HMI (Phần 4), các ô nhập trên web dùng id <code>advKp/advKi/advKd/advPidCycleSec/advMaxHeaterPower/
+advTempRateLimitC/advTempRateWindowSec/advTempOscillationCrossLimit/advTempOscillationWindowSec/
+advHeaterStuckMinRiseC/advHeaterStuckDurationSec/advAutotuneRelayPowerPercent</code>.</li>
+</ul>
+<h3 class="nobreak">Web CHỈ giám sát (không điều khiển được)</h3>
+<div class="callout warn nobreak">
+<b>Xác nhận (ACK) cảnh báo/alarm KHÔNG thực hiện được trên Web.</b> Web chỉ hiển thị cảnh báo đang có, người
+vận hành phải đến trực tiếp HMI tại máy để ACK. Tương tự: Test Mode, điều khiển tay từng output (Manual jog),
+đổi Wi-Fi tại chỗ đều không có trên Web.</div>
+<div class="figure nobreak">
+<img src="images/web_settings.png" style="max-width:52%">
+<div class="figcaption"><span class="badge badge-real">GIAO DIỆN THỰC TẾ</span> — trang "Cài đặt": chỉnh thông số vận hành, an toàn, kết nối.</div>
+</div>
+<div class="figure nobreak">
+<img src="images/web_notification.png" style="max-width:52%">
+<div class="figcaption"><span class="badge badge-real">GIAO DIỆN THỰC TẾ</span> — khối "Thông báo": bật nhận cảnh báo đẩy trên điện thoại (chỉ là kênh nhận tin, không phải nơi ACK lỗi máy).</div>
+</div>
+<div class="callout warn nobreak">Nếu chưa có điện thoại nào đăng ký nhận thông báo đẩy cho thiết bị đang chọn,
+khối "Thông báo" hiện băng cảnh báo: <b>"⚠️ Chưa có điện thoại nào nhận thông báo cho máy này."</b> — đây chỉ là
+nhắc bật thông báo, không phải lỗi máy.</div>
+<h3 class="nobreak">Trạng thái "Đảo trứng" trên Web</h3>
+<p>Ở khối điều khiển nhanh, khi máy đang chờ đến chu kỳ đảo kế tiếp (đã lên lịch, chưa có lỗi khoá đảo), Web hiện
+<b>"Đảo sau X phút"</b> (đếm ngược theo <code>runtime.nextTurnMinutes</code> từ thiết bị) thay vì chỉ hiện nhãn tĩnh
+"CHỜ" — giúp biết còn bao lâu tới lần đảo tiếp theo mà không cần đợi sự kiện đảo thực sự xảy ra.</p>
+<h3 class="nobreak">Giao diện Sáng/Tối</h3>
+<p>Mục Cài đặt → "Giao diện" cho chọn giao diện Sáng, Tối, hoặc theo Hệ thống (mặc định). Đây chỉ là tuỳ chọn
+hiển thị trên trình duyệt của người dùng, không ảnh hưởng đến vận hành hay dữ liệu máy.</p>
+</section>
+
+<!-- ===================== 6. KHỞI ĐỘNG ===================== -->
+<section class="section" id="p-startup">
+<h2>6. KHỞI ĐỘNG MÁY</h2>
+<h3>Trước khi bật máy</h3>
+<ul>
+<li>Nguồn điện đã cắm chắc chắn, không có dấu hiệu cháy/hở dây.</li>
+<li>Đầu dò cảm biến nhiệt/ẩm không bị rơi/lỏng trong buồng ấp.</li>
+<li>Cơ cấu đảo trứng di chuyển tự do, không vướng vật cản.</li>
+<li>Công tắc AUTO/MANUAL đang ở vị trí phù hợp với ý định vận hành.</li>
+<li>Cửa/nắp buồng ấp đã đóng kín.</li>
+</ul>
+<h3>Các bước bật máy</h3>
+<ol>
+<li><b>Bước 1</b> — Bật nguồn tổng. Màn hình LCD sáng lên (có thể mất vài giây nếu
+module màn hình đang tự dò lại kết nối — bình thường, các bộ phận khác vẫn khởi
+động song song).</li>
+<li><b>Bước 2</b> — Quan sát màn hình chính: nhiệt độ, độ ẩm, giờ hiện tại phải hiện
+số hợp lý (không phải "--").</li>
+<li><b>Bước 3</b> — Nếu màn hình hiện cảnh báo ngay khi khởi động, tra mã lỗi tại
+Phần 12 trước khi bắt đầu mẻ ấp.</li>
+</ol>
+<h3>Khi máy khởi động thành công</h3>
+<p>Người vận hành cần thấy: nhiệt độ/độ ẩm hiển thị số thực, giờ đúng thực tế,
+không có cảnh báo nào đang treo trên màn hình Alarm.</p>
+</section>
+
+<!-- ===================== 7. AUTO ===================== -->
+<section class="section" id="p-auto">
+<h2>7. CHẾ ĐỘ AUTO</h2>
+<h3>AUTO dùng để làm gì?</h3>
+<p>Máy tự động giữ nhiệt độ/độ ẩm theo cài đặt, tự đảo trứng theo chu kỳ đã hẹn, và
+tự phát cảnh báo khi có bất thường — không cần thao tác tay liên tục.</p>
+<h3>Khi nào được phép dùng AUTO?</h3>
+<p>Sau khi đã hoàn tất checklist "Trước khi bật máy" (Phần 6) và đã cài đặt xong
+nhiệt độ/độ ẩm mục tiêu, chu kỳ đảo, số ngày ấp dự kiến.</p>
+<h3>Cách chuyển sang AUTO</h3>
+<ol><li>Gạt công tắc vật lý AUTO/MANUAL sang vị trí AUTO. Đây là công tắc cứng —
+không có bước "chọn trên màn hình" tương đương.</li></ol>
+<h3>Điều kiện để bắt đầu một mẻ ấp mới (xác nhận từ <span class="src">machine_control.h: startBatch()</span>)</h3>
+<table>
+<tr><th>Điều kiện</th><th>Thông báo nếu chưa đạt</th></tr>
+<tr><td>Công tắc đang ở AUTO</td><td>"HAY CHUYEN SANG AUTO"</td></tr>
+<tr><td>Cảm biến đang có dữ liệu tin cậy (<code>sensorUsable_</code>)</td><td>"CAM BIEN CHUA SAN SANG"</td></tr>
+<tr><td>RTC đang hợp lệ (<code>rtc_.valid()</code>)</td><td>"RTC CHUA HOP LE"</td></tr>
+<tr><td>Cấu hình "Tự động đảo" (<code>turningEnabled</code>) đang <b>bật</b></td><td>"HAY BAT TU DONG DAO"</td></tr>
+</table>
+<p class="small">Ngoài các điều kiện trên, <code>startBatch()</code> còn từ chối khi đang ở Test Mode, đang có mẻ
+chạy/chờ dừng, đang chờ Áp lại, đang có lỗi 2 hành trình/lỗi đảo đang latch, nhiệt đang cao/khẩn cấp, hoặc công
+tắc Heater đang tắt — mỗi trường hợp đều có thông báo riêng trên màn hình tương ứng lý do bị chặn.</p>
+<h3>Khi ở AUTO, máy tự làm gì (đúng logic firmware)</h3>
+<div class="flow nobreak">Cong tac AUTO dang bat?
+     |
+Cam bien nhiet/am co du lieu tin cay?
+     |-- KHONG -> tam cat nhiet (ca 2 tang: SSR + contactor tong),
+     |             ep quat tuan hoan, VAN TIEP TUC DAO trung binh thuong
+     |-- CO -> dieu khien nhiet theo PID huong ve nhiet do dat
+              -> den chu ky da hen -> thuc hien dao trung (neu khong
+                 bi khoa boi loi hanh trinh/lenh xung dot)
+              -> lien tuc kiem tra dieu kien an toan (nhiet cao/thap,
+                 do am ngoai nguong, cong tac nhiet tat, RTC/EEPROM...)</div>
+</section>
+
+<!-- ===================== 8. MANUAL ===================== -->
+<section class="section" id="p-manual">
+<h2>8. CHẾ ĐỘ MANUAL</h2>
+<h3>MANUAL dùng để làm gì?</h3>
+<p>Điều khiển tay từng thiết bị (nhiệt, quạt, đèn, đảo) khi cần can thiệp trực
+tiếp: vệ sinh, kiểm tra, hiệu chỉnh cơ khí.</p>
+<h3>Khi nào dùng?</h3>
+<p>Khi bảo trì/kiểm tra thiết bị, hoặc khi KHÔNG đang trong một mẻ ấp cần vận hành
+tự động hoàn toàn.</p>
+<h3>Cách chuyển sang MANUAL</h3>
+<ol><li>Gạt công tắc vật lý AUTO/MANUAL sang vị trí MANUAL.</li></ol>
+<h3>Điều khiển từng output</h3>
+<p>Ở MANUAL, các công tắc vật lý sau có tác dụng trực tiếp (xác nhận từ
+<code>InputChannel</code>: <code>Heater, Fan, Light, TurnLeft, TurnRight</code>):</p>
+<table>
+<tr><th>Công tắc</th><th>Điều khiển</th></tr>
+<tr><td>Heater</td><td>Cho phép/không cho phép nhiệt hoạt động</td></tr>
+<tr><td>Fan</td><td>Quạt tuần hoàn</td></tr>
+<tr><td>Light</td><td>Đèn buồng ấp</td></tr>
+<tr><td>Turn Left / Turn Right</td><td>Đảo trứng theo chiều tương ứng (đè tay, không theo chu kỳ tự động)</td></tr>
+</table>
+<h3>Chức năng bị khoá bởi interlock/an toàn</h3>
+<ul>
+<li>Nếu đang chạy một mẻ ấp và gạt sang MANUAL: máy phát cảnh báo <b>133 — AUTO BI TAT GIUA ME</b> và
+<b>khoá đảo trứng</b> (không cho đảo tay khi mẻ vẫn coi là đang chạy) — vẫn giữ điều khiển nhiệt để
+trứng không bị nguội đột ngột.</li>
+<li>Nếu 2 công tắc hành trình đang xung đột (201) hoặc đã bị khoá cơ khí (205): đảo trái/phải bị khoá
+bất kể AUTO hay MANUAL, cho tới khi xử lý xong theo Phần 12.</li>
+</ul>
+</section>
+
+<!-- ===================== 9. AUTO <-> MANUAL ===================== -->
+<section class="section" id="p-switch">
+<h2>9. CHUYỂN ĐỔI AUTO ↔ MANUAL</h2>
+<table class="nobreak">
+<tr><th>Trạng thái hiện tại</th><th>Thao tác</th><th>Điều kiện</th><th>Kết quả</th></tr>
+<tr><td>AUTO (đang chạy mẻ)</td><td>Gạt sang MANUAL</td><td>Không có điều kiện chặn phần cứng — công tắc luôn gạt được</td><td>Cảnh báo <b>133</b>, khoá đảo trứng, vẫn giữ điều khiển nhiệt</td></tr>
+<tr><td>MANUAL</td><td>Gạt sang AUTO</td><td>Đang có mẻ chờ "Áp lại" (resume) mà công tắc AUTO đang tắt</td><td>Báo <b>132 — CAN CHUYEN SANG AUTO</b>, không tự áp lại mẻ cho tới khi gạt sang AUTO</td></tr>
+<tr><td>MANUAL</td><td>Gạt sang AUTO</td><td>Bình thường (không có mẻ chờ áp lại)</td><td>Vào AUTO ngay, tiếp tục/bắt đầu điều khiển tự động</td></tr>
+</table>
+<div class="flow nobreak">Gat cong tac AUTO/MANUAL
+     |
+Co dang cho "Ap lai me cu" (resume) khong?
+     |-- CO va cong tac dang MANUAL -> bao 132, KHONG tu ap lai
+     |-- CO va cong tac vua gat sang AUTO -> tiep tuc kiem tra cac
+     |    dieu kien an toan khac (sensor/RTC/turningEnabled) roi moi ap lai
+     |-- KHONG co me cho -> AUTO/MANUAL hoat dong binh thuong nhu Phan 7/8</div>
+<p class="small">Nếu gạt công tắc mà máy không phản ứng ngay: đợi vài trăm mili-giây (thời gian chống dội
+công tắc/debounce phần cứng) rồi kiểm tra lại màn hình.</p>
+</section>
+
+<!-- ===================== 10. QUẢN LÝ MẺ ẤP ===================== -->
+<section class="section" id="p-batch">
+<h2>10. QUẢN LÝ MẺ ẤP</h2>
+<div class="figure nobreak">
+<img src="images/web_batch.png" style="max-width:52%">
+<div class="figcaption"><span class="badge badge-real">GIAO DIỆN THỰC TẾ</span> — trang "Mẻ ấp" trên Web.</div>
+</div>
+<h3>Bắt đầu mẻ ấp</h3>
+<p>Thực hiện trên HMI (menu CAI DAT ME → xác nhận) hoặc Web (nút bắt đầu mẻ, gửi
+lệnh <code>batch_start</code>). Phải thoả các điều kiện tại Phần 7 (AUTO, cảm biến
+sẵn sàng, RTC hợp lệ).</p>
+<h3>Dừng / Huỷ mẻ ấp</h3>
+<p>Thực hiện trên HMI hoặc Web (<code>batch_stop</code>). Khi dừng, firmware ghi lại
+trạng thái "đã dừng" vào bộ nhớ an toàn nội bộ (NVS) TRƯỚC khi cập nhật EEPROM —
+nếu mất điện đúng lúc đang dừng, máy sẽ KHÔNG tự áp lại mẻ đã có lệnh dừng dở dang
+(xem mã lỗi 313).</p>
+<h3>Áp lại mẻ cũ sau mất điện (Resume)</h3>
+<p>Nếu máy mất điện thật sự giữa mẻ, khi có điện lại:</p>
+<ul>
+<li>Nếu cấu hình <b>"Tự động áp lại khi mất điện"</b> đang <b>bật</b>, hoặc lý do khởi động lại KHÔNG phải mất
+điện thật (ví dụ tự hồi phục sau lỗi phần mềm) → máy <b>tự áp lại ngay</b>, không hỏi.</li>
+<li>Nếu cấu hình đó đang <b>tắt</b> và xác nhận đúng là vừa mất điện thật → màn hình hiện hỏi
+<b>"Áp lại mẻ cũ?"</b>, chờ người vận hành chọn <b>Đồng ý</b> (<code>resume_yes</code>) hoặc
+<b>Huỷ</b> (<code>resume_no</code>) trên HMI hoặc Web.</li>
+<li>Nếu màn hình hỏi này bị bỏ quên quá 15 phút không ai thao tác → cảnh báo <b>135 — CHO XAC NHAN AP LAI</b>
+sẽ hiện thêm để nhắc (không tự động chọn thay người vận hành).</li>
+<li>Dù đã Đồng ý áp lại (hoặc auto-resume), máy vẫn <b>không</b> thực sự tiếp tục mẻ cho tới khi mọi điều kiện an
+toàn khác cũng đạt — bao gồm cấu hình <b>"Tự động đảo" (<code>turningEnabled</code>) phải đang bật</b> (giống
+hệt điều kiện bắt đầu mẻ mới ở Phần 7); nếu đang tắt, màn hình hiện <b>"HAY BAT TU DONG DAO"</b> và mẻ vẫn ở
+trạng thái chờ áp lại cho tới khi bật lại.</li>
+</ul>
+<h3>Kết thúc/dừng một mẻ ấp an toàn — các bước</h3>
+<ol>
+<li>Xác nhận số ngày ấp đã đủ hoặc theo quyết định thực tế cần dừng sớm.</li>
+<li>Bấm Dừng/Huỷ mẻ trên HMI hoặc Web.</li>
+<li>Đợi màn hình xác nhận mẻ đã dừng (không còn hiển thị trạng thái "Đang ấp").</li>
+<li>Chỉ sau đó mới được gạt sang MANUAL nếu cần vệ sinh/bảo trì, hoặc mở buồng ấp.</li>
+</ol>
+</section>
+
+<!-- ===================== 11. HỆ THỐNG TỰ PHỤC HỒI ===================== -->
+<section class="section" id="p-recovery">
+<h2>11. HỆ THỐNG TỰ PHỤC HỒI</h2>
+<p>Giải thích bằng ngôn ngữ vận hành — chi tiết kỹ thuật đầy đủ nằm ở Phần 18 và
+Phần 20.</p>
+<table>
+<tr><th>Tình huống</th><th>Máy tự làm gì?</th><th>Người vận hành cần làm gì?</th></tr>
+<tr><td>Màn hình LCD mất tạm thời</td><td>Tự dò lại kết nối mỗi 3 giây, tự bật lại khi tìm thấy</td><td>Chờ; nếu quá vài phút vẫn tối → gọi kỹ thuật</td></tr>
+<tr><td>Mất cảm biến nhiệt/ẩm</td><td>Tự thử đọc lại liên tục, tự nhận lại khi có dữ liệu tốt ổn định</td><td>Kiểm tra dây RS485/đầu dò nếu kéo dài</td></tr>
+<tr><td>EEPROM (bộ nhớ cấu hình) lỗi tạm thời</td><td>Tự thử kết nối lại mỗi 3 giây, tự khôi phục cấu hình khi module ổn định trở lại</td><td>Theo dõi; nếu chuyển thành "MAT EEPROM" (301) → gọi kỹ thuật</td></tr>
+<tr><td>Đồng hồ RTC báo sai/mất giờ</td><td>Có thể tự sửa giờ nếu ESP32 chưa từng mất điện gần đó (dựa vào đồng hồ nội bộ)</td><td>Kiểm tra lại giờ hiển thị; nếu vẫn sai → chỉnh giờ thủ công hoặc gọi kỹ thuật</td></tr>
+<tr><td>Mất Wi-Fi / mất kết nối Web</td><td>Tự kết nối lại liên tục (không bao giờ ngừng thử)</td><td>Không cần dừng máy — nhiệt độ/độ ẩm/đảo trứng vẫn hoạt động độc lập với mạng</td></tr>
+<tr><td>Lỗi đảo trứng lặp lại (hành trình/timeout)</td><td>Khoá đảo, chờ xác nhận (ACK)</td><td>Kiểm tra cơ khí, ACK trên HMI sau khi kiểm tra</td></tr>
+<tr><td>Lỗi đảo trứng lặp lại 3 lần liên tiếp không thành công</td><td>Khoá đảo hoàn toàn (205), không nhận ACK thường</td><td>Dừng mẻ, vào Test Mode xác nhận cả 2 công tắc hành trình</td></tr>
+</table>
+<div class="callout">
+<b>Lưu ý:</b> "Tự phục hồi" chỉ đúng khi điều kiện bên ngoài (dây, module, cảm biến) thực sự đã tốt trở
+lại. Firmware không thể "tự sửa" một cảm biến hỏng vật lý hay dây đứt — nó chỉ liên tục thử kết nối lại.</div>
+</section>
+
+<!-- ===================== 12. FAULT CARDS ===================== -->
+<section class="section" id="p-faults">
+<h2>12. BẢNG TRA CỨU MÃ LỖI (FAULT CARD)</h2>
+<p class="small">Mỗi thẻ trả lời đúng 7 câu: lỗi gì — ở đâu — nguyên nhân — firmware đã tự làm gì —
+máy đang ở trạng thái nào — người vận hành làm gì — khi nào gọi kỹ thuật.</p>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E101</span><span class="fc-title">MẤT CẢM BIẾN</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cảm biến nhiệt/ẩm (RS485) · Latching: Không (tự xoá khi hết lỗi)</div>
+<p><b>Ý nghĩa:</b> Máy không nhận được tín hiệu hợp lệ từ đầu dò nhiệt/ẩm trong thời gian dài.</p>
+<p><b>Firmware đã tự thử:</b> Đọc lại 2 lần/chu kỳ, 2 chu kỳ liên tiếp lỗi mới báo (khoảng vài giây).</p>
+<p><b>Máy đang:</b> Cắt nhiệt (2 tầng), ép quạt tuần hoàn, <b>vẫn tiếp tục đảo trứng</b>.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra dây/đầu nối RS485 có lỏng/đứt không.</li><li>Kiểm tra đầu dò còn trong buồng ấp không.</li><li>Chờ — máy tự thử kết nối lại liên tục, không cần bấm gì.</li></ol>
+<p><b>Không được:</b> tự ý tháo/mở cảm biến khi máy đang có điện.</p>
+<p><b>Gọi kỹ thuật khi:</b> đã kiểm tra dây/đầu nối mà vẫn còn lỗi.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E102</span><span class="fc-title">CẢM BIẾN SAI</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cảm biến nhiệt/ẩm · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Có dữ liệu từ cảm biến nhưng giá trị vượt ngoài dải vật lý cho phép.</p>
+<p><b>Firmware đã tự thử:</b> Không có bước thử lại số trước khi báo — báo ngay khi khung dữ liệu ngoài dải.</p>
+<p><b>Máy đang:</b> Cắt nhiệt (2 tầng), ép quạt tuần hoàn.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra cảm biến có hư hỏng vật lý/đặt sai vị trí không.</li><li>Kiểm tra nhiễu điện trên dây tín hiệu.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> lỗi lặp lại nhiều lần dù đã kiểm tra vị trí/dây.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E103</span><span class="fc-title">CẢM BIẾN BẤT THƯỜNG</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cảm biến nhiệt/ẩm · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Nhiệt độ tụt đột ngột hơn 1.5°C so với lần đọc trước, đang chờ xác nhận có thật hay không.</p>
+<p><b>Firmware đã tự thử:</b> Cần 3 mẫu liên tiếp khớp nhau mới quyết định chấp nhận giá trị mới.</p>
+<p><b>Máy đang:</b> Cắt nhiệt tạm thời trong lúc chờ xác nhận, ép quạt tuần hoàn.</p>
+<h5>Người vận hành</h5>
+<ol><li>Thường chỉ thoáng qua — chờ vài giây để hệ thống tự xác nhận.</li><li>Nếu lặp đi lặp lại: kiểm tra cảm biến/dây tín hiệu.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E110</span><span class="fc-title">NHIỆT ĐỘ THẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Điều khiển nhiệt · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Nhiệt độ đang dưới ngưỡng cấu hình.</p>
+<p><b>Firmware đã tự thử:</b> Báo ngay theo ngưỡng, không khoá gì.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra cửa/nắp buồng ấp có đóng kín không.</li><li>Theo dõi thêm — hệ thống vẫn đang gia nhiệt bình thường.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E111</span><span class="fc-title">NHIỆT ĐỘ CAO</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Điều khiển nhiệt · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Nhiệt độ vượt ngưỡng cao cấu hình.</p>
+<p><b>Máy đang:</b> Cắt SSR (giữ contactor tổng), ép cả 2 quạt, <b>khoá đảo trứng</b>.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra quạt tản nhiệt/thông gió có hoạt động không.</li><li>Không mở cửa buồng ấp đột ngột khi đang nóng.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> nhiệt độ không hạ sau khi hệ thống đã ép quạt, hoặc lặp lại nhiều lần trong ngày.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E112</span><span class="fc-title">QUÁ NHIỆT KHẨN CẤP</span><span class="tag tag-emergency">KHẨN CẤP</span> ⚠</div>
+<div class="fc-meta">Module: Điều khiển nhiệt · Latching: <b>Không</b> (tự xoá khi nhiệt hạ — xem cảnh báo an toàn bên dưới)</div>
+<p><b>Ý nghĩa:</b> Nhiệt độ vượt ngưỡng khẩn cấp — mức nghiêm trọng nhất trong toàn bộ hệ thống.</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng ngay lập tức, ép cả 2 quạt, khoá đảo trứng.</p>
+<div class="callout danger" style="margin:1mm 0"><b>⚠ AN TOÀN — CẦN LƯU Ý:</b> Theo đúng source code hiện tại,
+cảnh báo này <b>tự xoá ngay khi nhiệt độ hạ xuống dưới ngưỡng</b>, KHÔNG bắt buộc người vận hành xác nhận
+(ACK) trước khi hệ thống coi như "đã qua sự cố". Vì đây là mức nghiêm trọng nhất, người vận hành nên
+<b>luôn chủ động kiểm tra thủ công</b> mỗi khi thấy màn hình từng hiện E112, dù cảnh báo có thể đã tự tắt.</div>
+<h5>Người vận hành</h5>
+<ol><li><b>Dừng mẻ ấp ngay nếu có nghi ngờ về an toàn.</b></li><li>Kiểm tra hệ thống quạt/thông gió.</li><li>Kiểm tra SSR/contactor có bị kẹt đóng không (nghe/nhìn bên ngoài, không mở tủ điện).</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> xảy ra E112 bất kỳ lần nào — luôn cần kiểm tra kỹ thuật sau sự cố mức khẩn cấp.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E113</span><span class="fc-title">NHIỆT ĐỘ BIẾN THIÊN NHANH</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Chẩn đoán nhiệt · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Tốc độ thay đổi nhiệt độ vượt ngưỡng bình thường — cảnh báo chẩn đoán sớm, không cắt gì.</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu kèm E111/E112 → ưu tiên xử lý theo mã đó.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E114</span><span class="fc-title">NHIỆT ĐỘ KHÔNG ỔN ĐỊNH</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Chẩn đoán nhiệt · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Nhiệt độ dao động vượt biên độ cho phép quanh mức đặt.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra cửa buồng ấp có đóng kín, có gió lùa không.</li><li>Nếu lặp lại thường xuyên → báo kỹ thuật để kiểm tra PID/SSR.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E115</span><span class="fc-title">THANH NHIỆT KHÔNG NÓNG</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Thanh nhiệt (SSR) · Latching: Không</div>
+<p><b>Ý nghĩa:</b> SSR đang được lệnh bật nhưng nhiệt độ không tăng đủ sau một khoảng thời gian dài (15 phút).</p>
+<p><b>Firmware đã tự thử:</b> Theo dõi liên tục trong 15 phút trước khi kết luận, không báo ngay khi vừa bật.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra thanh nhiệt có nóng thật khi sờ gần (không chạm trực tiếp) không.</li><li>Kiểm tra cầu chì/relay nhiệt bên ngoài tủ.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> thanh nhiệt xác nhận không nóng — nghi ngờ hỏng SSR/relay nhiệt.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E120</span><span class="fc-title">ĐỘ ẨM THẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Điều khiển độ ẩm · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Độ ẩm dưới ngưỡng cấu hình.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra khay/nguồn cấp ẩm còn nước không.</li><li>Kiểm tra cửa buồng ấp có hở không.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E121</span><span class="fc-title">ĐỘ ẨM CAO</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Điều khiển độ ẩm · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Độ ẩm vượt ngưỡng cấu hình.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra thông gió.</li><li>Kiểm tra lượng nước cấp ẩm có quá nhiều không.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E130</span><span class="fc-title">TẮT CÔNG TẮC NHIỆT</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Công tắc cho phép nhiệt · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Công tắc vật lý cho phép nhiệt (Heater) bị tắt trong lúc mẻ ấp đang chạy.</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra công tắc Heater có bị vô tình gạt tắt không.</li><li>Bật lại nếu là thao tác nhầm.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E132</span><span class="fc-title">CẦN CHUYỂN SANG AUTO</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Quản lý mẻ ấp (Resume) · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Đang chờ áp lại mẻ cũ nhưng công tắc AUTO chưa bật.</p>
+<h5>Người vận hành</h5>
+<ol><li>Gạt công tắc sang AUTO để máy tiếp tục kiểm tra và áp lại mẻ.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E133</span><span class="fc-title">AUTO BỊ TẮT GIỮA MẺ</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Chế độ vận hành · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Công tắc AUTO bị gạt sang MANUAL trong lúc đang chạy mẻ ấp.</p>
+<p><b>Firmware đã tự thử:</b> Có trễ chống nhiễu (2 phút) trước khi báo, tránh báo giả khi gạt thoáng qua.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng, vẫn giữ điều khiển nhiệt.</p>
+<h5>Người vận hành</h5>
+<ol><li>Nếu là thao tác nhầm → gạt lại AUTO.</li><li>Nếu chủ đích chuyển MANUAL để bảo trì → đây là hành vi bình thường, không phải lỗi thiết bị.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E134</span><span class="fc-title">TỰ ĐỘNG ĐẢO BỊ TẮT</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Đảo trứng · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Cấu hình "Bật tự động đảo" bị tắt trong lúc mẻ đang chạy.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Vào Cài đặt (HMI hoặc Web) bật lại "Tự động đảo" nếu là thao tác nhầm.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E135</span><span class="fc-title">CHỜ XÁC NHẬN ÁP LẠI</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Quản lý mẻ ấp (Resume) · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Màn hình "Áp lại mẻ cũ?" đã hiện quá 15 phút mà chưa ai xác nhận.</p>
+<h5>Người vận hành</h5>
+<ol><li>Vào HMI hoặc Web, chọn Đồng ý hoặc Huỷ cho câu hỏi áp lại mẻ.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E136</span><span class="fc-title">MẺ QUÁ HẠN ẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Quản lý mẻ ấp · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Số ngày ấp thực tế đã vượt số ngày cấu hình mà mẻ vẫn chưa kết thúc.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra kế hoạch ấp thực tế — quyết định kết thúc mẻ hay tiếp tục theo dõi thêm.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E137</span><span class="fc-title">CHỜ RTC ĐỂ ÁP LẠI</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Quản lý mẻ ấp (Resume) · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Đang chờ áp lại mẻ cũ nhưng RTC chưa hợp lệ quá lâu — khác E135 (không ai bấm xác nhận), ở đây
+người vận hành <b>không tự làm gì được</b>, máy chỉ đang chờ RTC tự hồi phục (tự sửa giờ/NTP).</p>
+<h5>Người vận hành</h5>
+<ol><li>Không cần thao tác — chỉ theo dõi giờ hiển thị.</li><li>Nếu kéo dài, kiểm tra theo Fault Card E306.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E201</span><span class="fc-title">LỖI 2 HÀNH TRÌNH</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Cả 2 công tắc hành trình trái/phải cùng báo tích cực đồng thời — xung đột vật lý không hợp lý.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra 2 công tắc hành trình, dây tín hiệu có bị chập không.</li><li>Sau khi kiểm tra xong, vào màn hình Alarm trên HMI để ACK.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> lỗi tái diễn ngay sau khi ACK.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E202</span><span class="fc-title">ĐẢO QUÁ THỜI GIAN</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Động cơ đảo chạy quá thời gian tối đa cấu hình mà chưa chạm công tắc hành trình.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra cơ cấu đảo có bị kẹt vật cản không.</li><li>Kiểm tra dây đai/động cơ.</li><li>ACK trên HMI sau khi kiểm tra.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> lỗi lặp lại — có thể là dấu hiệu sớm của E205.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E203</span><span class="fc-title">HÀNH TRÌNH BỊ KẸT</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Công tắc hành trình không nhả ra sau khi lệnh đảo đã dừng.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra công tắc hành trình có bị kẹt cơ khí không.</li><li>ACK trên HMI sau khi kiểm tra.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> lỗi lặp lại — có thể là dấu hiệu sớm của E205.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E204</span><span class="fc-title">XUNG ĐỘT LỆNH ĐẢO</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Lệnh đảo trái và đảo phải xung đột nhau cùng lúc.</p>
+<h5>Người vận hành</h5>
+<ol><li>Nếu đang ở MANUAL: kiểm tra không bấm đồng thời 2 công tắc đảo trái/phải.</li><li>ACK trên HMI.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E205</span><span class="fc-title">CẦN KIỂM TRA CƠ KHÍ ĐẢO</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Cơ cấu đảo trứng · Latching: Đặc biệt — <b>KHÔNG nhận ACK thường</b></div>
+<p><b>Ý nghĩa:</b> Lỗi đảo (202/203) đã xảy ra 3 lần liên tiếp không có lần thành công xen giữa — nghi ngờ
+hỏng cơ khí thật sự.</p>
+<p><b>Máy đang:</b> Khoá đảo trứng hoàn toàn.</p>
+<div class="callout warn" style="margin:1mm 0">ACK thông thường trên màn hình Alarm <b>KHÔNG</b> xoá được lỗi này.</div>
+<h5>Người vận hành</h5>
+<ol><li><b>Dừng mẻ ấp</b> (bắt buộc — máy từ chối vào Test Mode khi đang chạy mẻ).</li><li>Vào <b>Test Mode</b> trên HMI.</li><li>Xác nhận lần lượt <b>cả 2</b> công tắc hành trình đều báo thành công (Success).</li><li>Khoá sẽ tự gỡ khi cả 2 xác nhận xong.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> Test Mode cũng không xác nhận được — nghi ngờ hỏng công tắc hành trình/động cơ/dây đai thật sự.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E301</span><span class="fc-title">MẤT EEPROM</span><span class="tag tag-stop">STOP</span> 🔧</div>
+<div class="fc-meta">Module: Bộ nhớ lưu cấu hình/mẻ ấp · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Module lưu trữ cấu hình mất kết nối/lỗi 3 lần liên tiếp khi máy không đang chạy mẻ.</p>
+<p><b>Firmware đã tự thử:</b> Retry nhiều lần ở tầng đọc/ghi, tự kết nối lại mỗi 3 giây trước khi báo mức "mất hẳn".</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Không tự ý mở tủ điện.</li><li>Ghi lại thời điểm xảy ra.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> ngay khi thấy mã này — đây là lỗi phần cứng.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E302</span><span class="fc-title">EEPROM SUY GIẢM</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Bộ nhớ lưu cấu hình/mẻ ấp · Latching: Không</div>
+<p><b>Ý nghĩa:</b> EEPROM lỗi 1-2 lần liên tiếp (chưa tới ngưỡng "mất hẳn").</p>
+<p><b>Máy đang:</b> Nếu đang chạy mẻ, tiếp tục điều khiển hoàn toàn từ bộ nhớ tạm (RAM), không bị gián đoạn.</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm — máy đang tự thử kết nối lại.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E303</span><span class="fc-title">RESET BẤT THƯỜNG</span><span class="tag tag-stop">STOP</span> 🔧</div>
+<div class="fc-meta">Module: Hệ thống điều khiển (chip) · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Bộ điều khiển vừa khởi động lại do lỗi phần mềm/nguồn (không phải người dùng chủ động tắt).</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng cho tới khi ACK.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra nguồn điện có ổn định không.</li><li>ACK trên HMI sau khi đã kiểm tra máy an toàn.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> reset bất thường lặp lại nhiều lần.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E304</span><span class="fc-title">XUNG ĐỘT OUTPUT</span><span class="tag tag-emergency">KHẨN CẤP</span> 🔧</div>
+<div class="fc-meta">Module: Điều khiển đầu ra · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Phát hiện 2 đầu ra loại trừ nhau cùng bật — sự cố an toàn cấp thấp nhất trong hệ thống.</p>
+<p><b>Máy đang:</b> Cắt toàn bộ nhiệt, ép quạt, khoá đảo.</p>
+<h5>Người vận hành</h5>
+<p><b>Không tự xử lý.</b> Dừng máy, gọi kỹ thuật ngay.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E305</span><span class="fc-title">RELAY QUÁ NHIỀU</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Relay đầu ra · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Relay đóng/cắt vượt tần suất cho phép — cảnh báo hao mòn, không khoá output.</p>
+<h5>Người vận hành</h5>
+<ol><li>ACK trên HMI.</li><li>Nếu lặp lại thường xuyên → báo kỹ thuật kiểm tra relay.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E306</span><span class="fc-title">LỖI RTC</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Đồng hồ thời gian thực · Latching: Không</div>
+<p><b>Ý nghĩa:</b> RTC mất kết nối, dừng dao động (hết pin/mất pin), hoặc dữ liệu không hợp lệ.</p>
+<p><b>Firmware đã tự thử:</b> Tự sửa giờ có điều kiện (xem Phần 11), chỉ báo khi tự sửa cũng thất bại.</p>
+<h5>Người vận hành</h5>
+<ol><li>Kiểm tra giờ hiển thị trên màn hình.</li><li>Nếu sai → chỉnh giờ thủ công trong menu Cài đặt.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> lỗi lặp lại liên tục (nghi ngờ hết pin RTC).</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E313</span><span class="fc-title">CHƯA XOÁ DỮ LIỆU MẺ</span><span class="tag tag-stop">STOP</span></div>
+<div class="fc-meta">Module: Bộ nhớ mẻ ấp · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Đã dừng/huỷ mẻ nhưng EEPROM chưa xác nhận ghi xong trạng thái "đã dừng".</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng.</p>
+<h5>Người vận hành</h5>
+<ol><li>Chờ — máy đang tự thử ghi lại xác nhận.</li></ol>
+<p><b>Gọi kỹ thuật khi:</b> không tự hết sau vài phút.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E314</span><span class="fc-title">LỖI NHẬT KÝ AN TOÀN</span><span class="tag tag-stop">STOP</span> 🔧</div>
+<div class="fc-meta">Module: Bộ nhớ nội bộ an toàn (NVS) · Latching: <b>Có — cần ACK trên HMI</b></div>
+<p><b>Ý nghĩa:</b> Bộ nhớ nội bộ dùng để đảm bảo an toàn khi mất điện bị lỗi ghi.</p>
+<p><b>Máy đang:</b> Cắt SSR + nhả contactor tổng, cấm bắt đầu/áp lại mẻ mới.</p>
+<h5>Người vận hành</h5>
+<p><b>Không tự xử lý.</b> Gọi kỹ thuật ngay.</p>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E315</span><span class="fc-title">MẤT NHẬT KÝ MẺ</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Log chi tiết mẻ ấp · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Log chi tiết nhiệt/đảo của mẻ không ghi được — không ảnh hưởng an toàn vận hành.</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu cần dữ liệu lịch sử đầy đủ để đánh giá mẻ → báo kỹ thuật.</li></ol>
+</div>
+
+<h3>Nhóm 400 — Giám sát sức khoẻ hệ thống (dự đoán sớm, không cắt an toàn)</h3>
+<p class="small">Các mã dưới đây (<code>serviceHealthMonitor()</code> trong <code>machine_control.h</code>) là
+cảnh báo <b>dự đoán sớm</b>, KHÔNG khoá SSR/contactor/đảo trứng nào — mục đích chỉ là để lại dấu vết trước khi
+sự cố thật (nếu có) xảy ra.</p>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E401</span><span class="fc-title">RAM THẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Bộ nhớ heap còn dưới ~30% mức nền, liên tục ≥3 lần kiểm tra (~90 giây).</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu lặp lại thường xuyên dù đã khởi động lại nhiều lần → báo kỹ thuật.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E402</span><span class="fc-title">RAM NGUY CẤP</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Bộ nhớ heap còn dưới ~6% — máy sẽ tự khởi động lại có kiểm soát (đưa về trạng thái an toàn
+trước) để tránh treo.</p>
+<h5>Người vận hành</h5>
+<ol><li>Không cần làm gì — máy tự xử lý.</li><li>Nếu lặp lại nhiều lần liên tục trong ngày → báo kỹ thuật.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E403</span><span class="fc-title">DỰ ĐOÁN CHẠM NGƯỠNG NHIỆT</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> Ngoại suy theo tốc độ đổi nhiệt hiện tại cho thấy sắp chạm ngưỡng cao/thấp trong ≤5 phút —
+chỉ cảnh báo sớm, không cắt gì (để E110/E111 thật sự xử lý khi ngưỡng bị chạm).</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; nếu báo liên tục ở nhiều mẻ khác nhau → báo kỹ thuật kiểm tra PID/cách nhiệt.</li></ol>
+</div>
+
+<div class="faultcard">
+<div class="fc-head"><span class="fc-code">E404</span><span class="fc-title">EEPROM CẦN THỬ LẠI NHIỀU</span><span class="tag tag-warn">CẢNH BÁO</span></div>
+<div class="fc-meta">Module: Giám sát sức khoẻ hệ thống · Latching: Không</div>
+<p><b>Ý nghĩa:</b> ≥5 lần phải thử lại đọc/ghi EEPROM trong một chu kỳ kiểm tra 30 giây — EEPROM vẫn hoạt động
+bình thường, đây chỉ là cảnh báo xu hướng suy giảm.</p>
+<h5>Người vận hành</h5>
+<ol><li>Theo dõi thêm; chuẩn bị kế hoạch thay module nếu tần suất tăng dần qua nhiều ngày.</li></ol>
+</div>
+
+<div class="callout nobreak">
+<b>Thông báo đẩy (Cloud Push) không có E-code riêng:</b> ngoài các mã lỗi trên, hệ thống còn gửi vài loại thông
+báo đẩy (qua <code>cloud_alert_link.h</code>) không gắn E-code và không hiện trên màn hình Alarm của HMI — chỉ
+xuất hiện dưới dạng thông báo đẩy trên điện thoại (nếu đã bật, xem Phần 5):
+<ul>
+<li><b>Đèn còn bật khi mẻ đang chạy</b> ("Đèn đang bật trong lúc mẻ ấp đang chạy...") — có thể bật/tắt riêng qua
+cấu hình, tự lặp nhắc mỗi 30 phút nếu vẫn còn bật.</li>
+<li><b>Đảo trứng ngừng bất thường</b> ("Không ghi nhận đảo trứng thành công quá lâu...") — số lần đảo thành công
+không tăng quá lâu so với chu kỳ đã cấu hình, dù không có lỗi cơ khí tức thời nào (201-205) đang latch.</li>
+<li><b>Sắp đến ngày nở</b> / <b>Mẻ quá hạn</b> — nhắc trước khi còn ≤2 ngày tới ngày dự kiến nở, và khi đã quá
+hạn (đi kèm/độc lập với cảnh báo tại chỗ E136).</li>
+<li><b>Tín hiệu Wi-Fi yếu kéo dài</b> ("Tín hiệu Wi-Fi yếu kéo dài...") — khi cường độ tín hiệu ≤ -82 dBm liên
+tục quá 5 phút trong lúc đang ở chế độ Online.</li>
+</ul>
+</div>
+
+</section>
+
+<!-- ===================== 13. DECISION TREE ===================== -->
+<section class="section" id="p-tree">
+<h2>13. CÂY QUYẾT ĐỊNH XỬ LÝ SỰ CỐ</h2>
+<h3>Máy không hoạt động</h3>
+<div class="flow nobreak">May khong hoat dong
+       |
+LCD co hien thi khong?
+   +---------+----------+
+   KHONG               CO
+    |                   |
+Kiem tra nguon      Co canh bao (E-code) dang hien khong?
+dien, cau chi     +--------+---------+
+(khong tu y mo         CO             KHONG
+tu dien)                |               |
+                  Tra Fault Card    Cong tac dang AUTO hay MANUAL?
+                  (Phan 12)         (xem Phan 7/8)</div>
+<h3>LCD</h3>
+<div class="flow nobreak">LCD toi den / khong ve
+       |
+Cho 3-5 giay (firmware tu thu lai moi 3 giay)
+       |
+LCD tu sang lai khong?
+   +--------+--------+
+   CO              KHONG
+   |                |
+Tiep tuc      Kiem tra day/cong I2C module LCD (khong tu thao
+van hanh      khi may dang co dien) -> qua vai phut van khong len
+              -> goi ky thuat</div>
+<h3>Sensor</h3>
+<div class="flow nobreak">Bao 101/102/103
+       |
+101 (mat ket noi)?
+   +-----+----------------+
+   CO                   KHONG (102/103)
+   |                       |
+Kiem tra day RS485,    102: kiem tra cam bien/vi tri dat
+dau noi -> may tu thu  103: cho he thong tu xac nhan lai (vai giay)
+lai lien tuc</div>
+<h3>EEPROM</h3>
+<div class="flow nobreak">Bao 301 hoac 302
+       |
+302 (suy giam)?
+   +-----+-----+
+   CO         KHONG (301)
+   |            |
+Chi la      Da tu thu ket noi lai nhieu lan that bai
+canh bao       |
+som, theo   KHONG mo tu dien -> goi ky thuat ngay
+doi them</div>
+<h3>RTC</h3>
+<div class="flow nobreak">Bao 306 / gio hien thi sai
+       |
+May co vua mat dien hoan toan gan day khong?
+   +-----+-----+
+   CO           KHONG
+   |             |
+Khong the     Co the tu sua gio (khong can thao tac)
+tu doan gio   -> cho vai giay, kiem tra lai
+duoc -> vao   -> neu van sai: chinh gio thu cong / goi ky thuat
+menu chinh
+gio thu cong</div>
+<h3>Đảo trứng (Turning)</h3>
+<div class="flow nobreak">Bao 201-205
+       |
+La 205?
+   +-----+----------------------+
+   CO                        KHONG (201-204)
+   |                            |
+Dung me -> Test Mode ->     Kiem tra co khi/day dien lien quan
+xac nhan 2 cong tac         -> ACK tren HMI sau khi kiem tra
+hanh trinh -> neu van       -> lap lai nhieu lan -> co the tro
+that bai -> goi ky thuat    thanh 205</div>
+<h3>Communication (Wi-Fi/MQTT/Cloud Push)</h3>
+<div class="flow nobreak">Web/App bao "Offline"
+       |
+May van vao AUTO chay binh thuong tai cho (nhiet/am/dao
+KHONG phu thuoc mang) -> khong anh huong an toan truc tiep
+       |
+He thong tu dong thu ket noi lai theo chu ky lui-va-doi,
+khong bao gio "bo cuoc" -> khong can dung may</div>
+<h3>AUTO / MANUAL</h3>
+<div class="flow nobreak">May khong dao trung nhu ky vong
+       |
+Cong tac dang AUTO hay MANUAL?
+   +--------+---------+
+   AUTO             MANUAL
+   |                  |
+Co 201-205        Binh thuong - o MANUAL phai
+dang hien khong?  bam cong tac dao tay truc tiep
+   +---+---+
+   CO     KHONG
+   |        |
+Tra    Kiem tra da den chu ky dao
+bang   chua (theo cau hinh)
+E-code</div>
+</section>
+
+<!-- ===================== 14. MẤT ĐIỆN / RESET ===================== -->
+<section class="section" id="p-power">
+<h2>14. MẤT ĐIỆN / KHỞI ĐỘNG LẠI BẤT THƯỜNG</h2>
+<p>Xác nhận từ <span class="src">machine_control.h: Machine.begin()</span> — khi có điện
+trở lại hoặc chip tự khởi động lại, firmware đọc bản ghi mẻ ấp gần nhất từ EEPROM
+(có xác thực CRC) và quyết định theo đúng bảng sau. <b>Không có hành vi nào khác
+ngoài những trường hợp đã liệt kê</b> — nếu tình huống thực tế không khớp bảng, đó
+là dấu hiệu cần gọi kỹ thuật ngay.</p>
+<table>
+<tr><th>Tình huống</th><th>Máy làm gì</th></tr>
+<tr><td>Mất điện thật, đang có mẻ chạy, cấu hình "Tự động áp lại" đang <b>bật</b></td><td>Tự áp lại mẻ ngay khi có điện, không hỏi</td></tr>
+<tr><td>Mất điện thật, đang có mẻ chạy, cấu hình "Tự động áp lại" đang <b>tắt</b></td><td>Hiện màn hình hỏi "Áp lại mẻ cũ?", chờ xác nhận</td></tr>
+<tr><td>Chip tự khởi động lại do lỗi phần mềm/watchdog (không phải mất điện thật)</td><td>Tự áp lại mẻ ngay (không cần hỏi), đồng thời ghi nhận <b>E303 — RESET BAT THUONG</b>, cần ACK</td></tr>
+<tr><td>Vừa có lệnh Dừng/Huỷ mẻ mà EEPROM chưa kịp xác nhận, sau đó mất điện</td><td><b>KHÔNG</b> tự áp lại mẻ đã dừng — báo E313, chờ xác nhận ghi lại</td></tr>
+</table>
+<h3>Người vận hành cần kiểm tra sau khi có điện trở lại</h3>
+<ol>
+<li>Xem màn hình có đang hỏi "Áp lại mẻ cũ?" không — nếu có, xác nhận Đồng ý/Huỷ theo đúng ý định thực tế.</li>
+<li>Kiểm tra nhiệt độ/độ ẩm hiển thị có hợp lý không trước khi để máy tự chạy tiếp.</li>
+<li>Kiểm tra có cảnh báo E303 (Reset bất thường) không — nếu có, ACK sau khi đã quan sát máy an toàn.</li>
+<li>Nếu có cảnh báo E313 (Chưa xoá dữ liệu mẻ) — chờ, không thao tác thêm; nếu không tự hết, gọi kỹ thuật.</li>
+</ol>
+</section>
+
+<!-- ===================== 15. CHECKLIST ===================== -->
+<section class="section" id="p-checklist">
+<h2>15. CHECKLIST VẬN HÀNH</h2>
+<p class="small">Có thể in trang này riêng để dán cạnh máy.</p>
+<h3>Trước khi chạy</h3>
+<ul class="checklist">
+<li>Nguồn điện, cầu chì, dây dẫn không hư hỏng</li>
+<li>Cửa/nắp buồng ấp đóng kín</li>
+<li>Đầu dò cảm biến gắn chắc chắn trong buồng ấp</li>
+<li>Cơ cấu đảo trứng di chuyển tự do, không vướng</li>
+<li>Công tắc AUTO/MANUAL đúng ý định vận hành</li>
+<li>Nhiệt độ/độ ẩm hiển thị hợp lý</li>
+<li>Không có cảnh báo nào đang treo trên màn hình Alarm</li>
+</ul>
+<h3>Trong khi chạy</h3>
+<ul class="checklist">
+<li>Nhiệt độ đúng mức đặt</li>
+<li>Độ ẩm đúng mức đặt</li>
+<li>Đảo trứng diễn ra đúng chu kỳ</li>
+<li>Không có cảnh báo mới</li>
+<li>Kết nối Wi-Fi/Web (nếu dùng) — không bắt buộc cho an toàn vận hành</li>
+</ul>
+<h3>Khi có lỗi</h3>
+<ul class="checklist">
+<li>Ghi lại đúng mã lỗi (E-code) hiện trên màn hình</li>
+<li>Tra Fault Card tương ứng (Phần 12)</li>
+<li>Chờ nếu firmware đang tự thử phục hồi</li>
+<li>Kiểm tra nguyên nhân bên ngoài được phép (Phần 16)</li>
+<li>ACK trên HMI nếu lỗi thuộc nhóm latching, SAU KHI đã kiểm tra</li>
+<li>Kiểm tra lại mã lỗi có còn hiển thị không</li>
+<li>Gọi kỹ thuật nếu vẫn còn hoặc thuộc nhóm bắt buộc (Phần 17)</li>
+</ul>
+</section>
+
+<!-- ===================== 16. ĐƯỢC PHÉP / KHÔNG ĐƯỢC PHÉP ===================== -->
+<section class="section" id="p-rules">
+<h2>16. ĐƯỢC PHÉP / KHÔNG ĐƯỢC PHÉP</h2>
+<h3>Người vận hành ĐƯỢC PHÉP</h3>
+<ul>
+<li>Kiểm tra dây/đầu nối bên ngoài (không mở nắp tủ điện).</li>
+<li>Kiểm tra trạng thái công tắc AUTO/MANUAL và các công tắc tay.</li>
+<li>Gạt chuyển AUTO/MANUAL theo đúng quy trình (Phần 9).</li>
+<li>ACK cảnh báo trên HMI sau khi đã kiểm tra nguyên nhân bên ngoài.</li>
+<li>Vào Test Mode để xác nhận công tắc hành trình khi được hướng dẫn (E205), sau khi đã dừng mẻ.</li>
+<li>Bắt đầu/Dừng/Huỷ mẻ ấp và xác nhận Áp lại theo quy trình.</li>
+</ul>
+<h3>Người vận hành KHÔNG ĐƯỢC PHÉP</h3>
+<ul>
+<li>Mở tủ điện, tháo nắp bảo vệ mạch điều khiển.</li>
+<li>Đo điện áp/dòng điện bên trong tủ điện.</li>
+<li>Tháo board mạch, module cảm biến, RTC, EEPROM khi máy đang có điện.</li>
+<li>Cố ép output hoạt động khi hệ thống đang khoá vì lý do an toàn.</li>
+<li>Bỏ qua/vô hiệu hoá interlock an toàn dưới bất kỳ hình thức nào.</li>
+<li>Thay đổi firmware, cấu hình nâng cao, hoặc can thiệp trực tiếp vào dữ liệu EEPROM.</li>
+</ul>
+</section>
+
+<!-- ===================== 17. KHI NÀO GỌI KỸ THUẬT ===================== -->
+<section class="section" id="p-escalate">
+<h2>17. KHI NÀO GỌI KỸ THUẬT</h2>
+<table>
+<tr><th>Tình huống</th><th>Người vận hành</th><th>Kỹ thuật viên</th></tr>
+<tr><td>Dây/đầu nối bên ngoài lỏng</td><td>✓</td><td></td></tr>
+<tr><td>E101/102/103 — sensor không phục hồi sau khi kiểm tra dây</td><td></td><td>✓</td></tr>
+<tr><td>E111/112 — nhiệt cao/khẩn cấp lặp lại</td><td></td><td>✓</td></tr>
+<tr><td>E115 — thanh nhiệt xác nhận không nóng</td><td></td><td>✓</td></tr>
+<tr><td>E201-204 — sau khi đã kiểm tra và ACK vẫn tái diễn</td><td></td><td>✓</td></tr>
+<tr><td>E205 — Test Mode xác nhận cũng thất bại</td><td></td><td>✓</td></tr>
+<tr><td>E301 — mất EEPROM</td><td></td><td>✓</td></tr>
+<tr><td>E303 — reset bất thường lặp lại</td><td></td><td>✓</td></tr>
+<tr><td>E304 — xung đột output</td><td></td><td>✓ (ngay lập tức)</td></tr>
+<tr><td>E306 — lỗi RTC lặp lại liên tục (nghi hết pin)</td><td></td><td>✓</td></tr>
+<tr><td>E314 — lỗi nhật ký an toàn</td><td></td><td>✓ (ngay lập tức)</td></tr>
+<tr><td>Chuyển AUTO/MANUAL theo quy trình bình thường</td><td>✓</td><td></td></tr>
+<tr><td>Mất Wi-Fi/Web (máy vẫn chạy local bình thường)</td><td>✓ (không cần dừng máy)</td><td></td></tr>
+<tr><td>Nghi ngờ chập điện, mùi khét, khói</td><td></td><td>✓ (ngay lập tức, dừng máy trước)</td></tr>
+</table>
+</section>
+
+<!-- ===================== 18. TECHNICIAN SECTION ===================== -->
+<section class="section" id="p-tech">
+<h2>18. PHẦN DÀNH CHO KỸ THUẬT VIÊN</h2>
+<p class="small">Phần này dùng thuật ngữ kỹ thuật, truy vết trực tiếp đến file/function/hằng số trong firmware
+để hỗ trợ chẩn đoán khi lỗi lặp lại.</p>
+<table>
+<tr><th>E-code</th><th>Module / File</th><th>Function</th><th>Trigger</th><th>Retry / Timeout</th><th>Điểm kiểm tra khi lặp lại</th></tr>
+<tr><td>101-103</td><td><span class="src">machine_control.h</span>: <code>SHT485Industrial</code></td><td><code>decodeFrame()</code>, <code>failAttempt()</code>, <code>processSensor()</code></td><td>Timeout/CRC/range/plausibility (xem Phần 6, OPERATION_RECOVERY_MANUAL.md)</td><td>2 lần/chu kỳ; offline sau 2 chu kỳ; stale 6500 ms</td><td>Dây RS485 (A/B), điện trở terminator, nguồn cấp cảm biến, địa chỉ Modbus slave (mặc định 1)</td></tr>
+<tr><td>110-114</td><td><code>updateAlarms()</code></td><td>faultDescriptor dòng 428-438</td><td>Ngưỡng cấu hình nhiệt/ẩm</td><td>Không có bước tự thử — theo ngưỡng tức thời</td><td>Hiệu chuẩn <code>tempOffset</code>/<code>humidityOffset</code></td></tr>
+<tr><td>115</td><td><code>updateAlarms()</code></td><td>Theo dõi <code>heaterStuckTracking_</code></td><td>SSR bật nhưng nhiệt không tăng ≥0.3°C sau 15 phút</td><td>Theo dõi 900000 ms trước khi báo</td><td>SSR/relay nhiệt có kẹt không</td></tr>
+<tr><td>201-204</td><td>Turn logic (xác nhận phiên audit trước)</td><td><code>latchTurnFault()</code>, <code>updateTurnOutputs()</code></td><td>Xem Phần 8, OPERATION_RECOVERY_MANUAL.md</td><td><code>turnMaxRunSec</code> (cấu hình)</td><td>Công tắc hành trình, dây đai, dead-time đổi chiều</td></tr>
+<tr><td>205</td><td><code>latchTurnFault()</code>, <code>updateTestMode()</code></td><td>Đếm <code>turnFaultStreak_</code>, xoá qua <code>testLimitVerifiedLeft_/Right_</code></td><td><code>turnFaultStreak_ &gt;= TURN_FAULT_STREAK_LIMIT</code> (3)</td><td>Chỉ gỡ qua Test Mode dual-verify</td><td>Cơ khí đảo — có thể cần thay thế phần cứng nếu lặp lại sau Test Mode</td></tr>
+<tr><td>301-302</td><td><code>ExternalEeprom24xx</code>, <code>PersistentStore</code></td><td><code>latchStorageFault()</code></td><td><code>storageFailureStreak_ &gt;= EEPROM_FAILURE_LATCH_COUNT</code> (3), chỉ khi không chạy mẻ</td><td>Health-check 5000 ms; reconnect 3000 ms; verify 2 lần</td><td>Địa chỉ I2C (AT24C32+DS3231 chung bus), dây SDA/SCL, pull-up, nguồn 3.3V module</td></tr>
+<tr><td>306</td><td><code>RtcDs3231</code></td><td><code>tryAutoRepair()</code></td><td>OSF=1 hoặc dữ liệu không hợp lệ</td><td>3 lần thử, 3000 ms/lần, cần 2 lần xác nhận liên tiếp</td><td>Pin CR2032 module DS3231, tuổi thọ/tiếp xúc pin</td></tr>
+<tr><td>303</td><td><code>power_</code> (reset reason tracking)</td><td><code>resetReasonIsAbnormal()</code></td><td><code>esp_reset_reason()</code> = PANIC/WDT/BROWNOUT...</td><td>Không tự phục hồi — cần ACK</td><td>Nguồn cấp ổn định (brownout?), tần suất reset lặp lại</td></tr>
+<tr><td>304</td><td><code>OutputArbiter</code></td><td><code>forceSafe()</code></td><td>2 đầu ra loại trừ nhau cùng bật</td><td>Không tự phục hồi — cần ACK + kiểm tra phần cứng</td><td>Relay/SSR kẹt tiếp điểm, dây điều khiển đầu ra chéo nhau</td></tr>
+<tr><td>314</td><td>Safety journal (NVS)</td><td><code>safetyJournal_.begin()</code></td><td>Ghi NVS thất bại</td><td>Không tự phục hồi — cần ACK</td><td>Vòng đời flash NVS, có thể cần format lại phân vùng (thao tác kỹ thuật viên)</td></tr>
+</table>
+<h3>Task / Watchdog</h3>
+<div class="kv">
+<div>Control Task WDT</div><div><code>CONTROL_WDT_TIMEOUT_MS</code> = 5000 ms, <code>trigger_panic=true</code></div>
+<div>Supervisor</div><div>So <code>controlHeartbeatMs</code>/<code>hmiHeartbeatMs</code>; trip khi mất nhịp tim hoặc <code>CONTROL_CYCLE_TRIP_COUNT</code> chu kỳ chậm liên tiếp</div>
+<div>Hành động khi trip</div><div><code>vTaskSuspend</code> control task → <code>mayapSafeOutputsEarly()</code> → chờ <code>SUPERVISOR_RESTART_FALLBACK_MS</code> (7000 ms) → <code>esp_restart()</code></div>
+<div>Ghi chú</div><div>HMI/Network task <b>không</b> có Task WDT riêng; heartbeat HMI được Supervisor đọc nhưng chỉ dùng để log, không có hành động phục hồi tương ứng.</div>
+</div>
+<h3>Console chẩn đoán qua cổng Serial</h3>
+<p class="small">Chỉ hoạt động khi firmware build với cờ <code>MAYAP_DIAGNOSTIC_SERIAL</code> — dùng cáp USB nối
+máy tính, mở terminal serial (baud theo cấu hình build), gõ lệnh và Enter. Xử lý trong
+<code>handleSerialLine()</code>, <code>machine_control.h</code>.</p>
+<table class="nobreak">
+<tr><th>Lệnh</th><th>Chức năng</th></tr>
+<tr><td><code>LOG</code></td><td>Bật ngay log debug ra Serial (không cần tham số) — tương ứng cờ debug nhắc tới ở Phần 19 (LCD).</td></tr>
+<tr><td><code>EXIT</code></td><td>Tắt log debug Serial (đối xứng với <code>LOG</code>).</td></tr>
+<tr><td><code>LOG SHOW / FILES / CLEAR</code></td><td>Xem/quản lý log chi tiết mẻ ấp đã ghi.</td></tr>
+<tr><td><code>STATUS</code></td><td>In nhanh trạng thái vận hành hiện tại.</td></tr>
+<tr><td><code>CONFIG</code></td><td>In toàn bộ cấu hình đang dùng (bao gồm các mục Nâng cao ở Phần 4).</td></tr>
+<tr><td><code>POWER</code></td><td>In thông tin nguồn/lý do khởi động lại gần nhất.</td></tr>
+<tr><td><code>BATCH START / STOP</code></td><td>Bắt đầu/dừng mẻ ấp từ dòng lệnh (tương đương HMI/Web).</td></tr>
+<tr><td><code>ACK</code></td><td>Xác nhận (ACK) cảnh báo latching từ dòng lệnh.</td></tr>
+<tr><td><code>FAULT LIST / CLEAR</code></td><td>Liệt kê / xoá cảnh báo hiện có.</td></tr>
+<tr><td><code>TIME SET &lt;ngày&gt; &lt;giờ&gt;</code></td><td>Đặt lại giờ RTC thủ công.</td></tr>
+<tr><td><code>DIAG ON / OFF</code></td><td>Bật/tắt các khối chẩn đoán mở rộng khác.</td></tr>
+<tr><td><code>HELP</code></td><td>In danh sách lệnh.</td></tr>
+</table>
+<div class="callout warn">Console này dành cho kỹ thuật viên có cáp USB kết nối trực tiếp — không phải kênh
+vận hành thường ngày. Các lệnh <code>BATCH</code>/<code>ACK</code>/<code>FAULT CLEAR</code> tác động thật lên
+máy giống hệt thao tác trên HMI/Web, cần cẩn trọng như khi thao tác tại chỗ.</div>
+<h3>Truy vết nguồn (Source Traceability)</h3>
+<p class="small">Mọi phát biểu quan trọng trong tài liệu này có thể truy ngược theo chuỗi: <i>Nội dung manual → E-code/function → file source → dòng logic cụ thể</i>. Chi tiết đầy đủ (kèm số dòng) nằm trong <code>audit/OPERATION_RECOVERY_MANUAL.md</code> — tài liệu audit gốc dùng làm nguồn cho manual này.</p>
+</section>
+
+<!-- ===================== 19. LIMITATIONS ===================== -->
+<section class="section" id="p-limits">
+<h2>19. GIỚI HẠN ĐÃ BIẾT (KNOWN LIMITATIONS)</h2>
+<ul>
+<li><b>LCD:</b> không có mã lỗi (E-code) nếu mất kết nối kéo dài không phục hồi được — chỉ ghi log Serial nội bộ (chỉ khi bật chế độ debug), không có cảnh báo nào đẩy ra HMI khác/Web/Cloud Push.</li>
+<li><b>RTC:</b> không có cảnh báo "pin sắp hết" — DS3231 không cung cấp phép đo mức pin cho firmware đọc; chỉ phát hiện được SAU KHI pin đã hết/mất hoàn toàn (qua cờ OSF).</li>
+<li><b>Sensor:</b> chưa có kiểm tra "giá trị đứng yên" (stuck/frozen) dài hạn — một cảm biến kẹt ở giá trị hợp lệ (ví dụ luôn báo 30°C) sẽ không bị bắt bởi kiểm tra ngoài dải lẫn kiểm tra bước nhảy đột ngột hiện có.</li>
+<li><b>E112 (Quá nhiệt khẩn cấp):</b> không latching — tự xoá cảnh báo ngay khi nhiệt hạ, không bắt buộc ACK, dù là mức nghiêm trọng nhất hệ thống. Xem cảnh báo an toàn tại Fault Card E112 (Phần 12).</li>
+<li><b>Supervisor:</b> khi task điều khiển "treo", hành động DUY NHẤT là khởi động lại toàn bộ chip (<code>esp_restart()</code>) — không có "thử lại tại chỗ"/phục hồi từng phần. Reset hệ thống ≠ phục hồi module bị lỗi.</li>
+<li><b>HMI/Network task:</b> không có Task WDT riêng và không có hành động phục hồi tương ứng khi "treo" (chỉ ghi log khi heartbeat HMI đổi trạng thái).</li>
+<li><b>Web:</b> không có chức năng ACK cảnh báo, Test Mode, hoặc điều khiển tay từng output — chỉ 5 lệnh cố định (<code>batch_start/stop</code>, <code>resume_yes/no</code>, <code>autotune_start</code>) và lưu cấu hình.</li>
+</ul>
+</section>
+
+<!-- ===================== 20. RECOVERY MATRIX ===================== -->
+<section class="section" id="p-matrix">
+<h2>20. BẢNG TỔNG HỢP RECOVERY MATRIX</h2>
+<table style="font-size:7.4pt">
+<tr><th>Module</th><th>Detect</th><th>Retry</th><th>Recovery</th><th>Auto Clear</th><th>ACK</th><th>E-code</th><th>Người vận hành</th></tr>
+<tr><td>LCD</td><td>Có</td><td>Có (vô hạn, 3s)</td><td>Có (I2C bus recovery + re-init)</td><td>Có</td><td>Không</td><td>Không có</td><td>Chờ; gọi kỹ thuật nếu kéo dài</td></tr>
+<tr><td>EEPROM</td><td>Có</td><td>Có</td><td>Có (reconnect + verify 2 lần)</td><td>Có (khi &lt;3 lỗi)</td><td>Có (301)</td><td>301, 302</td><td>Không mở tủ; gọi kỹ thuật nếu 301</td></tr>
+<tr><td>RTC</td><td>Có</td><td>Có</td><td>Có điều kiện (shadow clock)</td><td>Có</td><td>Không</td><td>306</td><td>Kiểm tra giờ; chỉnh tay nếu cần</td></tr>
+<tr><td>Sensor</td><td>Có</td><td>Có</td><td>Có (sau 3 mẫu tốt liên tiếp)</td><td>Có</td><td>Không</td><td>101, 102, 103</td><td>Kiểm tra dây/đầu dò</td></tr>
+<tr><td>Wi-Fi</td><td>Có</td><td>Có (vô hạn, backoff)</td><td>Có</td><td>Có</td><td>Không</td><td>Không có (chỉ hiển thị online/offline)</td><td>Không cần dừng máy</td></tr>
+<tr><td>MQTT/Cloud</td><td>Có</td><td>Có (vô hạn, backoff)</td><td>Có</td><td>Có</td><td>Không</td><td>Không có</td><td>Không cần dừng máy</td></tr>
+<tr><td>Supervisor (task control)</td><td>Có</td><td>Không (chỉ reset)</td><td>Không tại chỗ — chỉ reset toàn hệ thống</td><td>—</td><td>Gián tiếp qua 303</td><td>303 (ở lần boot kế)</td><td>Kiểm tra nguồn nếu lặp lại</td></tr>
+<tr><td>Motor đảo (201-204)</td><td>Có</td><td>Không (dừng ngay khi lỗi)</td><td>Không tự — cần ACK</td><td>Không</td><td>Có</td><td>201, 202, 203, 204</td><td>Kiểm tra cơ khí, ACK</td></tr>
+<tr><td>Motor đảo (205)</td><td>Có</td><td>Không</td><td>Không tự — cần Test Mode dual-verify</td><td>Không (đặc biệt)</td><td>Không nhận ACK thường</td><td>205</td><td>Dừng mẻ, Test Mode</td></tr>
+<tr><td>Heater (nhiệt)</td><td>Có (qua sensor/công tắc)</td><td>—</td><td>Tự khi điều kiện hết (không latching)</td><td>Có</td><td>Không (trừ khi kèm 301/303/314)</td><td>110-115, 130</td><td>Theo Fault Card tương ứng</td></tr>
+<tr><td>Fan (quạt)</td><td>Gián tiếp (bị ép bật khi có lỗi nhiệt/sensor)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>Không có E-code riêng cho quạt</td><td>—</td></tr>
+<tr><td>Output (interlock tổng)</td><td>Có</td><td>Không</td><td>Không tự — cần ACK + kiểm tra phần cứng</td><td>Không</td><td>Có</td><td>304</td><td>Dừng máy, gọi kỹ thuật ngay</td></tr>
+<tr><td>Batch (mẻ ấp)</td><td>Có</td><td>Có (ghi EEPROM)</td><td>Có điều kiện (resume tự động/hỏi xác nhận, cần <code>turningEnabled</code> bật)</td><td>Có</td><td>Có (313)</td><td>132, 133, 134, 135, 136, 137, 313</td><td>Xem Phần 10/14</td></tr>
+<tr><td>Giám sát sức khoẻ hệ thống (Heap/EEPROM/nhiệt dự đoán)</td><td>Có</td><td>—</td><td>Tự (theo xu hướng trở lại bình thường), riêng 402 tự khởi động lại</td><td>Có</td><td>Không</td><td>401, 402, 403, 404</td><td>Chỉ theo dõi, xem Phần 12</td></tr>
+</table>
+</section>
+
+<!-- ===================== 21. REVISION HISTORY ===================== -->
+<section class="section" id="p-rev">
+<h2>21. LỊCH SỬ PHÁT HÀNH</h2>
+<table>
+<tr><th>Revision</th><th>Date</th><th>Description</th><th>Author</th></tr>
+<tr><td>1.0</td><td>27/08/2026</td><td>Phát hành lần đầu — dựng từ phân tích static source code firmware v3.4.0 (điều khiển) / v3.6.0 (HMI) và <code>audit/OPERATION_RECOVERY_MANUAL.md</code>.</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
+<tr><td>1.1</td><td>15/09/2026</td><td>Cập nhật khớp firmware/HMI v3.7.1: thêm màn hình HMI/Web "Nâng cao" (PID Kp/Ki/Kd, chu kỳ SSR, trần công suất, ngưỡng chẩn đoán tốc độ/dao động nhiệt, ngưỡng nghi kẹt rơ-le nhiệt, công suất AutoTune); bổ sung Fault Card E137 và nhóm E401-E404 (giám sát sức khoẻ hệ thống) còn thiếu trong Phần 12/20; ghi nhận các thông báo đẩy Cloud Push không có E-code (đèn còn bật giữa mẻ, đảo trứng ngừng bất thường, sắp đến ngày nở/quá hạn, Wi-Fi yếu kéo dài, chưa có thiết bị nhận thông báo); mô tả "Bù nhiệt độ" nay có trên HMI; làm rõ điều kiện <code>turningEnabled</code> phải bật để bắt đầu/áp lại mẻ (Phần 7/10); Web nay hiện đếm ngược "Đảo sau X phút" và có giao diện Sáng/Tối; bổ sung mục lệnh <code>LOG/EXIT</code> vào console chẩn đoán Serial (Phần 18).</td><td>Claude Code (theo yêu cầu người dùng)</td></tr>
+</table>
+<div class="callout">
+Tài liệu được xây dựng dựa trên phân tích source code và cấu hình firmware tại thời điểm phát hành. Các hành
+vi thực tế trên phần cứng cần được xác nhận bằng kiểm thử thực tế trước khi phát hành tài liệu chính thức cho
+khách hàng.
+</div>
+</section>
+
+</body>
+</html>

@@ -1,0 +1,824 @@
+
+/* ============================== Design tokens ============================== */
+:root{
+  --ink:#203a43;--muted:#526c76;--label:#36565f;
+  --line:#dfecef;--lineSoft:#eaf2f4;--tile:#f5fafb;
+  --surface:#fff;--wash:#f0f8f9;
+  --primary:#64c9d1;--onPrimary:#173e45;--primary2:#286974;--chartLine:#286974;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#e5f6f7;
+
+  --danger:#be4147;--dangerSoft:#fff0f1;
+  --warning:#e29b1d;--warningDark:#8a5a0a;--warningSoft:#fdf1de;
+  --emergency:#7a1f1f;--emergencySoft:#f6dede;
+  --faint:#5e767e;
+  --ring:#286974;
+  --shadow:0 2px 8px rgba(21,44,57,.035);--shadowSm:0 1px 3px rgba(21,44,57,.025);
+  --radius:18px;--radius-md:14px;--radius-sm:10px;--navH:86px;
+  --ease:.16s ease;
+  --safeTop:env(safe-area-inset-top,0px);--safeBottom:env(safe-area-inset-bottom,0px);
+  --safeBottomMax:env(safe-area-max-inset-bottom,env(safe-area-inset-bottom,0px));
+  --workspaceColumns:minmax(0,1.35fr) minmax(340px,.65fr);--workspaceGap:18px;
+  /* Thang chu gioi han ~9 muc (thay vi hon 30 gia tri le te truoc do) de
+     giao dien nhat quan, du lon de doc thoai mai tren man hinh lon. */
+  --fs-2xs:11px;--fs-xs:12px;--fs-sm:13px;--fs-base:14px;--fs-md:16px;
+  --fs-lg:18px;--fs-xl:22px;--fs-2xl:26px;--fs-3xl:34px;
+  /* Nen trang don sac + cac mau chu/vien gan chet trong markup (trang
+     thai bat/tat, chip nhe...) - tach thanh token de giao dien toi (xem
+     [data-theme="dark"] o cuoi file) doi duoc dong bo, khong phai do lai
+     tung noi. Mau thuong hieu va chu tren nut duoc tach rieng de du tuong phan. */
+  --bodyBg:#f3f8f9;--topbarBg:#f3f8f9;
+  --softBg:#f4fafc;--softText:#526c76;
+  --successText:#187746;--successTextStrong:#087b51;--successTextSoft:#0f6b52;
+  --dangerTextStrong:#9c3b40;
+  --onBorder:#b7dfe4;--dangerBorder:#eeb3b6;--warningBorder:#eecf9e;--emergencyBorder:#d59a9a;
+  --invalidBorder:#d95d62;--invalidBg:#fff8f8;--invalidRing:#d95d6218;
+  --chipBg:#edf7f8;
+  --navBg:#fff;--navText:#4b6872;--navHover:#edf8f9;--navActive:#d9f1f3;--navActiveText:#235760;--navBorder:#dfecef;
+  --switchOff:#d4e4e8;
+  color-scheme:light
+}
+/* Giao dien toi: bam nut trong "Cai dat > Giao dien" ghi data-theme len
+   <html> (xem app.js applyTheme()) va luu localStorage - "he thong" (khong
+   ghi thuoc tinh) thi theo prefers-color-scheme cua trinh duyet/OS. Nen,
+   the, dieu huong, chu va vien cung doi theo theme. Toast/canh bao giu
+   mau rieng de phan biet ro voi mau thuong hieu. */
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --ink:#f4fafc;--muted:#c4d5dc;--label:#deedf3;
+    --line:#4a6774;--lineSoft:#36515e;--tile:#304b58;
+    --surface:#243944;--wash:#36515e;
+    --primary:#64c9d1;--onPrimary:#173e45;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#2b5561;
+
+    --danger:#ff7a7a;--dangerSoft:#2a151a;
+    --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
+    --emergency:#ff8a8a;--emergencySoft:#331515;
+    --faint:#c4d5dc;
+    --ring:#92dce2;
+    --shadow:none;--shadowSm:none;
+    --bodyBg:#17272f;--topbarBg:#17272f;
+    --softBg:#304b58;--softText:#deedf3;
+    --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
+    --dangerTextStrong:#ff9a9a;
+    --onBorder:#4b737c;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+    --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
+    --chipBg:#304b58;
+    --navBg:#243944;--navText:#c4d5dc;--navHover:#365865;--navActive:#315864;--navActiveText:#f4fcff;--navBorder:#4a6774;
+    --switchOff:#4a6774
+  }
+  /* Mui ten <select> la SVG data-URI (khong doi mau qua var duoc) - doi rieng
+     sang net sang de con thay ro tren nen input toi. */
+  :root:not([data-theme="light"]) select,
+  :root:not([data-theme="light"]) .customSelectTrigger{
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2392dce2' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --ink:#f4fafc;--muted:#c4d5dc;--label:#deedf3;
+  --line:#4a6774;--lineSoft:#36515e;--tile:#304b58;
+  --surface:#243944;--wash:#36515e;
+  --primary:#64c9d1;--onPrimary:#173e45;--primary2:#92dce2;--chartLine:#64c9d1;--dangerAction:#b52645;--attentionBg:#815713;--primarySoft:#2b5561;
+
+  --danger:#ff7a7a;--dangerSoft:#2a151a;
+  --warning:#f5a742;--warningDark:#f5a742;--warningSoft:#332512;
+  --emergency:#ff8a8a;--emergencySoft:#331515;
+  --faint:#c4d5dc;
+  --ring:#92dce2;
+  --shadow:none;--shadowSm:none;
+  --bodyBg:#17272f;--topbarBg:#17272f;
+  --softBg:#304b58;--softText:#deedf3;
+  --successText:#4ade80;--successTextStrong:#34d399;--successTextSoft:#2dd4a0;
+  --dangerTextStrong:#ff9a9a;
+  --onBorder:#4b737c;--dangerBorder:#5a2328;--warningBorder:#5a4020;--emergencyBorder:#5a2626;
+  --invalidBorder:#ff7a7a;--invalidBg:#2a151a;--invalidRing:#ff7a7a33;
+  --chipBg:#304b58;
+  --navBg:#243944;--navText:#c4d5dc;--navHover:#365865;--navActive:#315864;--navActiveText:#f4fcff;--navBorder:#4a6774;
+  --switchOff:#4a6774
+}
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] .customSelectTrigger{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%2392dce2' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E")
+}
+/* text-size-adjust khai bao tren html{} khong du: Chrome/Safari dien thoai
+   "font boosting" (TextAutosizer) danh gia RIENG tung khoi/cum chu hep (vd
+   moi o trong .outputStrip, .compactTile...), tung noi chi phat hien qua bao
+   cao thuc te tung o mot (Trang thai, roi Thanh nhiet/Tuan hoan...). Thay vi
+   va lai tung selector moi lan phat hien them, khai bao thang len * de MOI
+   phan tu deu tu co thuoc tinh nay, khong con phu thuoc ke thua/thu tu CSS. */
+*{box-sizing:border-box;-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%}
+html{background:var(--bodyBg);scroll-behavior:smooth;-webkit-text-size-adjust:100%;-moz-text-size-adjust:100%;text-size-adjust:100%;width:100%;max-width:100%;overflow-x:clip}
+body{width:100%;max-width:100%;overflow-x:clip}
+/* Cam bam giu/sao chep chu de tao cam giac ung dung, khong phai trang wed - giu lai cho o nhap lieu de con go/dan duoc. */
+html,body{-webkit-user-select:none;-moz-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,[contenteditable]{-webkit-user-select:text;-moz-user-select:text;user-select:text;-webkit-touch-callout:default}
+body{margin:0;color:var(--ink);font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;font-size:var(--fs-base);line-height:1.4;background:var(--bodyBg);min-height:100vh;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;transition:background var(--ease),color var(--ease)}
+/* Khóa chiều ngang: mọi khối co theo viewport, không sinh thanh cuộn ngang. */
+.appShell,.main,.topbar,.page,.panel,.batchPanel,.batchGrid,.batchGrid>*,
+.compactTile,.compactTile input,.batchActions,.batchActions>*{min-width:0;max-width:100%}
+.appShell{width:100%;overflow-x:clip}
+.srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;white-space:nowrap;clip-path:inset(50%);border:0}
+@supports not (overflow:clip){html,body,.appShell{overflow-x:hidden}}
+button,input,select{font:inherit}
+button{-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--primary2);outline-offset:2px;border-radius:6px}
+input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
+/* Focus theo theme; nut canh bao/toast dam giu vien trang. */
+.primary:focus-visible,.addDevice:focus-visible,.nav button:focus-visible{outline-color:var(--ring)}
+.dangerButton:focus-visible,.primary.attention:focus-visible,.toast:focus-visible{outline-color:#fff}
+
+/* ================================= Shell ==================================== */
+.appShell{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr)}
+.sidebar{position:fixed;inset:0 auto 0 0;width:240px;padding:24px 20px;background:#103a33;color:#fff;display:flex;flex-direction:column;z-index:40}
+.brand{display:flex;align-items:center;gap:12px}
+.brandMark{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;background:var(--primary);color:var(--onPrimary);font-weight:950;font-size:21px}
+.brand strong,.brand small{display:block}
+.brand strong{font-size:var(--fs-md);letter-spacing:.2px}
+.brand small{margin-top:3px;color:#a9c8c2;font-size:var(--fs-xs)}
+
+.nav{display:grid;gap:6px;margin-top:36px}
+.nav button{border:0;border-radius:14px;background:transparent;color:#bfd4d0;min-height:52px;padding:8px 14px;display:flex;align-items:center;gap:12px;cursor:pointer;text-align:left;transition:background var(--ease),color var(--ease)}
+.nav button span{display:grid;place-items:center;flex:0 0 24px;width:24px;height:24px;font-size:20px;line-height:1;text-align:center}
+.nav button span svg{display:block;width:22px;height:22px;margin:auto}
+.nav button b{font-size:var(--fs-sm);font-weight:700;line-height:1.25}
+.nav button:hover{background:#1a4941;color:#fff}
+.nav button.active{background:#205b51;color:#fff}
+.nav button.active:hover{background:#205b51}
+
+.sideState{margin-top:auto;display:flex;align-items:center;gap:10px;padding:13px;border:1px solid #315c55;border-radius:14px}
+.sideState i{width:10px;height:10px;border-radius:50%;background:#53d7a4;box-shadow:0 0 0 5px #53d7a422;animation:pulse 2.6s ease-in-out infinite}
+.sideState strong,.sideState small{display:block}
+.sideState strong{font-size:var(--fs-xs)}
+.sideState small{margin-top:2px;color:#a8c5c0;font-size:var(--fs-2xs)}
+
+.main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
+.topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:var(--workspaceColumns);gap:var(--workspaceGap);align-items:center;padding:calc(20px + var(--safeTop)) 0 16px;background:var(--topbarBg);transition:background var(--ease)}
+/* Giữ dải thông số thẳng hàng với nội dung cài đặt. */
+body[data-page="settings"] .topbar{max-width:960px}
+.title{display:flex;flex-direction:column;justify-content:center;min-width:0}
+.title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
+.title p{margin:5px 0 0;color:var(--muted);font-size:var(--fs-sm);line-height:1.4;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.headerReadings{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,.85fr) minmax(140px,1.15fr);min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:16px}
+.live{position:relative;display:flex;flex-direction:column;justify-content:center;min-width:0;min-height:74px;padding:12px 14px}
+.live:first-child{border-radius:15px 0 0 15px}
+.live:last-child{border-radius:0 15px 15px 0}
+.live+.live::before{content:"";position:absolute;left:0;top:18px;bottom:18px;width:1px;background:var(--lineSoft);pointer-events:none}
+/* Chỉ định dạng con trực tiếp để không ảnh hưởng dấu cảnh báo và popup lỗi.
+   Dải thông số không cắt overflow: popup phải mở được bên ngoài dải. */
+.live>span,.live>strong{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live>span{color:var(--muted);font-size:var(--fs-2xs);line-height:1.25;font-weight:600}
+.live>strong{font-size:22px;line-height:28px;font-weight:800;margin-top:5px;font-variant-numeric:tabular-nums}
+#liveState{font-size:18px;letter-spacing:-.2px}
+#liveStateTile{position:relative;transition:background var(--ease),border-color var(--ease)}
+#liveStateTile.tile-clickable{cursor:pointer}
+#liveStateTile.tile-warn{background:var(--warningSoft);border-color:var(--warningBorder)}
+#liveStateTile.tile-warn #liveState{color:var(--warningDark)}
+#liveStateTile.tile-stop{background:var(--dangerSoft);border-color:var(--dangerBorder)}
+#liveStateTile.tile-stop #liveState{color:var(--danger)}
+#liveStateTile.tile-emergency{background:var(--emergencySoft);border-color:var(--emergencyBorder)}
+#liveStateTile.tile-emergency #liveState{color:var(--emergency)}
+.faultMark{display:inline-block;width:16px;height:16px;vertical-align:-2px;margin-left:2px;background:var(--warningDark);mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v6M12 17v.1'/%3E%3C/svg%3E") center/contain no-repeat}
+.faultPopup{position:absolute;top:calc(100% + 8px);right:0;z-index:50;width:min(88vw,360px);max-height:min(60vh,420px);overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:12px 14px;text-align:left;cursor:default;white-space:normal}
+.faultPopupItem+.faultPopupItem{margin-top:11px;padding-top:11px;border-top:1px solid var(--lineSoft)}
+.faultPopupHead{display:flex;align-items:baseline;gap:6px;margin-bottom:4px}
+.faultPopupCode{font-size:var(--fs-lg);font-weight:800;color:var(--ink)}
+.faultPopupCode.sev-warn{color:var(--warningDark)}
+.faultPopupCode.sev-stop{color:var(--danger)}
+.faultPopupCode.sev-emergency{color:var(--emergency)}
+.faultPopupTitle{font-size:var(--fs-sm);font-weight:700;color:var(--ink)}
+.faultPopup p{margin:0;font-size:var(--fs-xs);color:var(--muted);line-height:1.5}
+
+/* ================================= Panels ==================================== */
+.page{display:none;min-width:0;width:100%}
+.page.active{display:grid;gap:20px;min-width:0;width:100%}
+.page#page-batch.active{display:block}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:26px;box-shadow:var(--shadow)}
+
+.panelHead,.deviceTop,.dialogHead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}
+.panel h2,.dialogHead h2,.confirmBody h2{margin:2px 0 0;font-size:var(--fs-xl);font-weight:700;letter-spacing:-.3px}
+.eyebrow{margin:0;color:var(--primary2);font-size:var(--fs-2xs);letter-spacing:1px;font-weight:800}
+
+.pill{display:inline-flex;align-items:center;justify-content:center;padding:7px 13px;border-radius:999px;font-size:var(--fs-2xs);font-weight:800;letter-spacing:.2px;white-space:nowrap;flex-shrink:0}
+.pill.online{background:var(--primarySoft);color:var(--successText)}
+.pill.offline{background:var(--warningSoft);color:var(--warningDark)}
+.pill.soft{background:var(--softBg);color:var(--softText)}
+
+.deviceCompact{padding:22px}
+.deviceHeading{margin:2px 0 0!important;align-self:flex-start;color:var(--ink);font-size:var(--fs-xl)!important;font-weight:700!important;line-height:1.25;letter-spacing:-.3px!important;white-space:nowrap}
+.statusBlock{text-align:right;min-width:0;max-width:55%}
+.statusBlock small{display:block;margin-top:6px;color:var(--muted);font-size:var(--fs-2xs);line-height:1.3;overflow-wrap:anywhere}
+.deviceIdentity{min-width:0;flex:1}
+#dataFreshness{display:block;margin-top:6px;color:var(--muted);font-size:10px;line-height:1.3;white-space:nowrap}
+
+.devicePickerRow{display:flex;align-items:end;gap:10px;margin-top:18px}
+.devicePickerRow .customSelect{gap:0}
+.grow{flex:1}
+.addDevice{flex:0 0 54px;height:54px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primary);color:var(--onPrimary);font-size:26px;line-height:1;cursor:pointer;box-shadow:var(--shadowSm);display:grid;place-items:center;transition:filter var(--ease),transform var(--ease)}
+.addDevice:hover{filter:brightness(1.06)}
+.addDevice:active{transform:translateY(1px);filter:brightness(.92)}
+
+/* ================================= Forms ==================================== */
+.field{display:grid;gap:8px}
+.field>span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
+input,select,textarea,.customSelectTrigger{width:100%;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);color:var(--ink);font-size:var(--fs-md);padding:0 14px;outline:0;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease),color var(--ease)}
+select,.customSelectTrigger{appearance:none;-webkit-appearance:none;padding-right:44px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23286974' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m7 10 5 5 5-5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 16px center;background-size:16px}
+textarea{padding:12px 14px;font-family:inherit;resize:vertical}
+input:hover,select:hover,textarea:hover,.customSelectTrigger:hover{border-color:#a9c2bc}
+input:focus,select:focus,textarea:focus,.customSelectTrigger:focus-visible{border-color:var(--ring);box-shadow:0 0 0 3px #64c9d133}
+input::placeholder,textarea::placeholder{color:var(--faint)}
+input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{opacity:.6;cursor:not-allowed;background-color:var(--tile)}
+
+/* Don vi (Giay/%/°C/Phut) dat truc tiep trong .field (KHONG phai
+   .compactTile, vd Dao trung/Cam bien) - o day .unit PHAI TU LAM KHUNG (nhu
+   1 input binh thuong), vi input ben trong von thiet ke trong suot chi hop
+   khi nam trong .compactTile/.quickField. Thieu quy tac nay la nguyen nhan
+   "khung vo hinh" trong cac muc nay truoc do. */
+.field>.unit{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--surface);padding:0 14px;min-height:52px;transition:border-color var(--ease),box-shadow var(--ease),background var(--ease)}
+.field>.unit:hover{border-color:#a9c2bc}
+.field>.unit:focus-within{border-color:var(--ring);box-shadow:0 0 0 3px #64c9d133}
+.field>.unit input{font-size:var(--fs-md);font-weight:700;min-height:50px}
+.field>.unit b{font-size:var(--fs-sm)}
+
+.fieldWithAction{display:flex;gap:8px}
+.fieldWithAction input{flex:1;min-width:0}
+.scanBtn{flex:0 0 52px;width:52px;height:52px;min-height:52px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center;cursor:pointer;transition:filter var(--ease)}
+.scanBtn:hover{filter:brightness(.97)}
+/* Man quet QR toan man hinh (kieu Google Lens) - dat NGOAI <dialog>, tu no
+   la 1 lop phu rieng nen hop thoai "Them thiet bi" phia sau van giu nguyen
+   dang cu (chi them nut may anh canh o ID), khong bi bien dang khi bat
+   dau quet. Camera phu kin man hinh cho cam giac hien dai/"nhap vai" thay
+   vi 1 khung nho gian trong hop thoai; khung ngam 4 goc + vet quet dong
+   cho biet ro day la may quet dang hoat dong (khong phai man den do loi),
+   ghi chu duoi cung tranh cam giac trong rong o phan khong co gi de nhin. */
+.qrScanOverlay{position:fixed;inset:0;z-index:200;background:#0a1815;display:flex;flex-direction:column}
+/* .qrScanOverlay tu dat display:flex nen DE LEN hanh vi an mac dinh cua
+   thuoc tinh hidden (quy tac tac gia luon thang UA stylesheet trong CSS
+   cascade) - phai khai bao lai display:none tuong minh khi co [hidden],
+   neu khong element van "an" ve mat hinh anh (khong, thuc ra van HIEN vi
+   display:flex thang the) va van chan click xuyen qua no. Loi nay tung bi
+   phat hien qua Playwright: nut "+" bi che du overlay dang [hidden]. */
+.qrScanOverlay[hidden]{display:none}
+.qrScanOverlay video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+.qrScanTop{position:relative;z-index:2;display:flex;justify-content:flex-end;padding:calc(14px + var(--safeTop)) 14px 0}
+.qrScanClose{width:40px;height:40px;border:0;border-radius:50%;background:#00000066;color:#fff;font-size:22px;line-height:1;cursor:pointer;backdrop-filter:blur(4px)}
+.qrScanClose:hover{background:#00000088}
+/* Khung ngam vuong o giua man, ty le theo min(vw,vh) de luon vuong du man
+   doc/ngang; 4 goc bo (giong may quet chuyen nghiep) thay vi 1 khung vien
+   lien tuc - de mat nguoi dung tu nhien don vao vung giua khung. */
+.qrViewfinder{position:relative;z-index:2;flex:1;margin:0 auto;width:min(72vw,72vh,320px);aspect-ratio:1;align-self:center}
+.qrCorner{position:absolute;width:34px;height:34px;border:3px solid #64c9d1}
+.qrCornerTl{top:0;left:0;border-right:0;border-bottom:0;border-top-left-radius:10px}
+.qrCornerTr{top:0;right:0;border-left:0;border-bottom:0;border-top-right-radius:10px}
+.qrCornerBl{bottom:0;left:0;border-right:0;border-top:0;border-bottom-left-radius:10px}
+.qrCornerBr{bottom:0;right:0;border-left:0;border-top:0;border-bottom-right-radius:10px}
+.qrScanLine{position:absolute;left:6%;right:6%;top:0;height:2px;background:var(--primary);box-shadow:none;animation:qrScanMove 2.2s ease-in-out infinite}
+@keyframes qrScanMove{0%,100%{top:4%}50%{top:94%}}
+.qrScanFooter{position:relative;z-index:2;padding:18px 24px calc(28px + var(--safeBottomMax));text-align:center;background:#10232d}
+.qrScanFooter p{margin:0;color:#fff;font-size:var(--fs-sm);font-weight:700}
+.qrScanFooter small{display:block;margin-top:6px;color:#b7ccc6;font-size:var(--fs-xs)}
+@media(prefers-reduced-motion:reduce){.qrScanLine{animation:none;top:50%}}
+/* Dropdown "Thiet bi" thay the <select> mac dinh (khong the bo goc/tao kieu
+   phan list xo xuong tren hau het trinh duyet, dac biet iOS Safari) bang 1
+   nut + panel tu ve, bo goc/do bong dong bo voi he thong thiet ke. <select>
+   that van giu nguyen an trong DOM lam noi luu gia tri that + bao mat
+   'change' cho code hien co, khong bao gio tu mo len nguoi dung. */
+.customSelect{position:relative}
+.customSelectNative{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;white-space:nowrap;border:0;clip:rect(0,0,0,0)}
+.customSelectTrigger{text-align:left;cursor:pointer;font-weight:700}
+.customSelectTrigger span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.customSelectPanel{position:absolute;top:calc(100% + 6px);left:0;right:0;z-index:40;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-md);box-shadow:var(--shadow);padding:6px;max-height:264px;overflow-y:auto}
+.customSelectOption{display:block;width:100%;border:0;background:transparent;border-radius:10px;padding:11px 12px;margin:0;text-align:left;font-size:var(--fs-sm);font-weight:600;color:var(--ink);cursor:pointer;transition:background var(--ease)}
+.customSelectOption:hover,.customSelectOption:focus-visible{background:var(--wash);outline:none}
+.customSelectOption[aria-selected="true"]{background:var(--primarySoft);color:var(--primary2);font-weight:800}
+
+.quickGrid,.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+.quickField{border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile);padding:16px}
+.quickField>span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
+.quickField>div,.unit{display:flex;align-items:center}
+.quickField input,.unit input{border:0;border-radius:0;background:transparent;padding:0;box-shadow:none;min-height:44px;font-weight:800;font-size:26px}
+.quickField b,.unit b{font-size:var(--fs-lg);font-weight:700;color:var(--muted);white-space:nowrap;margin-right:4px}
+/* Dong bo co chu cua "Thong so van hanh" (trang Thiet bi) voi cac o
+   compactTile ben trang Me ap - cung 1 kieu chu/co so cho nhat quan giua
+   2 trang, dong thoi gon hon de vua 1 man tren mobile. */
+.quickField{padding:13px}
+.quickField>span{font-size:var(--fs-xs)}
+.quickField input{font-size:20px;min-height:36px}
+.quickField b{font-size:var(--fs-md)}
+
+.outputStrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:1fr;gap:10px;margin:16px 0}
+.outputStrip>div,.outputStrip>button{min-width:0;min-height:68px;padding:13px 14px;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);transition:background var(--ease),border-color var(--ease)}
+/* 2 o Den/Coi la nut bam that (xem app.js) - reset kieu button mac dinh
+   cua trinh duyet de trong giong het 4 o hien thi con lai, chi them con
+   tro tay + trang thai nhan/focus de bao hieu co the bam. */
+.outputStrip>button{color:var(--ink);font:inherit;text-align:inherit;width:100%;cursor:pointer;-webkit-tap-highlight-color:transparent}
+.outputStrip>button:active{transform:scale(.97)}
+.outputStrip>button:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.outputStrip span,.outputStrip strong{display:block}
+.outputStrip span{color:var(--muted);font-size:var(--fs-2xs);font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.outputStrip strong{font-size:var(--fs-md);font-weight:700;margin-top:6px}
+.outputStrip strong.on{color:var(--successTextStrong)}
+.outputStrip strong:not(.on){color:var(--faint)}
+#outputSiren.on{color:var(--danger)}
+/* Thiet bi dang bat: sang ca o (nen + vien mau) thay vi chi doi mau chu,
+   de trang thai ON noi bat, de nhan biet tu xa hon la doc tung chu nho. */
+.outputStrip>div.on,.outputStrip>button.on{background:var(--primarySoft);border-color:var(--onBorder)}
+.outputStrip>div.on span,.outputStrip>button.on span{color:var(--successTextSoft)}
+.outputStrip>div.on:has(#outputSiren),.outputStrip>button.on:has(#outputSiren){background:var(--dangerSoft);border-color:var(--dangerBorder)}
+.outputStrip>div.on:has(#outputSiren) span,.outputStrip>button.on:has(#outputSiren) span{color:var(--dangerTextStrong)}
+.outputStrip>button:disabled{cursor:not-allowed;opacity:.6}
+
+.outputStrip.hasHumidifier>button:last-child{grid-column:1/-1;width:calc((100% - 20px)/3);justify-self:center}
+
+.primary,.ghost{min-height:50px;border-radius:var(--radius-md);padding:0 18px;font-weight:700;font-size:var(--fs-sm);cursor:pointer;transition:filter var(--ease),transform var(--ease),background var(--ease),border-color var(--ease),box-shadow var(--ease)}
+.primary{border:1px solid var(--line);background:var(--primary);color:var(--onPrimary);box-shadow:var(--shadowSm)}
+.primary.dark{background:var(--primary);box-shadow:var(--shadowSm)}
+.ghost{border:1px solid var(--line);background:var(--surface);color:var(--label)}
+.primary:hover{filter:brightness(1.05)}
+.primary:active{filter:brightness(.92);transform:translateY(1px)}
+.ghost:hover{border-color:var(--ring);color:var(--primary2);background:var(--wash)}
+.ghost:active{transform:translateY(1px)}
+.full{width:100%}
+.primary:disabled,.ghost:disabled{opacity:.55;cursor:not-allowed;filter:none;transform:none}
+
+.switchRow{display:flex;align-items:center;justify-content:space-between;gap:18px;margin-top:18px;padding:15px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile)}
+.switchRow strong,.switchRow small{display:block}
+.switchRow strong{font-size:var(--fs-base);font-weight:700}
+.switchRow small{margin-top:4px;color:var(--muted);font-size:var(--fs-xs);line-height:1.45}
+.switchRow input,.toggle input{position:absolute;opacity:0;pointer-events:none}
+.switchRow i,.toggle i{--switchWidth:48px;--switchHeight:28px;--thumbSize:22px;display:block;flex-shrink:0;width:var(--switchWidth);height:var(--switchHeight);border-radius:999px;background:var(--switchOff);border:1px solid var(--line);position:relative;cursor:pointer;transition:background var(--ease)}
+.switchRow i:after,.toggle i:after{content:"";box-sizing:border-box;position:absolute;left:2px;top:50%;width:var(--thumbSize);height:var(--thumbSize);border-radius:50%;background:#fff;border:0;box-shadow:0 1px 3px rgba(32,58,67,.12);transform:translateY(-50%);transition:transform var(--ease)}
+.switchRow input:checked+i,.toggle input:checked+i{background:var(--primary)}
+.switchRow input:checked+i:after,.toggle input:checked+i:after{transform:translate(calc(var(--switchWidth) - var(--thumbSize) - 6px),-50%)}
+.switchRow input:focus-visible+i,.toggle input:focus-visible+i{outline:2px solid var(--primary2);outline-offset:2px}
+.actions{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+
+/* Lưới nhập nhanh tối ưu cho màn hình điện thoại (giữ 2 cột ở mọi kích
+   thước theo chủ đích thiết kế gốc, chỉ tăng cỡ chữ/khoảng cách). */
+.batchPanel{padding:22px}
+.batchPanel .panelHead{align-items:center}
+.batchGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-top:16px}
+.batchGrid.noHumidity .compactToggle{grid-column:1/-1;min-height:64px}
+/* 2 cot (khong phai 3) - dang dung cho ca 2 muc Nhiet do va Nang cao, nhieu
+   nhan dai (vd "Toc do tang/giam bat thuong") nen 3 cot lam chu bi bop/
+   xuong dong lien tuc, kho doc. Giu nguyen ten class "tempGrid" (khong doi
+   thanh ten khac) de khong phai sua lai moi noi da tham chieu. */
+.tempGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.compactTile{min-width:0;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--tile);padding:13px 14px;display:grid;align-content:start;gap:6px;min-height:86px;transition:border-color var(--ease)}
+.compactTile:focus-within{border-color:var(--ring)}
+.compactTile>span,.compactTile .tileLabel{display:block;color:var(--label);font-size:var(--fs-xs);font-weight:700;line-height:1.25}
+.compactTile input{min-width:0;max-width:100%;min-height:36px;height:36px;border:0;border-radius:0;background:transparent;padding:0;color:var(--ink);font-size:20px;font-weight:800;box-shadow:none}
+.compactTile input[type=date]{font-size:var(--fs-base);font-weight:700;width:100%;min-width:0;max-width:100%;padding-right:2px}
+/* Don vi (°C / phut / ngay / %RH) phai doc duoc ngang voi con so, khong
+   phai chu chu thich li ti nhu truoc - dat gan bang co so va can day duoi
+   (baseline) de so va don vi nam tren cung mot duong chan. */
+.compactTile .unit{min-height:36px;align-items:baseline}
+.compactTile .unit input{min-width:0}
+.compactTile .unit b{margin-left:auto;margin-right:0;font-size:var(--fs-md);font-weight:700;color:var(--muted)}
+/* Select (vd "Huong dao ke tiep") dat trong compactTile de dong bo hang-cot
+   voi cac o so lieu ben canh - giu nen trong suot cua tile (background-color,
+   KHONG phai shorthand "background" - se xoa mat mui ten SVG cua select, xem
+   .customSelectTrigger:disabled o tren tung bi loi tuong tu), chi bo vien rieng. */
+.compactTile select{border:0;border-radius:0;background-color:transparent;padding:0 22px 0 0;min-height:36px;color:var(--ink);font-size:var(--fs-base);font-weight:700}
+.compactToggle{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.compactToggle .toggle i{--switchWidth:42px;--switchHeight:24px;--thumbSize:18px}
+.compactToggle small{display:block;color:var(--muted);font-size:var(--fs-2xs);line-height:1.35;margin-top:3px}
+.batchActions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:14px}
+.batchActions button{min-height:46px;padding:0 8px;font-size:var(--fs-sm)}
+.temperatureFormCompact{padding:16px}
+.temperatureFormCompact .primary{min-height:46px}
+
+/* Cài đặt theo progressive disclosure */
+.settingsStack{display:grid;gap:10px;max-width:960px}
+.settingGroupLabel{margin:19px 4px 0;color:var(--primary2);font-size:var(--fs-xs);letter-spacing:.55px;font-weight:800;text-transform:uppercase}
+.settingGroupLabel:first-child{margin-top:0}
+.settingCard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadowSm);overflow:hidden}
+.settingCard>summary{list-style:none;cursor:pointer;display:grid;grid-template-columns:44px minmax(0,1fr) 34px;gap:14px;align-items:center;min-height:84px;padding:16px 16px 16px 17px;transition:background var(--ease)}
+.settingCard>summary::-webkit-details-marker{display:none}
+.settingCard>summary:hover{background:var(--wash)}
+.settingCard>summary:focus-visible{outline:2px solid var(--ring);outline-offset:-2px;border-radius:0}
+/* Icon la SVG net mong (khong phai ky tu unicode nhu truoc) - dat width/
+   height thang tren the <svg> nen o day chi can can giua, khong con phai lo
+   font-size/letter-spacing rieng tung icon nhu khi con la text. */
+.settingIcon{position:relative;width:44px;height:44px;border-radius:13px;background:var(--primarySoft);color:var(--primary2);display:grid;place-items:center}
+.settingIcon svg{display:block;width:22px;height:22px}
+/* Cham xanh bao "co ban firmware moi" tren icon muc Cap nhat firmware -
+   don gian, khong choan cho, chi bat/tat qua thuoc tinh [hidden] tu JS (xem
+   renderFirmwareCard() trong app.js). */
+.updateDot{position:absolute;top:-2px;right:-2px;width:11px;height:11px;border-radius:50%;background:var(--primary2);border:2px solid #fff}
+.settingSummary{min-width:0}
+.settingSummary strong,.settingSummary small{display:block}
+.settingSummary strong{font-size:var(--fs-base);font-weight:700}
+.settingSummary small{margin-top:5px;color:var(--muted);font-size:var(--fs-xs);line-height:1.4;overflow-wrap:anywhere}
+.disclosure{width:32px;height:32px;border-radius:10px;background:var(--chipBg);position:relative;justify-self:end;transition:background var(--ease)}
+.disclosure:before,.disclosure:after{content:"";position:absolute;left:9px;right:9px;top:15px;height:2px;border-radius:2px;background:var(--primary2);transition:transform .18s ease}
+.disclosure:after{transform:rotate(90deg)}
+.settingCard[open] > summary .disclosure:after{transform:rotate(0)}
+.settingCard[open] > summary .disclosure{background:var(--primarySoft)}
+.settingCard[open] > summary{border-bottom:1px solid var(--lineSoft)}
+.settingBody{padding:16px;display:grid;gap:12px}
+.settingBody .grid2{margin-top:0}
+.manualActions{gap:12px}
+.manualActions button{width:100%;min-height:50px;text-align:center}
+.settingFootnote{margin:0;color:var(--muted);font-size:var(--fs-sm);line-height:1.5}
+.stackForm{display:grid;gap:10px}
+.reminderFields{display:grid;grid-template-columns:minmax(140px,.35fr) minmax(0,1fr);gap:10px}
+.settingDivider{border:none;border-top:1px solid var(--line);margin:12px 0}
+
+.notificationLine{display:flex;align-items:center;justify-content:space-between;gap:18px;min-width:0;padding:12px 14px;border:1px solid var(--lineSoft);border-radius:var(--radius-sm);background:var(--tile)}
+.notificationLine>div{min-width:0}
+.notificationLine .toggle{flex:0 0 auto;margin-right:4px}
+.notificationLine strong,.notificationLine small{display:block}
+.notificationLine strong{font-size:var(--fs-base);font-weight:700}
+.notificationLine small{font-size:var(--fs-xs);color:var(--muted);margin-top:4px;line-height:1.5}
+.settingHintTrigger{display:block;border:0;padding:4px 0;margin:0;background:none;color:var(--ink);font:inherit;font-size:var(--fs-base);font-weight:700;text-align:left;cursor:pointer}
+.settingHintTrigger:focus-visible,.settingHintNote summary:focus-visible{outline:2px solid var(--ring);outline-offset:3px;border-radius:4px}
+.settingHintTrigger[aria-expanded="true"]{color:var(--primary2)}
+.settingHintContent[hidden],.settingCard[hidden]{display:none!important}
+.settingHintNote{color:var(--muted);font-size:var(--fs-sm)}
+.settingHintNote summary{display:block;min-height:0;padding:4px 0;cursor:pointer;color:var(--label);font-weight:700;background:transparent!important;border:0!important}
+.settingHintNote .settingFootnote{margin:7px 0 0}
+
+.themeToggle{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;padding:5px;border:1px solid var(--line);border-radius:var(--radius-md);background:var(--tile)}
+.themeToggle button{min-height:44px;border:0;border-radius:10px;background:transparent;color:var(--label);font-size:var(--fs-sm);font-weight:700;cursor:pointer;transition:background var(--ease),color var(--ease)}
+.themeToggle button:hover{background:var(--wash)}
+.themeToggle button[aria-checked="true"]{background:var(--surface);color:var(--primary2);box-shadow:var(--shadowSm)}
+
+.tuneState{display:grid;gap:8px}
+.tuneState span{font-size:var(--fs-sm);font-weight:700;color:var(--label)}
+.tuneState>div{height:8px;border-radius:999px;background:var(--lineSoft);overflow:hidden}
+.tuneState i{display:block;width:0;height:100%;background:var(--primary);transition:width .25s ease}
+
+/* Wi-Fi (một số class dưới đây không còn được dùng trong markup hiện tại,
+   giữ lại đồng bộ token cho an toàn nếu được tái sử dụng sau này) */
+.wifiInputRow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+.wifiInputRow button{min-width:96px}
+.wifiResults{display:none;gap:8px}
+.wifiResults.show{display:grid}
+.wifiNetwork{width:100%;border:1px solid var(--line);background:var(--tile);border-radius:var(--radius-sm);padding:12px 13px;text-align:left;color:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:12px;transition:border-color var(--ease)}
+.wifiNetwork:hover{border-color:var(--ring)}
+.wifiNetwork strong,.wifiNetwork small{display:block}
+.wifiNetwork strong{font-size:var(--fs-sm)}
+.wifiNetwork small{margin-top:3px;color:var(--muted);font-size:var(--fs-2xs)}
+.wifiNetwork span{font-size:var(--fs-2xs);color:var(--successText);font-weight:700}
+.passwordWrap{position:relative}
+.passwordWrap input{padding-right:64px}
+.passwordToggle{position:absolute;right:7px;top:7px;height:38px;border:0;border-radius:10px;background:var(--chipBg);color:var(--primary2);padding:0 12px;font-size:var(--fs-2xs);font-weight:700;cursor:pointer;transition:background var(--ease)}
+.passwordToggle:hover{background:var(--primarySoft)}
+
+.wifiGuide{margin:0 0 2px;padding:13px 15px;border:1px solid var(--lineSoft);border-radius:var(--radius-md);background:var(--tile);display:grid;gap:7px}
+.wifiGuide strong{font-size:var(--fs-sm)}
+.wifiGuide small{font-size:var(--fs-xs);line-height:1.7;color:var(--muted)}
+.pill.soft{white-space:nowrap}
+noscript{display:block;padding:14px;background:#fff1e8;color:#8d4c1f;text-align:center;font:600 14px system-ui}
+
+/* Một nút duy nhất cho Bắt đầu/Kết thúc mẻ. */
+.batchActions .dangerButton{width:100%;min-height:46px;border-radius:var(--radius-md);padding:0 16px;font-size:var(--fs-sm)}
+.batchActions button:disabled{cursor:not-allowed;opacity:.6;filter:none;transform:none}
+
+/* Trạng thái lưu, lỗi tại chỗ và nhật ký mẻ ấp */
+.formState{display:block;margin:10px 0 0;color:var(--muted);font-size:var(--fs-sm)}
+.formState[hidden]{display:none}
+@keyframes pulse{50%{opacity:.4}}
+.formError{display:none;margin-top:10px;padding:11px 13px;border-radius:var(--radius-sm);background:var(--dangerSoft);color:var(--danger);font-size:var(--fs-xs);font-weight:700;line-height:1.55}
+.formError.show{display:block}
+input.invalid,select.invalid,.compactTile.invalid{border-color:var(--invalidBorder)!important;background:var(--invalidBg)!important;box-shadow:0 0 0 2px var(--invalidRing)!important}
+.primary.attention{box-shadow:0 0 0 3px #e29b1d33;background:var(--attentionBg);color:#fff;border-color:var(--attentionBg)}
+
+.batchLogPanel{margin-top:14px;padding:18px 20px}
+.batchLogPanel .panelHead{align-items:center}
+.batchLogPanel h2{font-size:var(--fs-lg);font-weight:700}
+.logHint{color:var(--muted);font-size:var(--fs-2xs);white-space:nowrap}
+.currentActivity{display:grid;grid-template-columns:12px minmax(0,1fr);gap:10px;align-items:center;margin-top:14px;padding:13px 14px;border-radius:var(--radius-sm);background:var(--primarySoft);border:1px solid #cfe5e0;min-width:0}
+.activityPulse{width:10px;height:10px;border-radius:50%;background:#2da36c;box-shadow:0 0 0 5px #2da36c1b}
+.activityPulse:not(.idle){animation:pulse 2s ease-in-out infinite}
+.activityPulse.idle{background:#94a6a2;box-shadow:none}
+.activityPulse.warning{background:var(--warning);box-shadow:0 0 0 5px #e29b1d1b}
+.currentActivity strong,.currentActivity small{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.currentActivity strong{font-size:var(--fs-sm);font-weight:700}
+.currentActivity small{margin-top:3px;color:var(--muted);font-size:var(--fs-2xs)}
+.batchLogList{display:grid;margin-top:10px;max-height:400px;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch}
+.batchLogRow{display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:8px;align-items:center;min-height:38px;border-top:1px solid var(--lineSoft);min-width:0;border-radius:8px;transition:background var(--ease)}
+.batchLogRow:first-child{border-top:0}
+.batchLogRow:hover{background:var(--wash)}
+.batchLogRow time{font-size:var(--fs-2xs);color:var(--faint);font-variant-numeric:tabular-nums}
+.batchLogRow .logMessage{min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--fs-xs);font-weight:700}
+.batchLogRow .logDuration{font-size:var(--fs-2xs);color:var(--faint);white-space:nowrap}
+.batchLogEmpty{padding:16px 4px;color:var(--muted);font-size:var(--fs-xs);text-align:center}
+
+.confirmBody{padding:26px;display:grid;gap:15px}
+.confirmBody p{margin:0;color:var(--muted);font-size:var(--fs-sm);line-height:1.6}
+.confirmActions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.dangerButton{border:0;background:var(--dangerAction);color:#fff;min-height:48px;border-radius:var(--radius-md);font-size:var(--fs-sm);font-weight:700;cursor:pointer;transition:filter var(--ease),transform var(--ease)}
+.dangerButton:hover{filter:brightness(1.06)}
+.dangerButton:active{filter:brightness(.92);transform:translateY(1px)}
+
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,16px);z-index:100;width:min(calc(100% - 28px),460px);padding:14px 16px;border-radius:var(--radius-md);background:#103a33;color:#fff;font-size:var(--fs-sm);box-shadow:0 14px 36px #071e1a55;opacity:0;pointer-events:none;transition:.2s ease}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+dialog{width:min(calc(100% - 24px),520px);border:0;border-radius:var(--radius);padding:0;box-shadow:0 30px 80px #071e1a66}
+dialog::backdrop{background:#071e1a88;backdrop-filter:blur(3px)}
+.dialogBody{padding:26px;display:grid;gap:16px}
+.iconButton{width:44px;height:44px;border:0;border-radius:12px;background:var(--chipBg);color:var(--primary2);font-size:22px;cursor:pointer;transition:background var(--ease)}
+.iconButton:hover{background:var(--primarySoft)}
+.deviceList{display:grid;gap:8px}
+.deviceList:empty{display:none}
+.deviceListItem{display:grid;grid-template-columns:1fr auto;align-items:center;gap:8px;padding:12px 13px;border:1px solid var(--line);border-radius:var(--radius-sm)}
+.deviceListItem strong,.deviceListItem small{display:block}
+.deviceListItem strong{font-size:var(--fs-sm)}
+.deviceListItem small{font-size:var(--fs-xs);color:var(--muted);margin-top:3px}
+.deviceListItem button{border:0;background:var(--dangerSoft);color:var(--danger);border-radius:9px;min-height:40px;padding:8px 14px;font-size:var(--fs-xs);font-weight:700;cursor:pointer;transition:filter var(--ease)}
+.deviceListItem button:hover{filter:brightness(.95)}
+
+/* =============================== Responsive =================================== */
+/* Tablet dọc: giữ đầu trang một hàng, thu sidebar để thông số đủ chỗ. */
+@media(max-width:1024px) and (min-width:801px){
+  .appShell{grid-template-columns:208px minmax(0,1fr)}
+  .sidebar{width:208px;padding:20px 15px}
+  .main{padding:0 20px 38px}
+  .topbar{grid-template-columns:minmax(160px,1fr) minmax(0,340px);gap:18px}
+  .live{padding:12px;min-height:70px}
+  .title h1{font-size:29px}
+  .title p{font-size:var(--fs-xs)}
+}
+/* Dien thoai xoay ngang (vd 844x390, 926x428...) thuong RONG hon 800px nen
+   se lot vao nhanh desktop/tablet o tren neu chi xet theo max-width - dan
+   den sidebar/topbar desktop bi nhoi vao man hinh chi cao ~390-430px. Xet
+   them max-height de nhan dien "man hinh thap" (dien thoai ngang) va van
+   dung bo cuc thanh dieu huong duoi + rut gon nhu dien thoai doc. */
+@media(max-width:800px),(max-height:500px){
+  :root{--navH:84px}
+  .appShell{display:block}
+  .sidebar{inset:auto 0 0 0;width:auto;height:calc(var(--navH) + var(--safeBottomMax));bottom:calc(var(--safeBottom) - var(--safeBottomMax));padding:0 9px calc(8px + var(--safeBottomMax));background:transparent;display:block;pointer-events:none}
+  .brand,.sideState{display:none}
+  .nav{pointer-events:auto;width:min(100%,390px);height:72px;margin:0 auto;padding:6px;border:1px solid var(--navBorder);border-radius:25px;background:var(--navBg);box-shadow:var(--shadow);display:grid;grid-template-columns:repeat(3,1fr);gap:5px}
+  .nav button{min-height:60px;padding:4px 3px;border-radius:19px;display:grid;place-items:center;align-content:center;gap:1px;text-align:center}
+  .nav button span{width:auto;font-size:20px;line-height:1}
+  .nav button b{font-size:var(--fs-2xs)}
+  .main{width:100%;max-width:100%;min-height:100dvh;padding:0 10px calc(var(--navH) + var(--safeBottomMax) + 10px);overflow-x:clip}
+  .topbar{grid-template-columns:clamp(72px,22vw,96px) minmax(0,1fr);gap:8px;align-items:center;padding:calc(10px + var(--safeTop)) 0 10px}
+  .title h1{font-size:clamp(18px,5vw,22px);line-height:1.2;letter-spacing:-.6px;white-space:nowrap}
+  .title p{display:block;margin-top:3px;font-size:10px;line-height:1.3;white-space:normal;overflow:visible;text-overflow:clip}
+  .headerReadings{grid-template-columns:minmax(0,1fr) minmax(0,.8fr) minmax(88px,1.2fr);border-radius:15px}
+  .live{min-height:56px;padding:8px 9px}
+  .live:first-child{border-radius:14px 0 0 14px}
+  .live:last-child{border-radius:0 14px 14px 0}
+  .live+.live::before{top:12px;bottom:12px}
+  .live>span{font-size:9px}
+  .live>strong{font-size:17px;line-height:22px;margin-top:4px}
+  #liveState{font-size:13px}
+  .panel{padding:18px;border-radius:16px}
+  .deviceHeading{font-size:clamp(18px,5.5vw,22px)!important;line-height:29px}
+  .devicePickerRow{margin-top:12px}
+  .addDevice{height:52px;flex-basis:52px}
+  .grid2{grid-template-columns:1fr}
+  /* Hai thông số vận hành nằm cùng hàng trên điện thoại. */
+  .quickGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-top:12px}
+  .quickField{padding:11px}
+  .quickField input{font-size:18px}
+  .quickField b{font-size:15px}
+  .outputStrip{margin:10px 0;grid-auto-rows:minmax(64px,auto)}
+  .outputStrip>div,.outputStrip>button{min-height:64px;padding:10px 12px}
+  .batchGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+  .tempGrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .compactTile{padding:11px;min-height:80px}
+  .compactTile input{font-size:18px}
+  .compactTile input[type=date]{font-size:13px}
+  .compactTile .unit b{font-size:15px}
+  .batchActions{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .outputStrip{grid-template-columns:1fr 1fr}
+  .outputStrip.hasHumidifier>button:last-child{width:calc((100% - 10px)/2)}
+  .toast{bottom:calc(var(--navH) + var(--safeBottomMax) + 12px)}
+  .actions{display:grid;grid-template-columns:1fr 1fr}
+  .actions .dark{grid-column:1/-1}
+  .settingCard>summary{min-height:76px;padding:13px}
+  .settingIcon{width:40px;height:40px;border-radius:12px}
+  .settingIcon svg{width:19px;height:19px}
+  .settingSummary strong{font-size:var(--fs-sm)}
+  .settingSummary small{font-size:var(--fs-xs)}
+  .settingBody{padding:14px 16px;gap:10px}
+  .batchLogPanel{padding:13px 15px}
+  .batchLogRow{grid-template-columns:40px minmax(0,1fr) auto}
+  .batchLogRow .logDuration{max-width:76px;overflow:hidden;text-overflow:ellipsis}
+  .wifiInputRow{grid-template-columns:1fr}
+  .wifiInputRow button{width:100%}
+  body[data-page="settings"] .topbar{max-width:none}
+}
+@media(max-width:360px){
+  .tempGrid{gap:6px}
+  .compactTile{padding:9px 8px}
+  .compactTile>span,.compactTile .tileLabel{font-size:var(--fs-2xs)}
+  .compactTile input{font-size:17px}
+  .compactTile .unit b{font-size:14px}
+  .quickField input{font-size:17px}
+  .quickField b{font-size:14px}
+  .batchActions button{font-size:var(--fs-2xs)}
+  .live{padding-inline:8px}
+  .live>strong{font-size:15px}
+  #liveTemp{font-size:14px}
+  #liveState{font-size:12px}
+  .deviceTop{gap:8px}
+  .statusBlock{max-width:58%}
+  .devicePickerRow{gap:7px}
+  .addDevice{flex-basis:50px;width:50px}
+  .panel{padding:15px}
+  .actions{grid-template-columns:1fr}
+  .actions .dark{grid-column:auto}
+}
+/* Điện thoại ngang: giữ một hàng để chừa chiều cao cho điều khiển. */
+@media(min-width:801px) and (max-height:500px){
+  .topbar{grid-template-columns:minmax(180px,1fr) minmax(340px,510px);gap:20px}
+  .title p{display:block;font-size:11px}
+  .title h1{font-size:24px}
+}
+@media(prefers-reduced-motion:reduce){
+  *{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
+
+/* Hai trang vận hành dùng chiều cao màn hình. Các khối co tới kích thước
+   nội dung tối thiểu, biểu đồ nhận phần còn lại; overflow chỉ là đường
+   cuộn khi tổng nội dung thật sự lớn hơn vùng có thể hiển thị. */
+body[data-page="device"],body[data-page="batch"]{height:100dvh;min-height:0;overflow:hidden}
+body[data-page="device"] .appShell,body[data-page="batch"] .appShell{height:100dvh;min-height:0;overflow:hidden}
+body[data-page="device"] .main,body[data-page="batch"] .main{height:100dvh;min-height:0;overflow-y:auto;display:flex;flex-direction:column;padding-bottom:20px}
+body[data-page="device"] .topbar,body[data-page="batch"] .topbar{flex:0 0 auto}
+body[data-page="device"] #page-device.active,body[data-page="batch"] #page-batch.active{flex:1 1 auto;min-height:min-content;display:flex;flex-direction:column;gap:12px}
+body[data-page="device"] .deviceCompact,body[data-page="device"] #quickForm,body[data-page="batch"] .batchPanel{flex:0 0 auto}
+@media(min-width:1025px) and (min-height:501px){
+  body[data-page="batch"] #page-batch.active{flex:0 0 auto;display:grid;grid-template-columns:var(--workspaceColumns);gap:var(--workspaceGap);align-items:stretch}
+}
+@media(max-width:800px),(max-height:500px){
+  body[data-page="device"] .main,body[data-page="batch"] .main{padding-bottom:calc(var(--navH) + var(--safeBottomMax) + 10px)}
+  body[data-page="device"] .deviceCompact,body[data-page="device"] #quickForm,body[data-page="batch"] .batchPanel{padding:16px}
+  body[data-page="batch"] #page-batch.active{gap:10px}
+  body[data-page="batch"] .batchGrid{margin-top:12px;gap:9px}
+  body[data-page="batch"] .compactTile{min-height:72px;padding:10px 11px}
+  body[data-page="batch"] .batchActions{margin-top:10px}
+  body[data-page="batch"] .batchActions button{min-height:46px}
+}
+@media(max-height:760px){
+  body[data-page="device"] .topbar,body[data-page="batch"] .topbar{padding:calc(6px + var(--safeTop)) 0 6px}
+  body[data-page="device"] .deviceCompact,body[data-page="device"] #quickForm{padding:14px}
+  body[data-page="device"] .devicePickerRow,body[data-page="device"] .quickGrid{margin-top:11px}
+  body[data-page="device"] #quickForm{padding:12px}
+  body[data-page="device"] #quickForm h2{font-size:20px}
+  body[data-page="device"] .outputStrip{margin:8px 0;gap:8px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{min-height:60px}
+  body[data-page="device"] .outputStrip strong{margin-top:4px}
+  body[data-page="device"] #quickForm .primary{min-height:44px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{padding:9px 10px}
+  body[data-page="batch"] .batchPanel{padding:13px}
+  body[data-page="batch"] .batchGrid{margin-top:10px;gap:7px}
+  body[data-page="batch"] .compactTile{min-height:66px;padding:8px 9px}
+  body[data-page="batch"] .compactTile input{min-height:30px;height:30px;font-size:16px}
+  body[data-page="batch"] .compactTile input[type=date]{font-size:13px}
+  body[data-page="batch"] .batchActions{margin-top:8px}
+  body[data-page="batch"] .batchActions button{min-height:44px}
+}
+@media(max-height:600px){
+  body[data-page="device"] #page-device.active{gap:9px}
+  body[data-page="device"] .deviceCompact,body[data-page="device"] #quickForm{padding:12px}
+  body[data-page="device"] .devicePickerRow{margin-top:9px}
+  body[data-page="device"] .quickField{padding:9px}
+  body[data-page="device"] .quickGrid{margin-top:9px;gap:8px}
+  body[data-page="device"] .outputStrip{margin:9px 0;gap:8px}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{min-height:60px;padding:8px 9px}
+  body[data-page="device"] .outputStrip strong{margin-top:4px}
+  body[data-page="device"] #quickForm .primary{min-height:44px}
+}
+
+/* Checkbox ẩn không được kế thừa width:100% của input thường. */
+.toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;min-width:48px;min-height:44px;vertical-align:middle}
+.switchRow{position:relative}
+.toggle input,.switchRow input{
+  width:1px!important;height:1px!important;min-height:0!important;
+  margin:0!important;padding:0!important;clip-path:inset(50%);overflow:hidden;
+}
+/* Label toggle co vung bam 44px; track va thumb can giua, khong mo rong
+   hit-area sang hang ben canh. switchRow giu display:flex cua hang day du. */
+
+.batchLogList.empty{display:flex!important;align-items:center!important;justify-content:center!important}
+.batchLogList.empty .batchLogEmpty{height:auto;max-width:250px;line-height:1.5}
+/* ====================== Telemetry chart: nhiet do 30 phut ====================== */
+.telemetryPanel{margin-top:14px;padding:18px 20px;min-width:0}
+.telemetryHead{align-items:center}
+.telemetryPanel h2{font-size:var(--fs-lg);font-weight:700}
+.telemetryLegend{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap;color:var(--muted);font-size:var(--fs-2xs)}
+.telemetryLegend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.telemetryLegend i{display:inline-block;width:18px;height:2px;border-radius:2px;background:var(--chartLine)}
+.telemetryLegend i.setLine{height:0;background:transparent;border-top:2px dashed var(--warning)}
+.telemetryMeta{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-top:12px;min-width:0}
+.telemetryMeta strong{font-size:var(--fs-xl);font-variant-numeric:tabular-nums;white-space:nowrap}
+.telemetryMeta span{min-width:0;color:var(--muted);font-size:var(--fs-2xs);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+.telemetryCanvasWrap{position:relative;margin-top:8px;width:100%;height:250px;min-height:190px;border:1px solid var(--lineSoft);border-radius:var(--radius-sm);background:var(--tile);overflow:hidden}
+#temperatureChartCanvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+.telemetryEmpty{position:absolute;inset:0;z-index:2;display:grid;place-items:center;padding:20px;background:var(--tile);color:var(--muted);font-size:var(--fs-xs);text-align:center;pointer-events:none}
+.telemetryEmpty[hidden]{display:none}
+.telemetryAxis{display:flex;justify-content:space-between;gap:8px;margin:7px 3px 0 42px;color:var(--muted);font-size:var(--fs-2xs);font-variant-numeric:tabular-nums}
+.diagnosticsLogBody .currentActivity{margin-top:0}
+@media(max-width:720px){.telemetryPanel{padding:12px 15px}.telemetryHead{align-items:flex-start}.telemetryHead .eyebrow{display:none}.telemetryLegend{gap:8px}.telemetryMeta{margin-top:8px}.telemetryCanvasWrap{height:220px}.telemetryAxis{margin-left:38px}}
+body[data-page="batch"] .telemetryPanel{flex:1 1 auto;min-height:min-content;margin-top:0;display:flex;flex-direction:column}
+body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 0;height:0;min-height:72px}
+/* Điện thoại thấp: dùng chiều ngang có sẵn để giữ phần vận hành vừa
+   màn hình, vẫn giữ vùng chạm >=44px và đầy đủ nhãn/đơn vị. */
+@media(min-width:361px) and (max-width:800px) and (max-height:700px){
+  body[data-page="device"] .deviceCompact{padding:12px}
+  body[data-page="device"] .devicePickerRow,body[data-page="device"] .quickGrid{margin-top:9px}
+  body[data-page="device"] .outputStrip{grid-template-columns:repeat(3,minmax(0,1fr))}
+  body[data-page="device"] .outputStrip>div,body[data-page="device"] .outputStrip>button{padding:8px}
+  body[data-page="device"] .outputStrip strong{font-size:14px}
+  body[data-page="device"] .outputStrip.hasHumidifier>button:last-child{width:100%}
+  body[data-page="batch"] .batchPanel{padding:12px}
+  body[data-page="batch"] .batchPanel h2{font-size:20px}
+  body[data-page="batch"] .batchGrid{margin-top:8px;gap:6px}
+  body[data-page="batch"] .compactTile .unit{min-height:30px}
+  body[data-page="batch"] .batchActions{margin-top:6px}
+  body[data-page="batch"] .telemetryPanel{padding:10px 12px}
+  body[data-page="batch"] .telemetryPanel h2{font-size:16px}
+  body[data-page="batch"] .telemetryMeta{margin-top:4px}
+  body[data-page="batch"] .telemetryMeta strong{font-size:16px}
+  body[data-page="batch"] .telemetryMeta span,body[data-page="batch"] .telemetryAxis{font-size:10px}
+  body[data-page="batch"] .telemetryCanvasWrap{margin-top:6px;min-height:60px}
+  body[data-page="batch"] .telemetryAxis{margin-top:4px}
+}
+
+@media(max-width:600px){
+  .reminderFields{grid-template-columns:1fr}
+  .advancedForm .tempGrid{grid-template-columns:1fr}
+  .advancedForm .compactTile{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:62px}
+  .advancedForm .compactTile>span{flex:1;min-width:0;font-size:var(--fs-xs)}
+  .advancedForm .compactTile>input,.advancedForm .compactTile>.unit{flex:0 0 100px;width:100px}
+}
+
+/* Group labels always travel with their own settings, including optional equipment. */
+.settingGroup{display:grid;gap:10px;margin-top:12px;min-width:0}
+.settingGroup:first-child{margin-top:0}
+.settingGroup .settingGroupLabel{margin:0 4px 2px;color:var(--label);letter-spacing:.7px}
+.ventProfileFields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:12px}
+.ventProfileFields:disabled{opacity:.55}
+.settingHintNote summary,.settingHintTrigger{display:flex;align-items:center;min-height:44px;line-height:1.5}
+.settingHintNote summary::-webkit-details-marker{display:none}
+.currentActivity{border-color:var(--onBorder)}
+.sidebar{background:var(--navBg);color:var(--ink);border-right:1px solid var(--navBorder)}
+.brand small,.sideState small{color:var(--navText)}
+.nav button{color:var(--navText)}
+.nav button:hover{background:var(--navHover);color:var(--ink)}
+.nav button.active,.nav button.active:hover{background:var(--navActive);color:var(--navActiveText)}
+.sideState{border-color:var(--navBorder)}
+@media(max-width:800px), (max-height:500px), (max-width:1024px) and (orientation:landscape) and (max-height:600px){.sidebar{background:var(--bodyBg);border-right:0}.nav{background:var(--navBg);border-color:var(--navBorder)}}
+@media(max-width:800px),(max-height:500px){.main{touch-action:pan-y pinch-zoom}}
+/* Tám ô vận hành chia sẻ một lưới: cùng chiều cao, nhận phần chiều cao
+   còn lại thay vì để khoảng trống giữa thẻ trạng thái và thanh tab. */
+@media(max-width:800px),(max-height:500px){
+  body[data-page="device"] #quickForm{flex:1 0 auto;min-height:min-content;display:flex;flex-direction:column}
+  .deviceStatusGrid{flex:1 0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:minmax(72px,1fr);gap:10px;margin:10px 0;min-height:min-content}
+  body[data-page="device"] .quickGrid,body[data-page="device"] .outputStrip{display:contents}
+  body[data-page="device"] .quickField,body[data-page="device"] .outputStrip>div:not([hidden]),body[data-page="device"] .outputStrip>button{display:flex;flex-direction:column;justify-content:center;gap:4px;min-width:0;min-height:72px;padding:8px 12px;border-radius:var(--radius-sm)}
+  body[data-page="device"] .quickField>span,body[data-page="device"] .outputStrip span{font-size:12px}
+  body[data-page="device"] .quickField input{min-height:32px;height:32px}
+  body[data-page="device"] .outputStrip strong{margin-top:0}
+  body[data-page="device"] #quickForm>.primary{flex:0 0 auto}
+}
+@media(min-width:361px) and (max-width:800px) and (max-height:700px){
+  .deviceStatusGrid{grid-template-columns:repeat(3,minmax(0,1fr));grid-auto-rows:minmax(66px,1fr);gap:8px;margin:6px 0}
+  body[data-page="device"] .quickField,body[data-page="device"] .outputStrip>div:not([hidden]),body[data-page="device"] .outputStrip>button{min-height:66px;padding:8px;gap:3px}
+  body[data-page="device"] .quickField>span,body[data-page="device"] .outputStrip span{font-size:11px}
+  body[data-page="device"] .quickField input{font-size:16px;min-height:28px;height:28px}
+  body[data-page="device"] .quickField b{font-size:12px;margin-right:0}
+  body[data-page="device"] .outputStrip.hasHumidifier>button:last-child{grid-column:auto;width:100%;justify-self:stretch}
+}
+@media(max-width:360px){
+  body[data-page="device"] .quickField,body[data-page="device"] .outputStrip>div:not([hidden]),body[data-page="device"] .outputStrip>button{padding:8px 10px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*:before,*:after{transition:none!important;animation:none!important}}
+.accountIdentity{display:flex;align-items:center;gap:12px;min-width:0}
+.accountAvatar{width:44px;height:44px;flex:0 0 44px;border-radius:50%;display:grid;place-items:center;overflow:hidden;background:var(--primary);color:var(--onPrimary);font-size:19px;font-weight:800}
+.accountAvatar img{width:100%;height:100%;object-fit:cover}
+.identityText{min-width:0;flex:1}
+.identityText strong,.identityText small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.brand.accountIdentity .identityText strong{font-size:16px;letter-spacing:0}
+.mobileIdentity{display:none}
+.accountPanel{max-width:960px;margin-top:24px;display:flex;align-items:center;flex-wrap:wrap;gap:18px}
+.accountPanel .accountIdentity{flex:1;min-width:0}
+.accountPanel h2{font-size:14px;margin:0 0 6px;color:var(--muted);font-weight:600}
+.accountPanel .identityText strong{font-size:17px}
+.accountPanel .identityText small{margin-top:4px;color:var(--muted);font-size:12px}
+.accountLogout{flex-shrink:0}
+#accountNotice:empty{display:none}
+#accountNotice{flex-basis:100%}
+@media(max-width:800px),(max-height:500px){
+  .topbar{grid-template-columns:clamp(64px,23vw,92px) minmax(0,1fr);gap:8px}
+  .topbar>.title{display:none}
+  .mobileIdentity{display:flex;flex-direction:column;justify-content:center;gap:3px;text-align:center;align-self:center}
+  .sidebar>.brand.accountIdentity{display:none}
+  .mobileIdentity .accountAvatar{width:26px;height:26px;flex-basis:26px;font-size:13px}
+  .mobileIdentity .identityText{width:100%;flex:none}
+  .mobileIdentity strong{font-size:12px;line-height:1.25;white-space:normal;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
+  .mobileIdentity small{display:none}
+  .accountPanel{gap:12px;padding:16px}
+  .accountPanel .accountIdentity{flex-basis:100%}
+  .accountPanel .accountLogout{width:100%}
+}
+.avatarRefresh{width:100%;height:100%;padding:0;border:0;border-radius:50%;background:transparent;color:inherit;display:grid;place-items:center;cursor:pointer}
+.avatarRefresh svg{width:70%;height:70%}
+.avatarRefresh:focus-visible{outline:2px solid currentColor;outline-offset:-3px}
+#profilePhotoDialog{width:min(360px,calc(100vw - 24px))}
+#profilePhotoDialog .googleLogin{margin:16px 0;display:flex;justify-content:center}

@@ -1,0 +1,23 @@
+# Optional private override; tracked build_secrets.h must remain an EMPTY template.
+MAYAP_INDUSTRIAL_v3_4_0/build_secrets.local.h
+build-attiny-v4/
+build-v4/
+
+# Local key/certificate material
+*.pem
+*.key
+*.der
+
+# Local build outputs
+build/
+node_modules/
+cloudflare/public/
+.wrangler/
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.local/
+MAYAP_INDUSTRIAL_v3_4_0/build/
