@@ -11,7 +11,7 @@ const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  ini
   window.__qa = { state, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
     handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus };
   init();`);
-const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0/config.h'), 'utf8');
+const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config.h'), 'utf8');
 const defaults = {};
 for (const match of firmware.matchAll(/\b(?:float|bool|uint8_t|uint16_t|uint32_t)\s+(\w+)\s*=\s*(true|false|\d+(?:\.\d+)?)(?:f|U|UL)?\s*;/g))
   defaults[match[1]] = match[2] === 'true' ? true : match[2] === 'false' ? false : Number(match[2]);
