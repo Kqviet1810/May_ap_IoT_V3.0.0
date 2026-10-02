@@ -51,7 +51,7 @@ jobs:
         run: python3 tools/check_release_sync.py
 
       - name: Kiem tra reliability truoc deploy
-        run: python3 tools/check_v381_reliability.py
+        run: python3 tools/check_reliability.py
 
       - name: Cai phu thuoc Worker
         working-directory: cloudflare
