@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/web-esp-transaction-v2
-      - feat/adaptive-staged-boot
-      - feat/google-account-multitenant
-      - hardening/v3.8.1-reliability
   pull_request:
     branches:
       - main
@@ -61,7 +57,7 @@ jobs:
         run: python3 tools/check_attiny_protocol.py
 
       - name: Static reliability regression checks
-        run: python3 tools/check_v381_reliability.py
+        run: python3 tools/check_reliability.py
 
       - name: Protocol V2 transaction and packet regression
         run: node --test tests/*.test.cjs
@@ -94,11 +90,11 @@ jobs:
 
       - name: Reject unsafe firmware shortcuts
         run: |
-          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v1_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::TLS verification bypass detected"
             exit 1
           fi
-          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v1_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Private key must not be embedded in firmware"
             exit 1
           fi
