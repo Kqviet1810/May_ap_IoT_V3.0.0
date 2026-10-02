@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const read = file => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
-const dir = 'MAYAP_INDUSTRIAL_v4_0_0/';
+const dir = 'MAYAP_INDUSTRIAL_v1_0_0/';
 
 test('E503 uses bounded per-state synchronization, not stale cached flags', () => {
   const machine = read(dir + 'machine_control.h');
