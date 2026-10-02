@@ -140,7 +140,7 @@ test('all eight config forms use patches within the shared packet policy', () =>
       Buffer.byteLength('mayap/v1/MAP-1234567890AB/config/set') + PacketPolicy.MQTT_OVERHEAD;
     assert.ok(bytes < PacketPolicy.NORMAL_CAP, `${group}: ${bytes} B`);
   }
-  const header = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/protocol_limits.h'), 'utf8');
+  const header = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/protocol_limits.h'), 'utf8');
   for (const [key, name] of [['HARD_CAP', 'MQTT_HARD_CAP'],
     ['NORMAL_CAP', 'MQTT_NORMAL_CAP'], ['SMALL_TARGET', 'MQTT_SMALL_TARGET'],
     ['CHUNK_TARGET', 'MQTT_CHUNK_TARGET'], ['MQTT_OVERHEAD', 'MQTT_OVERHEAD']]) {
@@ -149,8 +149,8 @@ test('all eight config forms use patches within the shared packet policy', () =>
 });
 
 test('humidifier thresholds preserve the config record layout and legacy default', () => {
-  const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/machine_control.h'), 'utf8');
-  const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h'), 'utf8');
+  const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/machine_control.h'), 'utf8');
+  const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h'), 'utf8');
   assert.match(machine, /humidityAlarmDelaySec & 0x03FFU/);
   assert.match(machine, /humidifierHysteresisRh & 0x0FU/);
   assert.match(machine, /humidityGap \? humidityGap : MachineConfig\{\}\.humidifierHysteresisRh/);
@@ -177,9 +177,9 @@ test('ACK HMAC binds result, reason and request identity', async () => {
 });
 
 test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
-  const realtime = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h'), 'utf8');
-  const hmi = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/hmi.h'), 'utf8');
-  const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/machine_control.h'), 'utf8');
+  const realtime = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h'), 'utf8');
+  const hmi = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/hmi.h'), 'utf8');
+  const machine = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/machine_control.h'), 'utf8');
   const web = readFileSync(require.resolve('../app.js'), 'utf8');
   const worker = readFileSync(require.resolve('../cloudflare/src/index.js'), 'utf8');
   assert.equal(web.includes('/api/device/sign-mqtt'), false);
