@@ -1,4 +1,4 @@
-# Adaptive Staged Boot — MAYAP 4.0.0
+# Adaptive Staged Boot — MAYAP 1.0.0
 
 Nhánh: `feat/adaptive-staged-boot`, từ baseline `25fd4e6` trên `main`.
 
@@ -124,7 +124,7 @@ captive portal không timeout sai trong thời gian staged admission. Sau khi OT
 
 ## File thay đổi
 
-- `MAYAP_INDUSTRIAL_v4_0_0.ino`: coordinator, task admission/owner init, heartbeat flags, restart reasons.
+- `MAYAP_INDUSTRIAL_v1_0_0.ino`: coordinator, task admission/owner init, heartbeat flags, restart reasons.
 - `boot_policy.h`: stages, timing/recovery, reset classification, checksum, stability clock.
 - `boot_diagnostic.h`: RTC slots, snapshot, boot/restart API.
 - `boot_assets.h`, `hmi.h`: logo/status, early display preview, local Home release.
