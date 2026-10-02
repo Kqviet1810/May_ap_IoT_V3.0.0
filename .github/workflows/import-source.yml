@@ -22,11 +22,11 @@ jobs:
           git clone --depth 1 --branch feat/google-account-multitenant \
             https://github.com/Kqviet1810/May_ap_trung_V2.1.1.git /tmp/mayap-source
 
-      - name: Copy source tree
+      - name: Copy source tree except workflows
         run: |
           rsync -a --delete \
             --exclude '.git/' \
-            --exclude '.github/workflows/import-source.yml' \
+            --exclude '.github/workflows/' \
             /tmp/mayap-source/ ./
 
       - name: Commit imported snapshot
