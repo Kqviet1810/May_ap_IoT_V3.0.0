@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const read = (name) => fs.readFileSync(path.resolve(__dirname, '..', name), 'utf8').replace(/\r\n/g, '\n');
-const dir = 'MAYAP_INDUSTRIAL_v4_0_0/';
+const dir = 'MAYAP_INDUSTRIAL_v1_0_0/';
 function body(source, signature) {
   const start = source.indexOf(signature);
   assert.notEqual(start, -1, signature);
@@ -31,7 +31,7 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
   }
 });
 test('all service tasks admit and beat themselves, including isolation paths', () => {
-  const ino = read(dir + 'MAYAP_INDUSTRIAL_v4_0_0.ino');
+  const ino = read(dir + 'MAYAP_INDUSTRIAL_v1_0_0.ino');
   for (const [task, service] of [['networkTask','Network'], ['mqttTask','Mqtt'], ['cloudTask','Cloud'], ['otaTask','Ota']]) {
     const source = body(ino, `void ${task}(`);
     assert.match(source, new RegExp(`mayapServiceAdmit\\(MayapRecovery::Service::${service}\\)`));
@@ -42,7 +42,7 @@ test('all service tasks admit and beat themselves, including isolation paths', (
   }
 });
 test('new restart path requires prolonged owner failure and maintenance-safe shutdown', () => {
-  const source = body(read(dir + 'MAYAP_INDUSTRIAL_v4_0_0.ino'), 'void supervisorTask(');
+  const source = body(read(dir + 'MAYAP_INDUSTRIAL_v1_0_0.ino'), 'void supervisorTask(');
   assert.match(source, /mayapServiceSupervisorUpdate\(now, failedService\) && mayapFirmwareMaintenanceReady\(\)/);
   const runtime = source.slice(source.indexOf('MayapRecovery::Service failedService'));
   assert.match(runtime, /mayapLatchSystemTrip\(\)[\s\S]*vTaskSuspend\(controlTaskHandle\)[\s\S]*mayapSafeOutputsEarly\(\)[\s\S]*mayapRestart\(MayapBoot::RestartReason::HealthMonitor, reason\)/);
