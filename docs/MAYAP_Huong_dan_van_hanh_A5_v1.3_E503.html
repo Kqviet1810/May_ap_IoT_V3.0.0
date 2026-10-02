@@ -23,9 +23,9 @@ a { color:var(--accent); text-decoration:none; }
 @media screen { body { background:#e9efef; } .sheet { box-shadow:0 4px 18px rgba(0,0,0,.12); min-height:210mm; } }
 </style></head><body><div class="toolbar"><button onclick="window.print()">In / Lưu PDF</button></div><main class="sheet"><h1>MÁY ẤP TRỨNG MAYAP - HƯỚNG DẪN VẬN HÀNH VÀ MÃ LỖI</h1>
 <p><strong>Phiên bản tài liệu:</strong> v1.3<br />
-<strong>Firmware đối chiếu:</strong> <code>MAYAP_INDUSTRIAL_v4_0_0</code> - nhánh <code>main</code><br />
+<strong>Firmware đối chiếu:</strong> <code>MAYAP_INDUSTRIAL_v1_0_0</code> - nhánh <code>main</code><br />
 <strong>Ngày cập nhật:</strong> 30/09/2026<br />
-<strong>Nguồn chuẩn mã lỗi:</strong> <code>MAYAP_INDUSTRIAL_v4_0_0/machine_control.h</code></p>
+<strong>Nguồn chuẩn mã lỗi:</strong> <code>MAYAP_INDUSTRIAL_v1_0_0/machine_control.h</code></p>
 <blockquote>
 <p>Tài liệu này thay thế danh sách mã lỗi cũ chỉ cập nhật tới E502. Firmware hiện tại có <strong>41 mã lỗi thực</strong>, không tính <code>None = 0</code>.</p>
 </blockquote>
@@ -514,7 +514,7 @@ a { color:var(--accent); text-decoration:none; }
 <p>Firmware khai báo:</p>
 <pre><code class="language-cpp">constexpr uint8_t FAULT_CODE_REAL_COUNT = 41U;
 </code></pre>
-<p><code>FaultManager</code> hiện có <code>MAX_FAULTS = 48</code>, kèm <code>static_assert</code> để tránh trường hợp số mã lỗi vượt sức chứa bảng. Trước đây từng có tình trạng số fault thực lớn hơn số slot, có thể làm một số fault bị ghi đè; kiến trúc v4.0.0 đã bổ sung headroom và kiểm tra compile-time.</p>
+<p><code>FaultManager</code> hiện có <code>MAX_FAULTS = 48</code>, kèm <code>static_assert</code> để tránh trường hợp số mã lỗi vượt sức chứa bảng. Trước đây từng có tình trạng số fault thực lớn hơn số slot, có thể làm một số fault bị ghi đè; kiến trúc v1.0.0 đã bổ sung headroom và kiểm tra compile-time.</p>
 <p>Khi thêm mã lỗi mới trong firmware phải cập nhật đồng thời:</p>
 <ol>
 <li><code>enum class FaultCode</code>.</li>
@@ -524,4 +524,4 @@ a { color:var(--accent); text-decoration:none; }
 <li>Tài liệu này và bản PDF phát hành cho người vận hành.</li>
 </ol>
 <hr />
-<p><strong>Kết thúc tài liệu - v1.3 / 41 mã lỗi / firmware v4.0.0</strong></p></main></body></html>
+<p><strong>Kết thúc tài liệu - v1.3 / 41 mã lỗi / firmware v1.0.0</strong></p></main></body></html>
