@@ -189,8 +189,8 @@ firmware_text = "\n".join(
     for p in (ROOT / "MAYAP_INDUSTRIAL_v1_0_0").glob("*")
     if p.suffix in {".h", ".ino"}
 )
-# LOG/EXIT must silence every firmware-originated diagnostic. Keep the three
-# explicit toggle confirmations, but never let a module bypass that gate.
+# LOG/EXIT must silence ongoing diagnostics. Keep the three explicit toggle
+# confirmations and the single commissioning version line at owner startup.
 firmware_sources = list((ROOT / "MAYAP_INDUSTRIAL_v1_0_0").glob("*.h")) + list(
     (ROOT / "MAYAP_INDUSTRIAL_v1_0_0").glob("*.ino")
 )
@@ -208,6 +208,12 @@ for source in firmware_sources:
             raise SystemExit("FAIL: bounded Serial writer must preserve debug gate")
         require(source_text, "inline void mayapSerialDrain()", "sole bounded Serial writer")
         require(source_text, "criticalDropped", "Serial loss accounting")
+    elif source.name == "websocket_transport.h":
+        if direct_serial:
+            raise SystemExit("FAIL: WebSocket diagnostics must use bounded Serial mailbox")
+        forced = re.findall(r'mayapSerialPrintf\(true,\s*"([^"\n]*)"', source_text)
+        if forced != ["[WS-CONNECT] arduino=%s idf=%s\\n"]:
+            raise SystemExit("FAIL: only the one-time WebSocket SDK version line may bypass LOG/EXIT")
     elif direct_serial or "mayapSerialPrintf(true" in source_text:
         raise SystemExit(f"FAIL: ungated Serial output in {source.name}")
 require(config, "HEALTH_HEAP_SAMPLE_INTERVAL_MS = 1000UL", "bounded heap sampling")

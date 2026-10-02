@@ -6,13 +6,27 @@
 #include <lwip/dns.h>
 #include <lwip/tcpip.h>
 #include <new>
+#include <errno.h>
+#include <lwip/sockets.h>
+#include <esp_arduino_version.h>
+#include <esp_system.h>
 #include "websocket_codec.h"
 #include "network_io_guard.h"
+#include "serial_diagnostics.h"
 
 // Only the existing dedicated realtime owner touches this transport. DNS,
 // TCP/TLS and upgrade are incremental; no socket calls occur in control/ISR.
 class WebSocketTransport {
  public:
+  static void logVersionsOnce() {
+#if MAYAP_DIAGNOSTIC_SERIAL
+    static bool logged = false;
+    if (!logged) {
+      logged = true;
+      mayapSerialPrintf(true, "[WS-CONNECT] arduino=%s idf=%s\n", ESP_ARDUINO_VERSION_STR, esp_get_idf_version());
+    }
+#endif
+  }
   using Callback = void (*)(const uint8_t *, size_t);
   void setCallback(Callback callback) { callback_ = callback; }
   bool connected() const { return phase_ == Phase::Open; }
@@ -50,7 +64,11 @@ class WebSocketTransport {
     // the outer state-machine deadline bounds the entire handshake instead.
     cfg_.timeout_ms = 1;
     started_ = lastRx_ = lastTx_ = now; error_ = 0; phase_ = Phase::Dns;
+#if MAYAP_DIAGNOSTIC_SERIAL
+    lastTlsState_ = -1; tlsStateLogs_ = 0; upgradeResultLogged_ = false;
+#endif
     __atomic_store_n(&dnsPending_, 1U, __ATOMIC_RELEASE); __atomic_store_n(&dnsReady_, 0U, __ATOMIC_RELEASE);
+    logPhase("DNS");
     ip_addr_t address;
     LOCK_TCPIP_CORE();
     const err_t result = dns_gethostbyname_addrtype(host_, &address, dnsDone, this, LWIP_DNS_ADDRTYPE_IPV4);
@@ -69,18 +87,23 @@ class WebSocketTransport {
   }
   void loop(uint32_t now) {
     if (!busy()) return;
-    if (phase_ != Phase::Open && static_cast<uint32_t>(now - started_) > 15000U) { fail(-3); return; }
+    if (phase_ != Phase::Open && static_cast<uint32_t>(now - started_) > 15000U) {
+      logTimeout(now); fail(-3); return;
+    }
     if (phase_ == Phase::Dns) {
       const uint8_t ready = __atomic_load_n(&dnsReady_, __ATOMIC_ACQUIRE);
       if (!ready) return;
       if (ready == 2) { fail(-4); return; }
       snprintf(ip_, sizeof(ip_), "%u.%u.%u.%u", dnsAddress_[0], dnsAddress_[1], dnsAddress_[2], dnsAddress_[3]);
       tls_ = esp_tls_init(); if (!tls_) { fail(-5); return; } phase_ = Phase::Tls;
+      logPhase("TLS"); logTlsState();
     }
     if (phase_ == Phase::Tls) {
       const int result = esp_tls_conn_new_async(ip_, strlen(ip_), 443, &cfg_, tls_);
+      logTlsState();
       if (result < 0) { fail(-6); return; } if (!result) return;
       phase_ = Phase::Upgrade;
+      logPhase("UPGRADE");
     }
     if (phase_ == Phase::Upgrade) {
       if (upgradeSent_ < upgradeLength_) {
@@ -96,8 +119,10 @@ class WebSocketTransport {
         if (n <= 0 || upgradeUsed_ + 1 >= sizeof(upgrade_)) { fail(-8); return; }
         upgrade_[upgradeUsed_++] = c; upgrade_[upgradeUsed_] = 0;
         if (upgradeUsed_ >= 4 && !strcmp(upgrade_ + upgradeUsed_ - 4, "\r\n\r\n")) {
-          if (!validUpgrade()) { fail(-9); return; }
+          const bool valid = validUpgrade(); logUpgradeResult(valid ? 1 : 0);
+          if (!valid) { fail(-9); return; }
           delete admission_; admission_ = nullptr; phase_ = Phase::Open;
+          logPhase("OPEN");
           lastRx_ = lastTx_ = now; memset(upgrade_, 0, sizeof(upgrade_)); break;
         }
       }
@@ -133,6 +158,71 @@ class WebSocketTransport {
   enum class Phase : uint8_t { Closed, Dns, Tls, Upgrade, Open };
   static constexpr uint8_t QUEUE_CAP = 8;
   struct Slot { uint8_t bytes[MayapWebSocket::FRAME_CAP + 8]; uint16_t length = 0; };
+  // Diagnostics stay on the realtime owner, use the bounded Serial mailbox,
+  // and never log request/response buffers or run inside the DNS callback.
+  static void logPhase(const char *phase) {
+#if MAYAP_DIAGNOSTIC_SERIAL
+    mayapSerialPrintf(false, "[WS-CONNECT] phase=%s\n", phase);
+#else
+    (void)phase;
+#endif
+  }
+  void logTlsState() {
+#if MAYAP_DIAGNOSTIC_SERIAL
+    esp_tls_conn_state_t state;
+    if (!tls_ || esp_tls_get_conn_state(tls_, &state) != ESP_OK) return;
+    if (static_cast<int>(state) == lastTlsState_) return;
+    lastTlsState_ = static_cast<int>(state);
+    // The real state machine advances monotonically through at most five states.
+    // Also bound output if a faulty HAL unexpectedly oscillates states.
+    if (tlsStateLogs_ >= 5U) return;
+    ++tlsStateLogs_;
+    mayapSerialPrintf(false, "[WS-CONNECT] tls_conn_state=%d\n", lastTlsState_);
+#endif
+  }
+  void logTimeout(uint32_t now) {
+#if MAYAP_DIAGNOSTIC_SERIAL
+    esp_tls_conn_state_t state = ESP_TLS_INIT;
+    const int tlsState = tls_ && esp_tls_get_conn_state(tls_, &state) == ESP_OK ? static_cast<int>(state) : -1;
+    const char *phase = phase_ == Phase::Dns ? "DNS" : phase_ == Phase::Tls ? "TLS" : "UPGRADE";
+    mayapSerialPrintf(false,
+        "[WS-CONNECT] timeout elapsed_ms=%lu phase=%s dnsReady=%u tls_conn_state=%d upgradeSent=%u upgradeUsed=%u\n",
+        static_cast<unsigned long>(now - started_), phase,
+        static_cast<unsigned>(__atomic_load_n(&dnsReady_, __ATOMIC_ACQUIRE)), tlsState,
+        static_cast<unsigned>(upgradeSent_), static_cast<unsigned>(upgradeUsed_));
+    if (tlsState == ESP_TLS_CONNECTING) {
+      int fd = -1;
+      const int fdResult = esp_tls_get_conn_sockfd(tls_, &fd);
+      int result = -1, error = 0;
+      if (fdResult == ESP_OK && fd >= 0) {
+        sockaddr_storage peer{}; socklen_t size = sizeof(peer);
+        result = getpeername(fd, reinterpret_cast<sockaddr *>(&peer), &size);
+        if (result < 0) error = errno;
+      }
+      mayapSerialPrintf(false, "[WS-CONNECT] peer_established=%u fd_result=%d result=%d errno=%d\n",
+          result == 0 ? 1U : 0U, fdResult, result, error);
+    }
+#else
+    (void)now;
+#endif
+  }
+  void logUpgradeResult(int validation) {
+#if MAYAP_DIAGNOSTIC_SERIAL
+    if (upgradeResultLogged_) return;
+    upgradeResultLogged_ = true;
+    unsigned status = 0;
+    // Read only the numeric status, even on partial/error responses. The same
+    // buffer previously held Authorization; never print it as a string.
+    if (upgradeUsed_ >= 12 && !strncmp(upgrade_, "HTTP/1.", 7) && upgrade_[8] == ' ' &&
+        upgrade_[9] >= '0' && upgrade_[9] <= '9' && upgrade_[10] >= '0' && upgrade_[10] <= '9' &&
+        upgrade_[11] >= '0' && upgrade_[11] <= '9')
+      status = (upgrade_[9] - '0') * 100U + (upgrade_[10] - '0') * 10U + upgrade_[11] - '0';
+    // status=0: unavailable; validation=-1: complete headers were not validated.
+    mayapSerialPrintf(false, "[WS-CONNECT] http_status=%u websocket_valid=%d\n", status, validation);
+#else
+    (void)validation;
+#endif
+  }
   static bool wouldBlock(int n) { return n == ESP_TLS_ERR_SSL_WANT_READ || n == ESP_TLS_ERR_SSL_WANT_WRITE; }
   static void dnsDone(const char *, const ip_addr_t *address, void *arg) {
     auto *self = static_cast<WebSocketTransport *>(arg);
@@ -167,10 +257,18 @@ class WebSocketTransport {
     }
     return accepted && upgrade && connection;
   }
-  void fail(int error) { disconnect(); error_ = error; }
+  void fail(int error) {
+    if (phase_ == Phase::Upgrade) logUpgradeResult(-1);
+    disconnect(); error_ = error;
+  }
   esp_tls_t *tls_ = nullptr; esp_tls_cfg_t cfg_ = {};
   MayapTlsOperation *admission_ = nullptr; Callback callback_ = nullptr;
   Phase phase_ = Phase::Closed; int error_ = 0;
+#if MAYAP_DIAGNOSTIC_SERIAL
+  int lastTlsState_ = -1;
+  uint8_t tlsStateLogs_ = 0;
+  bool upgradeResultLogged_ = false;
+#endif
   char host_[128] = {}, ip_[16] = {}, accept_[29] = {}, upgrade_[1024] = {};
   size_t upgradeLength_ = 0, upgradeSent_ = 0, upgradeUsed_ = 0, txOffset_ = 0;
   uint32_t started_ = 0, lastRx_ = 0, lastTx_ = 0, txProgressAt_ = 0;

@@ -1571,6 +1571,7 @@ inline void serviceEventLogPublish() {
 
 inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
+  WebSocketTransport::logVersionsOnce();
   ensureIdentity(); socketTransport.setCallback(realtimeMessageCallback);
   wifiPowerModeValid = false; applyWifiPowerMode(true);
 }
