@@ -20,3 +20,7 @@ cloudflare/public/
 !.dev.vars.example
 .local/
 MAYAP_INDUSTRIAL_v1_0_0/build/
+
+# Python regression-tool bytecode
+__pycache__/
+*.pyc
