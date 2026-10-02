@@ -83,7 +83,7 @@ enum wifi_ps_type_t { WIFI_PS_NONE, WIFI_PS_MIN_MODEM };
 static wifi_ps_type_t radioPs=WIFI_PS_MIN_MODEM;
 static bool radioReady=true, highPerfWifiApplied=false, wifiPowerModeValid=false;
 static bool webSessionActive=true;
-#include "../MAYAP_INDUSTRIAL_v4_0_0/web_realtime_policy.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/web_realtime_policy.h"
 using MayapCloudInternal::mayapGetNetworkStatus;
 static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
 static unsigned psWrites=0;
