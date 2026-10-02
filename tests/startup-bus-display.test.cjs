@@ -2,7 +2,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const dir = 'MAYAP_INDUSTRIAL_v4_0_0/';
+const dir = 'MAYAP_INDUSTRIAL_v1_0_0/';
 const read = name => fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
 
 test('startup permission follows a non-splash LCD transfer and successful presence probe', () => {
