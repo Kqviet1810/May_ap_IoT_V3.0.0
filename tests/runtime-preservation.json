@@ -61,7 +61,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "0c5b897a0eca21b3d3f98b7e86c77805400e4a591be1151c92afab0fccbd3a1e",
+      "sha256": "c47ccaf97de869ba2bda1210c108d41d799aed56c19acc9c178b56554fc081a8",
       "filter": "config"
     },
     {
@@ -366,5 +366,6 @@
       ]
     }
   ],
-  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged."
+  "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
+  "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged."
 }
