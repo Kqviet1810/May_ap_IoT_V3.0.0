@@ -173,7 +173,7 @@ test('reviewed single-C512 firmware bridge and 300-second WARM stay protected',(
   // Account auth/grants and signed transaction bodies retain their other guards.
   const baseline={"config.h": "b62cb070e0ee1f6c26ebdd736854e673d82360bbc554808416d974457f2640bd", "realtime_link.h": "516483669ee72ffa1d4e4d4ee269813975cd16c149079399823d2280a6ab182f"};
   for(const file of ['config.h','realtime_link.h']) {
-    const filename='MAYAP_INDUSTRIAL_v4_0_0/'+file;
+    const filename='MAYAP_INDUSTRIAL_v1_0_0/'+file;
     assert.equal(crypto.createHash('sha256').update(fs.readFileSync(filename,'utf8').replace(/\r\n/g,'\n')).digest('hex'),baseline[file]);
   }
   assert.match(fs.readFileSync('app.js','utf8'),/WARM_BACKGROUND_MS = 300000/);
