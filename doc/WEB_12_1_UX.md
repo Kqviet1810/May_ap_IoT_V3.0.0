@@ -1,6 +1,6 @@
 # MAYAP Web 12.1 — giao diện và kết nối
 
-Tiếp nối `feat/adaptive-staged-boot`, firmware/HMI vẫn là 4.0.0. Thay đổi
+Tiếp nối `feat/adaptive-staged-boot`, firmware/HMI vẫn là 1.0.0. Thay đổi
 này tập trung vào web; các file firmware ESP32, ATtiny, Adaptive Boot và
 Runtime Recovery giữ nguyên so với `a60fe7e`.
 
