@@ -8,6 +8,8 @@
 constexpr size_t WEB_REQUEST_ID_CAPACITY=40;
 static uint32_t clockMs=100,bootId=123,notesAckRevision=0;
 uint32_t millis(){return clockMs;}
+static unsigned diagnostics=0;
+void mayapSerialPrintf(bool,const char*,...){++diagnostics;}
 static int webMux;static bool knownRuntimeValid=true;static struct{bool batchRunning=true;}knownRuntime;
 #define portENTER_CRITICAL(p) ((void)(p))
 #define portEXIT_CRITICAL(p) ((void)(p))
@@ -34,7 +36,8 @@ int main(){
  assert(cursors.size()==2&&cursors[0]==0&&cursors[1]==1);
  acks.clear();handleNotesMessage(write(),false);assert(submitted.note.version==0);
  finish(true,0,MayapNotes::Code::Eeprom,true);serviceNotes();assert(notesPending.used&&notesPending.uncertainSent&&acks.back()=="expired");
- finish(true,0,MayapNotes::Code::Eeprom,true);serviceNotes();assert(acks.size()==2); // One uncertain frame, bounded logging/traffic.
+ const unsigned firstDiagnostics=diagnostics;
+ finish(true,0,MayapNotes::Code::Eeprom,true);serviceNotes();assert(diagnostics==firstDiagnostics);assert(acks.size()==2); // One uncertain frame, bounded logging/traffic.
  finish(true,0);response.note=submitted.note;response.note.version=3;failSend=true;serviceNotes();assert(notesPending.used);
  failSend=false;serviceNotes();assert(!notesPending.used&&acks.back()=="applied"&&notesAckRevision==3);
  auto invalid=write();invalid["note"]["content"]="   ";handleNotesMessage(invalid,false);assert(!notesPending.used&&acks.back()=="invalid");

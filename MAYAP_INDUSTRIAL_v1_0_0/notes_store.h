@@ -21,8 +21,12 @@ struct Record { uint32_t magic; uint16_t schema; uint8_t live, reserved; Note no
 static_assert(sizeof(Record) <= SLOT_BYTES, "Notes record exceeds reserved bank");
 enum class Code : uint8_t { Ok, Eeprom, Corrupt, Full, Conflict, Invalid, NotFound };
 enum class Operation : uint8_t { List, Upsert, Remove };
+enum class IoStage : uint8_t { None, Write, Readback, Verify };
+inline const char *stageText(IoStage stage) {
+  switch(stage){case IoStage::Write:return "WRITE";case IoStage::Readback:return "READBACK";case IoStage::Verify:return "VERIFY";default:return "NONE";}
+}
 struct Request { uint32_t token = 0; Operation operation = Operation::List; uint8_t cursor = 0; bool allowBatch = false, reconcile = false; Note note{}; };
-struct Response { uint32_t token = 0; Code code = Code::Ok; uint8_t nextCursor = 0; bool done = true, hasNote = false, ambiguous = false; Note note{}; };
+struct Response { uint32_t token = 0; Code code = Code::Ok; uint8_t nextCursor = 0; bool done = true, hasNote = false, ambiguous = false; IoStage ioStage = IoStage::None; uint16_t ioAddress = 0; int16_t mismatch = -1; bool blank = false, validReadback = false; Note note{}; };
 inline uint32_t crc32(const void *data, size_t size) {
   uint32_t crc = 0xFFFFFFFFUL; const auto *p = static_cast<const uint8_t *>(data);
   while (size--) { crc ^= *p++; for (uint8_t bit=0;bit<8;++bit) crc=(crc>>1)^((crc&1U)?0xEDB88320UL:0U); }
@@ -141,12 +145,19 @@ template<class Eeprom> class Store {
     b_=Record{};b_.magic=MAGIC;b_.schema=1;b_.live=request.operation==Operation::Upsert;
     b_.note=candidate;b_.note.version=index_[slot].version+1U;if(!b_.note.version)b_.note.version=1;
     b_.crc=crc32(&b_,offsetof(Record,crc));const uint8_t bank=1U-index_[slot].bank;
-    out.ambiguous=true;
+    out.ambiguous=true;out.ioAddress=address(slot,bank);out.ioStage=IoStage::Write;
     if(!io_.writeBytes(address(slot,bank),&b_,sizeof(b_))){loaded_=false;out.code=Code::Eeprom;return out;}
+    out.ioStage=IoStage::Readback;
     bool blank=false;out.code=read(slot,bank,a_,blank);
-    if(out.code!=Code::Ok || blank || !valid(a_) || memcmp(&a_,&b_,sizeof(a_))){loaded_=false;out.code=Code::Eeprom;return out;}
+    if(out.code!=Code::Ok){loaded_=false;return out;}
+    out.ioStage=IoStage::Verify;out.blank=blank;out.validReadback=!blank&&valid(a_);
+    if(!out.validReadback || memcmp(&a_,&b_,sizeof(a_))){
+      const auto *actual=reinterpret_cast<const uint8_t *>(&a_),*expected=reinterpret_cast<const uint8_t *>(&b_);
+      for(size_t i=0;i<sizeof(a_);++i)if(actual[i]!=expected[i]){out.mismatch=static_cast<int16_t>(i);break;}
+      loaded_=false;out.code=Code::Eeprom;return out;
+    }
     index_[slot].bank=bank;index_[slot].live=b_.live;index_[slot].version=b_.note.version;memcpy(index_[slot].id,b_.note.id,sizeof(b_.note.id));
-    out.note=a_.note;out.hasNote=b_.live;out.ambiguous=false;return out;
+    out.note=a_.note;out.hasNote=b_.live;out.ambiguous=false;out.ioStage=IoStage::None;return out;
   }
 };
 } // namespace MayapNotes

@@ -54,6 +54,10 @@ inline void serviceNotes() {
   auto &result=notesPending.response;
   if(result.ambiguous) {
     if(!notesPending.uncertainSent && !publishAck(notesPending.requestId,"expired","NOTES_UNCERTAIN",notesPending.operation,notesPending.receivedAt,millis(),notesPending.signedAck?notesPending.key:nullptr))return;
+    if(!notesPending.uncertainSent)mayapSerialPrintf(false,
+      "[NOTES] uncertain token=%lu op=%s stage=%s addr=0x%04X mismatch=%d blank=%u valid=%u code=%s\n",
+      static_cast<unsigned long>(notesPending.token),notesPending.operation,stageText(result.ioStage),
+      static_cast<unsigned>(result.ioAddress),static_cast<int>(result.mismatch),result.blank?1U:0U,result.validReadback?1U:0U,codeText(result.code));
     notesPending.uncertainSent=true;notesPending.ready=false;notesPending.waiting=true;return;
   }
   if(result.code==Code::Ok && notesPending.job.operation==Operation::List) {
@@ -68,6 +72,9 @@ inline void serviceNotes() {
   const bool ok=result.code==Code::Ok;
   notesAckRevision=result.note.version;
   if(!publishAck(notesPending.requestId,ok?"applied":"rejected",ok?(notesPending.job.operation==Operation::List?"NOTES_DONE":"NOTES_STORED"):codeText(result.code),notesPending.operation,notesPending.receivedAt,millis(),notesPending.signedAck?notesPending.key:nullptr))return;
+  mayapSerialPrintf(false,"[NOTES] terminal token=%lu op=%s ok=%u version=%lu code=%s\n",
+    static_cast<unsigned long>(notesPending.token),notesPending.operation,ok?1U:0U,
+    static_cast<unsigned long>(notesAckRevision),ok?(notesPending.job.operation==Operation::List?"NOTES_DONE":"NOTES_STORED"):codeText(result.code));
   notesPending.used=false;
 }
 inline void serviceNotesAdmission() {

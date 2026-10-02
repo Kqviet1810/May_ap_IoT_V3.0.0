@@ -99,7 +99,7 @@ int main() {
   }
   Wire.memory=committed;Wire.off=false;Wire.cutAfter=-1;Wire.writes=0;
   Store<ExternalEeprom24xx> ambiguous(io);request=save(2);Wire.failReadAfterWrite=true;
-  result=ambiguous.process(request);assert(result.code==Code::Eeprom&&result.ambiguous);
+  result=ambiguous.process(request);assert(result.code==Code::Eeprom&&result.ambiguous&&result.ioStage==IoStage::Readback);
   const size_t once=Wire.writes;Wire.failReadAfterWrite=false;request.reconcile=true;
   result=ambiguous.process(request);assert(result.code==Code::Ok&&!result.ambiguous&&result.note.version==1&&Wire.writes==once);
   // Delete ambiguity likewise reconciles the tombstone without a second write.
@@ -118,7 +118,11 @@ int main() {
   strcpy(invalid.note.content,"\xED\xA0\x80");assert(fullReboot.process(invalid).code==Code::Invalid);
   // Write protection can return successful I2C yet must fail readback.
   Wire.memory=committed;Wire.wp=true;Store<ExternalEeprom24xx> protectedStore(io);
-  assert(protectedStore.process(save(100)).code==Code::Eeprom);Wire.wp=false;
+  const auto wpResult=protectedStore.process(save(100));
+  assert(wpResult.code==Code::Eeprom&&wpResult.ioStage==IoStage::Verify&&wpResult.blank&&wpResult.mismatch==0&&!wpResult.validReadback);Wire.wp=false;
+  Wire.memory=committed;Wire.cutAfter=0;Store<ExternalEeprom24xx> writeFailure(io);
+  const auto writeResult=writeFailure.process(save(100));assert(writeResult.ioStage==IoStage::Write&&writeResult.ambiguous);
+  Wire.off=false;Wire.cutAfter=-1;
   // CRC fallback to the older bank, and explicit error if both copies corrupt.
   Wire.memory=beforeEdit;Wire.memory[BASE+SLOT_BYTES+offsetof(Record,note)+100]^=1;
   Store<ExternalEeprom24xx> fallback(io);assert(list(fallback).note.version==1);
