@@ -100,7 +100,7 @@ static void advance(uint64_t target) {
 #include "actual-gpio_interrupts.inc"
 #include "actual-attiny_bus.inc"
 #include "actual-boot-mailbox.inc"
-#include "../MAYAP_INDUSTRIAL_v4_0_0/startup_output_policy.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/startup_output_policy.h"
 
 static void reset() {
   using namespace MayapAttinyBusInternal;
