@@ -6,11 +6,11 @@
 #include <cstdint>
 #include <ctime>
 #include <string>
-#include "../MAYAP_INDUSTRIAL_v4_0_0/web_realtime_policy.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/web_realtime_policy.h"
 static uint32_t clockMs = 100, bootId = UINT32_MAX;
 uint32_t millis() { return clockMs; }
 bool timeReached(uint32_t now, uint32_t target) { return static_cast<int32_t>(now - target) >= 0; }
-constexpr char MAYAP_FIRMWARE_VERSION[] = "4.0.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "1.0.0";
 constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000;
 #define portENTER_CRITICAL(x) ((void)(x))
 #define portEXIT_CRITICAL(x) ((void)(x))
