@@ -1,5 +1,4 @@
-/* UI-only notes. No EEPROM/API writes: a future storage adapter must supply
-   list/save/remove. The explicit trial uses memory and never claims persistence. */
+/* MAYAP notes UI. Storage is supplied by the signed device transaction bridge. */
 (function (root) {
   'use strict';
   const POSITION_KEY = 'mayap.notes.position.v1';
@@ -23,9 +22,8 @@
   function mount({ getContext, confirm, storage = null }) {
     if (document.getElementById('notesBubble')) return;
     let records = [], view = 'list', editing = null, original = '', busy = false, confirmPending = false;
-    let trial = false, error = '', loading = false, all = false, query = '', filter = 'all', scope = '';
+    let error = '', loading = false, all = false, query = '', filter = 'all', scope = '';
     let generation = 0, dock = { side:'right', y:1 }, drag = null, suppressClick = false;
-    const memory = new Map();
     function activate() { if (!panel.hidden) requestClose(); else open(); }
     const bubble = button('', 'notesBubble', () => {
       if (suppressClick) { suppressClick = false; return; }
@@ -109,20 +107,18 @@
     root.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('scroll', position, { passive:true });
     function context() { return getContext() || {}; }
     function currentScope() { return context().deviceId || 'unpaired'; }
-    function trialRecords() { return memory.get(scope) || []; }
     async function load() {
       const token = ++generation;
       scope = currentScope(); loading = true; error = ''; records = []; render();
       try {
         let loaded;
-        if (trial) loaded = trialRecords();
-        else if (storage) loaded = await storage.list(scope);
+        if (storage) loaded = await storage.list(scope);
         else throw new Error('STORAGE_UNAVAILABLE');
         if (token !== generation) return;
         records = loaded;
-      } catch (_) {
+      } catch (cause) {
         if (token !== generation) return;
-        error = storage ? 'Không thể tải ghi chú. Thử lại.' : 'Máy chưa có API lưu Ghi chú trên AT24C512.';
+        error = cause.message || 'Không thể tải ghi chú. Thử lại.';
       }
       loading = false; render();
     }
@@ -164,15 +160,14 @@
     function render() { renderContent(); position(); }
     function renderContent() {
       body.replaceChildren(); title.textContent = all ? 'Tất cả ghi chú':'Ghi chú'; setCount(); position();
-      if (trial) body.append(el('p','notesNotice','Bản thử UI · Chỉ giữ trong bộ nhớ của trang này. Tải lại sẽ mất; chưa ghi vào AT24C512.'));
       if (loading) { const area = el('div','notesList'); area.setAttribute('role','status'); area.setAttribute('aria-label','Đang tải ghi chú'); area.append(el('div','notesSkeleton'),el('div','notesSkeleton')); body.append(area); return; }
       if (error) {
         body.append(el('p','notesError',error));
         body.append(button('Thử lại','ghost',load));
-        if (!storage) body.append(button('Thử giao diện · không lưu vào máy','primary',() => { trial = true; load(); }));
         return;
       }
-      body.append(button('+ Ghi chú mới','primary full',() => form()));
+      const create = button('+ Ghi chú mới','primary full',() => form()); create.disabled = records.length >= 16;
+      body.append(create);
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -184,6 +179,7 @@
       } else items = items.slice(0,4);
       const list = el('div','notesList'); list.id = 'notesList'; body.append(list); drawList(list,items);
       if (!all && records.length > 4) body.append(button('Xem tất cả','ghost full',showAll));
+      body.append(button('Tải lại từ máy','ghost full',load),el('small','notesNotice','Lưu trên máy · Tối đa 16 ghi chú.'));
     }
     function filtered() { const q = query.trim().toLocaleLowerCase('vi'); return sorted().filter(n => (filter === 'all' || n.type === filter) && `${n.title}\n${n.content}`.toLocaleLowerCase('vi').includes(q)); }
     function drawList(list,items) {
@@ -193,9 +189,9 @@
     function renderList() { drawList(body.querySelector('#notesList'),filtered()); }
     function showAll() { all = true; dialog.append(panel); dialog.showModal(); render(); close.focus(); }
     function form(note = null) {
-      if (busy) return; editing = note; view = 'form'; body.replaceChildren();
+      if (busy) return; editing = note;
+      const draftId = note?.id || root.crypto.randomUUID(), createdAt = note?.createdAt || Date.now(); view = 'form'; body.replaceChildren();
       title.textContent = note ? 'Sửa ghi chú':'Ghi chú mới';
-      if (trial) body.append(el('p','notesNotice','Bản thử UI · Chưa lưu vào máy; tải lại sẽ mất.'));
       const f = el('form','notesForm');
       function field(label,node) { const l = el('label','field'); l.append(el('span','',label),node); f.append(l); }
       const type = el('select'); type.name = 'type';
@@ -218,13 +214,13 @@
         // A device switch must never save a draft to another machine.
         if (scope !== currentScope()) { failure.textContent = 'Máy đang chọn đã thay đổi. Hủy bản nháp và mở lại Ghi chú.'; return; }
         if (type.value === 'batch' && !context().batchRunning && note?.type !== 'batch') { failure.textContent = 'Mẻ đã kết thúc. Chọn Máy / bảo trì để lưu.'; return; }
-        const values = formValues(f), value = { ...values, title:values.title.trim(), content:values.content.trim(), id:note?.id || root.crypto.randomUUID(), createdAt:note?.createdAt || Date.now() };
+        const values = formValues(f), value = { ...values, title:values.title.trim(), content:values.content.trim(), id:draftId, createdAt, version:note?.version || 0 };
         busy = true; save.disabled = true; cancel.disabled = true;
         try {
-          if (!trial) await storage.save(scope,value);
-          records = records.filter(n => n.id !== value.id).concat(value); if (trial) memory.set(scope,records);
+          const stored = await storage.save(scope,value);
+          records = records.filter(n => n.id !== stored.id).concat(stored);
           view = 'list'; render();
-        } catch (_) { failure.textContent = 'Không thể lưu ghi chú. Thử lại.'; save.disabled = false; cancel.disabled = false; }
+        } catch (error) { failure.textContent = error.message || 'Không thể lưu ghi chú. Thử lại.'; save.disabled = false; cancel.disabled = false; }
         finally { busy = false; }
       });
       position(); titleInput.focus({ preventScroll:true });
@@ -239,8 +235,8 @@
       if (!accepted) return;
       if (noteScope !== currentScope()) { load(); return; }
       busy = true;
-      try { if (!trial) await storage.remove(scope,note.id); records = records.filter(n => n.id !== note.id); if (trial) memory.set(scope,records); render(); }
-      catch (_) { const message = el('p','notesError','Không thể xóa ghi chú. Thử lại.'); message.setAttribute('role','alert'); body.prepend(message); }
+      try { await storage.remove(scope,note.id,note.version); records = records.filter(n => n.id !== note.id); render(); }
+      catch (error) { const message = el('p','notesError',error.message || 'Không thể xóa ghi chú. Thử lại.'); message.setAttribute('role','alert'); body.prepend(message); }
       finally { busy = false; }
     }
     document.addEventListener('pointerdown',event => {

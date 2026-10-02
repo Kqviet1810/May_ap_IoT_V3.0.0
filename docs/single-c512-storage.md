@@ -12,7 +12,9 @@ Do not connect another EEPROM at the same address.
 | Reminders A/B | 0x0300–0x0AFF | Two 1 KiB note/reminder slots |
 | Legacy history | 0x0B00–0x0FFF | Left untouched; no automatic history migration |
 | New history | 0x1000–0x2F7F | 2016 samples, five minutes each (seven days) |
-| Reserved | 0x2F80–0xFFFF | Unallocated; never erased/formatted on boot |
+| Reserved gap | 0x2F80–0x2FFF | Untouched |
+| Operational notes | 0x3000–0xEFFF | 16 records, two 1536-byte banks per record |
+| Reserved | 0xF000–0xFFFF | Untouched; never erased/formatted on boot |
 
 Config, batch and reminder addresses and schemas are intentionally preserved.
 Moving these records would require a crash-safe migration, not just changing

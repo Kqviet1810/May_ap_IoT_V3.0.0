@@ -80,7 +80,9 @@ jobs:
           node --check src/account-worker.js
 
       - name: Account, transaction, reconnect and hibernation regression
-        run: node --test tests/*.test.cjs
+        run: |
+          node --test tests/*.test.cjs
+          python3 tools/test_notes_store.py
 
       - name: Real local workerd integration before remote mutation
         run: python3 tools/test_realtime_workerd.py

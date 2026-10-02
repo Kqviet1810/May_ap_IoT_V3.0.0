@@ -139,13 +139,14 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions', 'notes-link'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
-        if test == 'runtime-transactions': command[1] = '-std=c++17'
-        if test in ('runtime-web-connect', 'runtime-transactions'):
+        if test in ('runtime-transactions','notes-link'): command[1] = '-std=c++17'
+        if test in ('runtime-web-connect', 'runtime-transactions','notes-link'):
             command += ['-I', str(json_include)]
+        if test == 'notes-link': command += ['-I', str(root / 'MAYAP_INDUSTRIAL_v1_0_0')]
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
         subprocess.run(command, check=True)

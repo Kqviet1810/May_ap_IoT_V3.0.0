@@ -40,6 +40,7 @@ void mayapI2cUnlock() {
 #include "cloud_alert_link.h"
 #include "attiny_bus.h"
 #include "machine_control.h"
+#include "notes_service.h"
 
 using namespace Mayap;
 

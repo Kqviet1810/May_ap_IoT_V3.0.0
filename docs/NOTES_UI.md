@@ -1,50 +1,57 @@
-# Ghi chú — bản UI/UX
+# Ghi chú trên AT24C512
 
-Bong bóng Ghi chú dùng lại token MAYAP và dialog xác nhận hiện có. Nó được
-khởi tạo sau khi đăng nhập; không thay đổi transport, firmware hay cấu hình máy.
+Bong bóng Ghi chú dùng token MAYAP, dialog xác nhận và scroll nội bộ hiện có.
+Chỉ vị trí nút lưu vào localStorage. Nội dung ghi chú được lưu trên máy đang chọn,
+không lưu vào D1 hoặc bộ nhớ trình duyệt. Cần flash firmware có `notesVersion=1`;
+firmware cũ hiển thị yêu cầu cập nhật, không báo lưu giả.
 
-## Thử giao diện
+## Dữ liệu và vùng nhớ
 
-Bấm bong bóng → **Thử giao diện · không lưu vào máy**. Bản thử bắt đầu rỗng,
-cho phép tạo/sửa/xóa, xem tất cả, tìm kiếm và lọc. Ghi chú thử chỉ nằm trong RAM
-của trang, tách theo máy đang chọn. Reload sẽ mất; giao diện luôn ghi rõ điều này.
-Không dùng bản thử để lưu nhật ký vận hành thật.
+Mỗi máy lưu tối đa 16 ghi chú, tiêu đề 60 ký tự và nội dung 300 ký tự, hỗ trợ
+Unicode tiếng Việt. ID và thời gian tạo giữ nguyên khi sửa; phiên bản tăng khi ghi.
+“Mẻ hiện tại” chỉ tạo được khi runtime thật báo có mẻ. Ghi chú mẻ cũ vẫn sửa được.
+Nội dung hiển thị bằng textContent/value, không chèn vào HTML.
 
-Chỉ vị trí bong bóng được lưu vào `localStorage` (`mayap.notes.position.v1`).
-Sau kéo, nút hút về cạnh gần nhất và tránh navigation/control ở cạnh đó.
-Panel dùng scroll nội bộ, tự căn theo `visualViewport`; nội dung người dùng
-được đưa vào `textContent`/`value`, không đưa vào HTML.
+Vùng 0x3000–0xEFFF dành riêng cho ghi chú: 16 slot, mỗi slot hai bank 1536 byte.
+Không dịch chuyển hoặc xóa cấu hình, mẻ, nhắc nhở và lịch sử hiện có. Mỗi bản ghi
+có schema, sequence và CRC; ghi bank đối diện rồi đọc lại đầy đủ trước xác nhận.
+Khởi động chọn bản hợp lệ mới nhất; mất điện giữa chừng giữ bản cũ hợp lệ.
+Không format EEPROM lúc boot. Chip hỏng hoặc dữ liệu hỏng được báo lỗi rõ ràng.
 
-“Mẻ hiện tại” chỉ được chọn mặc định khi runtime thật báo `batchRunning`.
-Khi không có mẻ, mặc định “Máy / bảo trì” và khóa lựa chọn mẻ cho ghi chú mới.
-Sửa giữ ID/thời gian tạo; đóng hoặc hủy form đã thay đổi phải xác nhận.
+Task ghi chú riêng trên Core 0, ưu tiên thấp, queue cố định và dùng driver/khóa
+I2C hiện có. Không gọi EEPROM từ ISR hoặc controller. Các lệnh notes/request,
+notes/set dùng cơ chế V2 đang có: ownership, HMAC, bootId, seq, expiry, requestId.
+Web chỉ báo đã lưu sau terminal ACK của ESP32 và đọc lại thành công. Xung đột
+phiên bản yêu cầu tải lại, không ghi đè âm thầm giữa hai trình duyệt.
 
-## AT24C512
+Nếu kết quả ghi chưa chắc chắn, Web giữ trạng thái chưa xác nhận; owner đọc lại
+và đối chiếu mỗi hai giây, không ghi lặp dữ liệu đã commit. Không phát ACK thành
+công giả hoặc reset controller. Một lỗi EEPROM chỉ chặn thao tác ghi chú tiếp theo.
 
-Repo hiện chưa có vùng ghi Ghi chú hoặc API Web cho dữ liệu đó. AT24C512 đang
-được firmware quản lý cho cấu hình/mẻ/nhắc nhở/lịch sử. Không tái sử dụng vùng
-nhắc nhở hoặc lịch sử để ghi dữ liệu mới. Bản UI này không đọc/ghi EEPROM,
-không phát lệnh điều khiển và không giả lập xác nhận lưu từ ESP32.
-
-UI hiển thị trạng thái chưa hỗ trợ lưu trên máy, thay vì báo lưu thành công.
-Lưu thật trên AT24C512 cần một phạm vi firmware/API riêng được người dùng
-chấp thuận, do yêu cầu giai đoạn này cấm thay đổi EEPROM/firmware.
-
-## Kiểm tra
+## Kiểm tra tự động
 
 ```sh
+python3 tools/test_notes_store.py
+python3 tools/test_runtime_buses.py --sanitize --check-regression
+node --test tests/*.test.cjs
 python3 tools/build_web_assets.py
-# Dùng một terminal khác, hoặc HTTP server đã chạy:
-python3 -m http.server 8765 --bind 127.0.0.1
-# Sau đó:
 MAYAP_CHROME=/usr/bin/chromium node tools/test_notes_browser.cjs /tmp/mayap-notes-qa
 ```
 
-Test dùng account/realtime giả lập của Web QA và trình duyệt Chromium thật,
-không kết nối máy. Kiểm tra 1920×1080, 1366×768, 768×1024, 390×844, 390×360,
-844×390, kéo chuột/touch, reload vị trí, XSS, CRUD, filter/search, dirty form,
-trạng thái loading/error với storage giả, và viewport thu nhỏ mô phỏng bàn phím.
-CI chạy test này cùng regression Web hiện có.
+Store test dùng driver thật và giả lập C512, bao gồm 1505 vị trí mất điện,
+write protection, CRC fallback, full, stale version, Unicode, readback không chắc
+chắn và bảo toàn vùng EEPROM cũ. Browser test dùng storage/device giả lập có ACK
+HMAC; kiểm tra sáu viewport, CRUD, reload, tìm kiếm, XSS, loading/error, drag/touch.
+Các test này không thay thế kiểm tra ESP32 và EEPROM thật.
 
-Cần kiểm tra thêm bàn phím thật và kéo/tap trên Safari iPhone/Android trước
-khi phát hành. Không có thao tác deploy hoặc flash trong bản UI này.
+## Kiểm tra máy thật sau flash
+
+- Lưu ghi chú tiếng Việt, chờ xác nhận, reload Web rồi tắt/bật nguồn cả máy và EEPROM.
+- Sửa/xóa, kiểm tra dữ liệu sau reboot; thử đủ 16 ghi chú.
+- Hai trình duyệt cùng sửa: bản cũ phải bị từ chối, tải lại rồi sửa tiếp.
+- Mất Internet lúc lưu: không báo thành công trước ACK; reconnect không tạo bản trùng.
+- Mất điện giữa ghi: ghi chú cũ hoặc bản mới hoàn chỉnh còn đọc được.
+- Kiểm tra PID, heater/safety, HMI và nhắc nhở vẫn hoạt động khi ghi nhiều ghi chú.
+- Kiểm tra bàn phím và kéo/tap bằng Safari iPhone thật.
+
+Không có thao tác flash, OTA hay deploy trong thay đổi này.

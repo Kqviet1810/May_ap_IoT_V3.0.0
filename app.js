@@ -1905,6 +1905,110 @@
     }
   }
 
+  // Notes use the existing V2 signing/retry/ACK ledger. No D1/localStorage data.
+  const notesCache = new Map();
+  function failNotes(pending, message) {
+    if (!pending?.notesReject) return;
+    const reject = pending.notesReject; pending.notesReject = pending.notesResolve = null;
+    reject(new Error(message));
+  }
+  function validWebNote(note) {
+    return note && /^[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(note.id) &&
+      Number.isInteger(note.version) && note.version > 0 && note.version <= 0xffffffff &&
+      Number.isSafeInteger(note.createdAt) && note.createdAt > 0 && note.createdAt <= 8640000000000000 &&
+      ['batch','machine'].includes(note.type) && typeof note.title === 'string' && note.title.length <= 60 &&
+      typeof note.content === 'string' && note.content.length <= 300 && Boolean(note.content.trim());
+  }
+  function handleNotesReport(device, payload) {
+    const pending = state.pending.get(String(payload?.requestId || '')) || state.uncertain.get(String(payload?.requestId || ''));
+    if (!pending || pending.kind !== 'notes' || pending.operation !== 'notes.read' || pending.deviceId !== device.id ||
+        payload.v !== 1 || Number(payload.bootId) !== pending.bootId || !Array.isArray(payload.notes) || payload.notes.length > 1) return;
+    const cursor = Number(payload.cursor), next = Number(payload.nextCursor);
+    if (cursor < pending.notesCursor) return; // Exact duplicate chunk.
+    if (cursor !== pending.notesCursor || !Number.isInteger(next) || next < cursor || next > 16 ||
+        (!payload.done && next <= cursor) || payload.notes.some(n => !validWebNote(n)) ||
+        payload.notes.some(n => pending.notesList.some(old => old.id === n.id))) {
+      pending.notesGap = true; return;
+    }
+    pending.notesList.push(...payload.notes); pending.notesCursor = next;
+    if (payload.done === true && next === 16) pending.notesComplete = true;
+    if (pending.notesComplete && !pending.notesGap && pending.notesTerminalAck) handleNotesAck(device, pending.notesTerminalAck);
+  }
+  function handleNotesAck(device, ack) {
+    const id = String(ack.requestId || ''), pending = state.pending.get(id) || state.uncertain.get(id);
+    if (!pending || pending.kind !== 'notes' || pending.deviceId !== device.id) return;
+    if (ack.ok === true && ack.phase === 'completed' && Number(ack.bootId) !== pending.bootId) return;
+    if (ack.v === 2 && ack.operation === pending.operation && ack.phase === 'completed' && ack.ok === true &&
+        pending.operation === 'notes.read' && (!pending.notesComplete || pending.notesGap)) { pending.notesTerminalAck=ack;return; }
+    const transition = transactions.ack(id,ack);
+    if (transition === 'IGNORED' || transition === 'PROTOCOL_ERROR') return;
+    if (ack.phase === 'received') { pending.phase='RECEIVED';return; }
+    if (ack.phase === 'uncertain') { moveToUncertain(id,pending);failNotes(pending,ack.message || 'Máy chưa xác nhận lưu; đang kiểm tra lại.');return; }
+    if (ack.phase !== 'completed') return;
+    clearTimeout(pending.retryTimer);pending.phase=ack.ok?'APPLIED':'REJECTED';rememberOutcome(id,ack.ok,pending);
+    state.uncertain.delete(id);clearPending(id);
+    if (!ack.ok) { failNotes(pending,humanAckMessage(ack));return; }
+    if (Number(ack.bootId) !== pending.bootId) { failNotes(pending,'Máy đã khởi động lại; tải lại Ghi chú.');return; }
+    let value;
+    if (pending.operation === 'notes.read') { value=pending.notesList.map(n=>({...n}));notesCache.set(device.id,value); }
+    else {
+      const remaining=(notesCache.get(device.id)||[]).filter(n=>n.id!==pending.note.id);
+      if (pending.operation === 'notes.save') {
+        value={...pending.note,version:Number(ack.revision)};
+        if (!validWebNote(value)) { failNotes(pending,'Phản hồi Ghi chú không hợp lệ; tải lại từ máy.');return; }
+        remaining.push(value);
+      }
+      notesCache.set(device.id,remaining);
+    }
+    pending.notesResolve?.(value);pending.notesResolve=pending.notesReject=null;
+  }
+  async function notesRequest(deviceId, action, note) {
+    const device = state.devices.find(d => d.id === deviceId);
+    if (!device || deviceId !== state.selectedId || !controlReady(device)) throw new Error('Máy chưa sẵn sàng hoặc đang ngoại tuyến. Thử lại khi đã kết nối.');
+    if (Number(device.presence?.notesVersion || 0) !== 1) throw new Error('Firmware trên máy chưa hỗ trợ Ghi chú. Cần nạp bản firmware mới.');
+    const active = [...state.pending.entries(), ...state.uncertain.entries()].filter(([,p]) => p.kind === 'notes' && p.deviceId === deviceId);
+    for (const [oldId,p] of active) {
+      if (p.operation === 'notes.read' && p.phase === 'UNCERTAIN') { clearTimeout(p.retryTimer);clearPending(oldId);state.uncertain.delete(oldId);continue; }
+      if (action !== 'read' || p.operation === 'notes.read') throw new Error('Yêu cầu Ghi chú trước chưa có xác nhận cuối. Đợi máy xử lý rồi thử lại.');
+    }
+    const id = requestId('note'), read = action === 'read', operation = read ? 'notes.read' : action === 'save' ? 'notes.save' : 'notes.delete';
+    const payload = { v:2,requestId:id }; if (!read) { payload.action=action; payload.note=note; }
+    const pending = startTransaction(id, {kind:'notes',operation,deviceId,bootId:device.bootId,
+      note,notesList:[],notesCursor:0,notesComplete:false,notesGap:false}, 20_000);
+    const originalTimeout = pending.onTimeout;
+    pending.onTimeout = () => { originalTimeout();failNotes(pending,'Chưa nhận xác nhận cuối từ máy. Nội dung vẫn giữ nguyên; hãy đợi máy xử lý và thử lại.'); };
+    const result = new Promise((resolve,reject) => { pending.notesResolve=resolve;pending.notesReject=reject; });
+    // Attach rejection before asynchronous signing can receive an ACK/timeout.
+    result.catch(() => {});
+    try {
+      const channel = read ? 'notes/request':'notes/set';
+      const envelope = await signRealtimeWrite(device,channel,payload);
+      armTransaction(id);transactionPublished(id);retrySameRequest(id,{deviceId,channel},envelope);
+      await publish({deviceId,channel},envelope,{awaitAck:true,requestId:id});
+    } catch (error) {
+      if (!state.uncertain.has(id) && !pendingOutcomeKnown(id)) {
+        if(error.code === 'UNCERTAIN') pending.onTimeout();
+        else { clearPending(id);failNotes(pending,error.message); }
+      }
+    }
+    return result;
+  }
+  const notesStorage = {
+    list: deviceId => notesRequest(deviceId,'read'),
+    save(deviceId,note) {
+      const previous = notesCache.get(deviceId)?.find(n=>n.id===note.id);
+      // A late verified ACK may have stored this draft after its UI timed out.
+      if (previous && ['title','content','type','createdAt'].every(k=>previous[k]===note[k])) return Promise.resolve({...previous});
+      return notesRequest(deviceId,'save',{...note,version:Number(note.version || 0)});
+    },
+    remove: (deviceId,id,version) => {
+      const note = notesCache.get(deviceId)?.find(n=>n.id===id);
+      if (!note) return Promise.reject(new Error('Ghi chú không còn trong danh sách; tải lại từ máy.'));
+      if (note.version !== version) return Promise.reject(new Error('Ghi chú đã thay đổi; tải lại danh sách trước khi xóa.'));
+      return notesRequest(deviceId,'delete',{id,version});
+    }
+  };
+
   function clearPending(id) {
     const pending = state.pending.get(id);
     if (pending?.timeout) clearTimeout(pending.timeout);
@@ -3036,7 +3140,10 @@
       }
       else if (route.channel === 'ack') {
         verifyDeviceAck(device, payload).then((valid) => {
-          if (valid) handleAck(device, payload);
+          if (valid) {
+            const pending = state.pending.get(String(payload.requestId)) || state.uncertain.get(String(payload.requestId));
+            if (pending?.kind === 'notes') handleNotesAck(device,payload); else handleAck(device,payload);
+          }
           else if (state.pending.has(String(payload.requestId || '')) ||
               state.uncertain.has(String(payload.requestId || ''))) {
             console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
@@ -3044,6 +3151,7 @@
         }).catch((error) => console.error('[TX] ACK verify', error));
       }
       else if (route.channel === 'log') handleLog(device, payload);
+      else if (route.channel === 'notes/reported') handleNotesReport(device,payload);
       else if (route.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });
   }
@@ -3911,7 +4019,7 @@
     applyDeepLinkDevice();
     bindUi();
     notesUi = window.MayapNotes?.mount({
-      confirm: confirmAction,
+      confirm: confirmAction, storage: notesStorage,
       getContext: () => {
         const device = currentDevice();
         return { deviceId: device?.id || '', deviceName: device?.name || '',

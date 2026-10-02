@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const { chromium } = require('../cloudflare/node_modules/playwright');
-const { setup } = require('./test_web_experience.cjs');
+const { setupNotes: setup } = require('./notes_browser_fixture.cjs');
 const out = path.resolve(process.argv[2] || '/tmp/mayap-notes-qa'); fs.mkdirSync(out,{recursive:true});
 async function main() {
   const browser = await chromium.launch({executablePath:process.env.MAYAP_CHROME,headless:true});
@@ -16,8 +16,7 @@ async function main() {
       const box = await b.boundingBox(); assert.ok(box.x>=0 && box.y>=0 && box.x+box.width<=width && box.y+box.height<=height);
       const nav = await page.locator('.nav').boundingBox();
       assert.ok(!nav || box.y + box.height<=nav.y || box.x>=nav.x+nav.width || box.x+box.width<=nav.x || box.y>=nav.y+nav.height,'Bubble avoids navigation');
-      await b.click(); await page.getByText('Máy chưa có API lưu Ghi chú trên AT24C512.').waitFor();
-      await page.getByRole('button',{name:'Thử giao diện · không lưu vào máy'}).click();
+      await b.click();
       await page.getByText('Chưa có ghi chú',{exact:true}).waitFor();
       await page.getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click();
       assert.equal(await page.locator('.notesForm select').inputValue(),'batch','Real fixture has running batch');
@@ -75,8 +74,8 @@ async function main() {
       const docked = await b.boundingBox(); await page.mouse.move(docked.x+26,docked.y+26); await page.mouse.down(); await page.mouse.move(-100,-100,{steps:6});
       const bounded = await b.boundingBox(); assert.ok(bounded.x>=0 && bounded.y>=0,'Drag cannot leave viewport'); await page.mouse.up();
       await page.reload(); await b.waitFor(); assert.equal(Math.round((await b.boundingBox()).x),12);
-      await b.click(); await page.getByRole('button',{name:'Thử giao diện · không lưu vào máy'}).click();
-      await page.getByText('Chưa có ghi chú',{exact:true}).waitFor(); // Trial intentionally not persisted.
+      await b.click(); await page.locator('.noteCard').first().waitFor();
+      assert.equal(await page.locator('.notesBadge').innerText(),'4','Device notes survive browser reload');
       await page.evaluate(()=>{const d=window.__qa.state.devices[0];d.snapshot.runtime.batchRunning=false;window.__qa.renderDevice();});
       await page.getByRole('button',{name:'+ Ghi chú mới',exact:true}).click();
       assert.equal(await page.locator('.notesForm select').inputValue(),'machine'); assert.equal(await page.locator('.notesForm option[value="batch"]').evaluate(n=>n.disabled),true);
@@ -92,7 +91,6 @@ async function main() {
     assert.equal(await p.locator('#notesPanel').isVisible(),false,'Touch drag never opens panel');
     assert.equal(Math.round((await p.locator('#notesBubble').boundingBox()).x),12);
     await p.locator('#notesBubble').tap();
-    await p.getByRole('button',{name:'Thử giao diện · không lưu vào máy'}).tap();
     await p.getByRole('button',{name:'+ Ghi chú mới',exact:true}).tap();
     await p.locator('.notesForm textarea').fill('Bảo trì máy và kiểm tra cảm biến.');
     await cdp.send('Emulation.setDeviceMetricsOverride',{width:390,height:370,deviceScaleFactor:1,mobile:true,screenWidth:390,screenHeight:844});
@@ -103,46 +101,23 @@ async function main() {
     assert.deepEqual(touch.errors,[]);await cdp.detach();await touch.context.close();
     results.push('Native touch snapping and contracted visual viewport: textarea/save remain usable PASS');
 
-    // Inject storage only in this fixture to exercise real loading/error/save UI.
-    // No Worker/API or EEPROM operations take place.
-    const adapter = await setup(browser,{width:1366,height:768});
-    const source = fs.readFileSync(path.join(__dirname,'../notes.js'),'utf8');
-    await adapter.context.route('**/notes.js',route=>route.fulfill({contentType:'application/javascript',body:source+`
-      window.__notesFixture = { rows:[], failLoad:true, failSave:true, failDelete:true,
-        list(){return new Promise((resolve,reject)=>{this.complete=()=>this.failLoad?reject(new Error('fixture')):resolve(this.rows);});},
-        async save(scope,note){if(this.failSave)throw new Error('fixture');this.rows=this.rows.filter(n=>n.id!==note.id).concat(note);},
-        async remove(scope,id){if(this.failDelete)throw new Error('fixture');this.rows=this.rows.filter(n=>n.id!==id);}
-      };
-      const nativeMount=window.MayapNotes.mount;
-      window.MayapNotes.mount=options=>nativeMount({...options,storage:window.__notesFixture});
-    `}));
-    const a = adapter.page; await a.reload(); await a.locator('#notesBubble').waitFor(); await a.locator('#notesBubble').click();
-    await a.getByRole('status',{name:'Đang tải ghi chú'}).waitFor(); await a.evaluate(()=>window.__notesFixture.complete());
-    await a.getByText('Không thể tải ghi chú. Thử lại.',{exact:true}).waitFor();
-    await a.evaluate(()=>window.__notesFixture.failLoad=false); await a.getByRole('button',{name:'Thử lại',exact:true}).click();
-    await a.getByRole('status',{name:'Đang tải ghi chú'}).waitFor(); await a.evaluate(()=>window.__notesFixture.complete());
-    await a.getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click(); await a.locator('.notesForm textarea').fill('Không được mất bản nháp khi lưu lỗi.');
-    await a.getByRole('button',{name:'Lưu',exact:true}).click(); await a.getByText('Không thể lưu ghi chú. Thử lại.',{exact:true}).waitFor();
-    assert.equal(await a.locator('.notesForm textarea').inputValue(),'Không được mất bản nháp khi lưu lỗi.');
-    await a.evaluate(()=>window.__notesFixture.failSave=false); await a.getByRole('button',{name:'Lưu',exact:true}).click(); await a.locator('.noteCard').waitFor();
-    const identity = await a.evaluate(()=>({...window.__notesFixture.rows[0]}));
-    await a.getByRole('button',{name:'Sửa',exact:true}).click(); await a.locator('.notesForm input').fill('Cập nhật'); await a.getByRole('button',{name:'Lưu thay đổi'}).click();
-    const edited = await a.evaluate(()=>({...window.__notesFixture.rows[0]})); assert.equal(edited.id,identity.id);assert.equal(edited.createdAt,identity.createdAt);
-    await a.getByRole('button',{name:'Xóa',exact:true}).click(); await a.locator('#confirmAccept').click(); await a.getByText('Không thể xóa ghi chú. Thử lại.',{exact:true}).waitFor(); assert.equal(await a.locator('.noteCard').count(),1);
-    await a.evaluate(()=>window.__notesFixture.failDelete=false); await a.getByRole('button',{name:'Xóa',exact:true}).click(); await a.locator('#confirmAccept').click(); await a.getByText('Chưa có ghi chú',{exact:true}).waitFor();
-    assert.deepEqual(adapter.errors,[]);await adapter.context.close();
-    results.push('Injected adapter: loading, retry, save/delete errors preserve data, edit preserves ID/timestamp PASS');
-    const scoped = await setup(browser,{width:390,height:844,mobile:true}); const sp=scoped.page;
-    await sp.locator('#notesBubble').click(); await sp.getByRole('button',{name:'Thử giao diện · không lưu vào máy'}).click();
-    await sp.getByRole('button',{name:'+ Ghi chú mới',exact:true}).click(); await sp.locator('.notesForm textarea').fill('Ghi chú riêng của máy đầu tiên'); await sp.getByRole('button',{name:'Lưu',exact:true}).click();
-    await sp.getByRole('button',{name:'+ Ghi chú mới',exact:true}).click(); await sp.locator('.notesForm textarea').fill('Bản nháp không được chuyển sang máy khác');
-    await sp.evaluate(()=>{const h=window.__qa;window.__oldNotesDevice=h.state.selectedId;h.state.devices.push({...h.state.devices[0],id:'MAP-000000000002',name:'Máy thứ hai'});h.state.selectedId='MAP-000000000002';h.renderDevice();});
-    await sp.getByRole('button',{name:'Lưu',exact:true}).click(); await sp.getByText('Máy đang chọn đã thay đổi. Hủy bản nháp và mở lại Ghi chú.',{exact:true}).waitFor();
-    await sp.getByRole('button',{name:'Hủy',exact:true}).click();await sp.locator('#confirmAccept').click();await sp.getByText('Chưa có ghi chú',{exact:true}).waitFor();
-    await sp.evaluate(()=>{window.__qa.state.selectedId=window.__oldNotesDevice;window.__qa.renderDevice();});
-    await sp.getByText('Ghi chú riêng của máy đầu tiên',{exact:true}).waitFor();assert.equal(await sp.locator('.noteCard').count(),1);
-    await sp.locator('h2#notesTitle').click();await sp.mouse.click(4,100); assert.equal(await sp.locator('#notesPanel').isVisible(),false,'Outside click closes clean panel');
-    assert.deepEqual(scoped.errors,[]);await scoped.context.close(); results.push('Device switch: trial data isolated and dirty draft cannot save to another device PASS');
+    const adapter = await setup(browser,{width:1366,height:768});const a=adapter.page;
+    adapter.device.failLoad=true;let release;adapter.device.hold=new Promise(resolve=>release=resolve);
+    await a.locator('#notesBubble').click();await a.getByRole('status',{name:'Đang tải ghi chú'}).waitFor();
+    release();adapter.device.hold=null;await a.getByText('Không thể tải ghi chú. Thử lại.',{exact:true}).waitFor();
+    adapter.device.failLoad=false;await a.getByRole('button',{name:'Thử lại',exact:true}).click();
+    await a.getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click();await a.locator('.notesForm textarea').fill('Giữ bản nháp nếu EEPROM lỗi.');
+    adapter.device.failSave=true;await a.getByRole('button',{name:'Lưu',exact:true}).click();await a.getByText('Không thể lưu ghi chú. Thử lại.',{exact:true}).waitFor();
+    assert.equal(await a.locator('.notesForm textarea').inputValue(),'Giữ bản nháp nếu EEPROM lỗi.');
+    const id=adapter.device.calls.at(-1).body.note.id;
+    adapter.device.failSave=false;await a.getByRole('button',{name:'Lưu',exact:true}).click();await a.locator('.noteCard').waitFor();
+    assert.equal(adapter.device.calls.at(-1).body.note.id,id,'Retry preserves draft ID');
+    const original=adapter.device.rows.get('MAP-1234567890AB')[0];
+    await a.getByRole('button',{name:'Sửa',exact:true}).click();await a.locator('.notesForm input').fill('Cập nhật');await a.getByRole('button',{name:'Lưu thay đổi'}).click();await a.getByRole('button',{name:'Sửa',exact:true}).waitFor();
+    const edited=adapter.device.rows.get('MAP-1234567890AB')[0];assert.equal(edited.id,original.id);assert.equal(edited.createdAt,original.createdAt);assert.equal(edited.version,2);
+    adapter.device.failDelete=true;await a.getByRole('button',{name:'Xóa',exact:true}).click();await a.locator('#confirmAccept').click();await a.getByText('Không thể xóa ghi chú. Thử lại.',{exact:true}).waitFor();assert.equal(await a.locator('.noteCard').count(),1);
+    adapter.device.failDelete=false;await a.getByRole('button',{name:'Xóa',exact:true}).click();await a.locator('#confirmAccept').click();await a.getByText('Chưa có ghi chú',{exact:true}).waitFor();
+    assert.deepEqual(adapter.errors,[]);await adapter.context.close();results.push('Signed device bridge: loading/retry/errors, stable draft ID and stored versions PASS');
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }

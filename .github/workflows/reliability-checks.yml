@@ -82,6 +82,9 @@ jobs:
           node tools/test_web_experience.cjs /tmp/mayap-web-qa
           node tools/test_notes_browser.cjs /tmp/mayap-notes-qa
 
+      - name: AT24C512 notes power-cut and readback regression
+        run: python3 tools/test_notes_store.py
+
       - name: Actual PID and autotune host tests
         run: |
           g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test

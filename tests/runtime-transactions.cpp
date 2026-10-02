@@ -63,8 +63,8 @@ uint8_t mayapTemperatureHistoryReadStatus(uint32_t n,MayapTemperatureHistoryPoin
 static bool historyResponsePending=false,historySignedAck=true,historyReadError=false,failSend=false;
 static uint16_t historyWindowMinutes=30,historyCursor=0,historyCandidateCount=0,historySampleCount=0;
 static uint32_t historySnapshotEpoch=1800000000;static char historyRequestId[40]="history";static uint8_t historyAckKey[32]={7};
-static std::vector<uint16_t>cursors;
-bool publishJson(const char *channel,const JsonDocument &doc,bool){if(failSend)return false;if(!strcmp(channel,"ack"))acks.push_back(doc["result"].as<std::string>());else cursors.push_back(doc["cursor"].as<uint16_t>());return true;}
+static std::vector<uint16_t>cursors;static uint32_t lastAckRevision=0;
+bool publishJson(const char *channel,const JsonDocument &doc,bool){if(failSend)return false;if(!strcmp(channel,"ack")){acks.push_back(doc["result"].as<std::string>());lastAckRevision=doc["revision"].as<uint32_t>();}else cursors.push_back(doc["cursor"].as<uint16_t>());return true;}
 #include "actual-transaction-dispatch.inc"
 }
 #include "actual-transaction-confirm.inc"
@@ -97,5 +97,6 @@ int main(){
  reset();failSend=false;publishAck("cache","expired","");assert(terminalCursor==0);publishAck("cache","accepted","");assert(terminalCursor==0);publishAck("cache","applied","APPLIED","light.toggle");assert(terminalCursor==1);
  for(int i=0;i<100;i++) { assert(replayTerminal("cache")); }
  assert(terminalCursor==1&&!strcmp(terminalCache[0].requestId,"cache")&&!strcmp(terminalCache[0].result,"applied"));
+ notesAckRevision=7;publishAck("note-cache","applied","NOTES_STORED","notes.save");notesAckRevision=22;assert(replayTerminal("note-cache")&&lastAckRevision==7);
  puts("Actual transactions: immediate-controller admission, saturated trackers/outbox, Reminder ID fencing, late completion and failed history chunks PASS");
 }

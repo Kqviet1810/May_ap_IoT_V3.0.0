@@ -238,3 +238,18 @@ test('device freshness is rechecked after a slow external write validation',asyn
  try{gate.release();await write;assert.equal(events(d.ws,'config/set').length,0);assert.equal(lastError(b.ws),'CONNECTION_CHANGED');}
  finally{Date.now=real;}
 });
+
+test('notes use authenticated V2 channels, exact-retry forwarding and ownership; Hub stores no note data',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:45000}});
+ const note={id:'00000000-0000-4000-8000-000000000001',version:0,type:'machine',createdAt:1790000000000,title:'Soi trứng',content:'Kiểm tra mẻ'};
+ const write=await h.command(1,'notes-save',123,'notes/set',{action:'save',note});
+ await h.message(b.ws,write);assert.equal(events(d.ws,'notes/set').length,1);assert.equal(events(b.ws,'ack').length,0);
+ await h.message(b.ws,write);assert.equal(events(d.ws,'notes/set').length,2);
+ const bad=structuredClone(write);bad.payload.sig='00'.repeat(32);await h.message(b.ws,bad);assert.equal(lastError(b.ws),'INVALID_SIGNATURE_OR_EXPIRY');assert.equal(events(d.ws,'notes/set').length,2);
+ const read=await h.command(2,'notes-read',123,'notes/request');await h.message(b.ws,read);assert.equal(events(d.ws,'notes/request').length,1);
+ h.clearQueries();await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:1,bootId:123,requestId:'notes-read',cursor:0,nextCursor:16,done:true,notes:[{...note,version:1}]}});
+ assert.equal(h.queries,0);assert.equal(events(b.ws,'notes/reported').length,1);
+ h.sql.prepare('DELETE FROM user_devices').run();await h.message(b.ws,await h.command(3,'notes-denied',123,'notes/set',{action:'delete',note:{id:note.id,version:1}}));
+ assert.equal(events(d.ws,'notes/set').length,2);assert.equal(lastError(b.ws),'ACCESS_DENIED');
+});
