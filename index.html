@@ -9,7 +9,8 @@
 <meta content="light dark" name="color-scheme"/>
 <title>MAYAP · Máy ấp trứng</title>
 
-<meta content="MAYAP - Theo dõi máy ấp, quản lý mẻ ấp và nhận cảnh báo ở mọi nơi." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./icons/apple-touch-icon.png" rel="apple-touch-icon"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="MAYAP"/><link href="./styles.css" rel="stylesheet"/><link href="./landing.css" rel="stylesheet"/><script>try{var t=localStorage.getItem('mayap.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);var bg=getComputedStyle(document.documentElement).getPropertyValue('--bodyBg').trim();if(bg)document.querySelector('meta[name="theme-color"]').setAttribute('content',bg)}catch(e){}</script></head>
+<meta content="MAYAP - Theo dõi máy ấp, quản lý mẻ ấp và nhận cảnh báo ở mọi nơi." name="description"/><link href="./manifest.webmanifest" rel="manifest"/><link href="./icons/icon-192.png" rel="icon"/><link href="./icons/apple-touch-icon.png" rel="apple-touch-icon"/><meta name="apple-mobile-web-app-capable" content="yes"/><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/><meta name="apple-mobile-web-app-title" content="MAYAP"/><link href="./styles.css" rel="stylesheet"/><link href="./landing.css" rel="stylesheet"/><script>try{var t=localStorage.getItem('mayap.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t);var bg=getComputedStyle(document.documentElement).getPropertyValue('--bodyBg').trim();if(bg)document.querySelector('meta[name="theme-color"]').setAttribute('content',bg)}catch(e){}</script><link rel="stylesheet" href="./notes.css"/>
+</head>
 <body><noscript>Hãy bật JavaScript trong trình duyệt để sử dụng MAYAP.</noscript>
 
 <div class="authLoading" role="status"><strong>MAYAP</strong><p id="authMessage">Đang kiểm tra phiên đăng nhập…</p><button class="ghost" id="authRetry" type="button" hidden>Thử lại</button></div>
@@ -371,5 +372,5 @@
 </dialog>
 <div aria-live="polite" class="toast" id="toast" role="status"></div>
 
-<script defer src="./config.js"></script><script defer src="./account.js"></script><script defer src="./realtime_transport.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./app.js"></script></body>
+<script defer src="./config.js"></script><script defer src="./account.js"></script><script defer src="./realtime_transport.js"></script><script defer src="./vendor/jsQR.min.js"></script><script defer src="./push.js"></script><script defer src="./protocol_v2.js"></script><script defer src="./notes.js"></script><script defer src="./app.js"></script></body>
 </html>

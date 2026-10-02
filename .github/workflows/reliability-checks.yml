@@ -45,6 +45,7 @@ jobs:
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
           node --check app.js
+          node --check notes.js
           node --check protocol_v2.js
           node --check realtime_transport.js
           node --check cloudflare/src/device-hub.js
@@ -79,6 +80,7 @@ jobs:
           trap 'kill "$qa_server_pid"' EXIT
           node tools/test_web_connection.cjs /tmp/mayap-connection-qa
           node tools/test_web_experience.cjs /tmp/mayap-web-qa
+          node tools/test_notes_browser.cjs /tmp/mayap-notes-qa
 
       - name: Actual PID and autotune host tests
         run: |

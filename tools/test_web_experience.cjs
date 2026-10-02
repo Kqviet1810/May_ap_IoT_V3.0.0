@@ -558,4 +558,5 @@ async function main() {
     console.log(results.join('\n'));
   } finally { await browser.close(); }
 }
-main().catch(error => { console.error(error); process.exitCode=1; });
+module.exports = { setup };
+if (require.main === module) main().catch(error => { console.error(error); process.exitCode=1; });

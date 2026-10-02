@@ -861,6 +861,7 @@
   }
 
   function renderDevice() {
+    notesUi?.contextChanged();
     const device = currentDevice();
     if (device?.config) device.features.humidifierInstalled = bool(device.config.humidifierInstalled);
     syncHumidifierFeatureUi(device?.config || {
@@ -3909,6 +3910,14 @@
     applyTheme(getThemePreference());
     applyDeepLinkDevice();
     bindUi();
+    notesUi = window.MayapNotes?.mount({
+      confirm: confirmAction,
+      getContext: () => {
+        const device = currentDevice();
+        return { deviceId: device?.id || '', deviceName: device?.name || '',
+          batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning) };
+      }
+    });
     renderSelector();
     document.documentElement.dataset.auth = 'ready';
     updateSettingSummaries();
@@ -3972,5 +3981,6 @@
     }
   });
 
+  let notesUi;
   init();
 })();
