@@ -1,0 +1,282 @@
+name: Build & release firmware
+
+on:
+  push:
+    branches:
+      - main
+      - feature/web-esp-transaction-v2
+      - feat/adaptive-staged-boot
+      - feat/google-account-multitenant
+      - 'hardening/**'
+    tags:
+      - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  ARDUINO_CLI_VERSION: '1.5.1'
+  ARDUINO_CLI_SHA256: '28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b'
+  NODE_VERSION: '24'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout ma nguon
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Chuan hoa Node.js cho cong cu kiem tra
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Install pinned account dependencies
+        run: |
+          npx --yes pnpm@11.19.0 --dir cloudflare install --frozen-lockfile --ignore-scripts
+          node --check account.js
+          node --check cloudflare/src/account-worker.js
+
+      - name: Cai Arduino CLI co kiem checksum
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          url="https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/${archive}"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "$url"
+          echo "${ARDUINO_CLI_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" arduino-cli
+          sudo install -m 0755 arduino-cli /usr/local/bin/arduino-cli
+          arduino-cli version
+
+      - name: Cai toolchain ATtiny13A
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-avr avr-libc binutils-avr
+
+      - name: Cai loi ESP32
+        run: |
+          for attempt in 1 2 3; do
+            arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+          for attempt in 1 2 3; do
+            arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+
+      - name: Cai thu vien
+        run: |
+          for attempt in 1 2 3; do
+            arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3 && break
+            test "$attempt" = 3 && exit 1
+            sleep 5
+          done
+
+      - name: Kiem tra version va ma nguon an toan
+        run: |
+          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v4_0_0/config.h)
+          test -n "$VERSION"
+          if [[ "$GITHUB_REF" == refs/tags/* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME khong khop firmware $VERSION"
+            exit 1
+          fi
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Khong duoc bo qua xac thuc TLS"
+            exit 1
+          fi
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Private key khong duoc nam trong firmware"
+            exit 1
+          fi
+
+      - name: Kiem tra hop dong protocol ESP32 ATtiny
+        run: python3 tools/check_attiny_protocol.py
+
+      - name: Kiem tra dong bo release
+        run: python3 tools/check_release_sync.py
+
+      - name: Kiem tra reliability truoc build/release
+        run: python3 tools/check_v381_reliability.py
+
+      - name: Protocol V2 transaction and packet regression
+        run: node --test tests/*.test.cjs
+
+      - name: Actual PID and autotune host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
+          /tmp/mayap-thermal-test
+
+      - name: Adaptive staged boot policy host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
+          /tmp/mayap-boot-test
+
+      - name: Runtime recovery fault injection
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/runtime-recovery.cpp -o /tmp/mayap-runtime-test
+          /tmp/mayap-runtime-test
+          python3 tools/test_runtime_buses.py --sanitize --check-regression
+          python3 tools/test_single_eeprom.py --sanitize
+
+      - name: Tao MQTT credential cho compile
+        env:
+          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
+          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
+          MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
+              # PR khong duoc doc repository secrets. Placeholder chi de compile;
+              # PR workflow khong phat hanh binary deploy.
+              username = "__ci_pr_mqtt_user__"
+              password = "__ci_pr_mqtt_password__"
+              ota_password = "__ci_pr_ota_password__"
+          else:
+              username = os.getenv("MAYAP_MQTT_USERNAME", "").strip()
+              password = os.getenv("MAYAP_MQTT_PASSWORD", "")
+              ota_password = os.getenv("MAYAP_OTA_PASSWORD", "")
+              if not username or not password:
+                  raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
+
+          Path("MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h").write_text(
+              "#pragma once\n"
+              + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
+              + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n"
+              # Optional secret: absent = LAN OTA disabled, never unauthenticated.
+              + "#define MAYAP_OTA_PASSWORD " + json.dumps(ota_password) + "\n",
+              encoding="utf-8",
+          )
+          PY
+
+      - name: Kiem tra JavaScript
+        run: |
+          node --check app.js
+          node --check protocol_v2.js
+          node --check push.js
+          node --check sw.js
+          node --check config.js
+          node --check cloudflare/src/reliability-wrapper.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+
+      - name: Bien dich ATtiny13A
+        run: |
+          mkdir -p build-attiny
+          avr-g++ -x c++ \
+            -mmcu=attiny13a \
+            -DF_CPU=1200000UL \
+            -Os -flto -std=gnu++11 \
+            -ffunction-sections -fdata-sections \
+            -fno-exceptions -fno-rtti \
+            -Wall -Wextra \
+            -Wl,--gc-sections \
+            ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+            -o build-attiny/ATTINY13A_POWER_ALARM.elf
+
+          avr-size -C --mcu=attiny13a build-attiny/ATTINY13A_POWER_ALARM.elf
+          read TEXT DATA BSS <<< "$(avr-size build-attiny/ATTINY13A_POWER_ALARM.elf | tail -n 1 | awk '{print $1, $2, $3}')"
+          FLASH=$((TEXT + DATA))
+          RAM=$((DATA + BSS))
+          echo "ATtiny flash=${FLASH}/1024 bytes, static RAM=${RAM}/64 bytes"
+          test "$FLASH" -le 1024 || { echo "::error::ATtiny flash vuot 1KB"; exit 1; }
+          test "$RAM" -le 64 || { echo "::error::ATtiny static RAM vuot 64B"; exit 1; }
+
+          avr-objcopy -O ihex -R .eeprom \
+            build-attiny/ATTINY13A_POWER_ALARM.elf \
+            build-attiny/ATTINY13A_POWER_ALARM.hex
+
+      - name: Chon build profile
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "MAYAP_BUILD_PROFILE=PROD" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=0 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "MAYAP_BUILD_PROFILE=PILOT" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          else
+            echo "MAYAP_BUILD_PROFILE=DEV" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Bien dich firmware ESP32
+        run: |
+          echo "Build profile: ${MAYAP_BUILD_PROFILE}"
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS} -DMAYAP_BUILD_REVISION=${GITHUB_SHA:0:12}" \
+            --output-dir ./build \
+            --verbose \
+            MAYAP_INDUSTRIAL_v4_0_0
+
+      - name: Verify linked GPIO ISR cache safety
+        shell: bash
+        run: |
+          OBJDUMP=$(find "$HOME/.arduino15/packages/esp32/tools/esp-x32" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)
+          test -n "$OBJDUMP"
+          python3 tools/check_bus_iram.py --objdump "$OBJDUMP" --elf build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
+
+      - name: Bao cao kich thuoc
+        run: |
+          ls -la ./build/*.bin
+          ls -la ./build-attiny/*.hex
+
+      - name: Luu firmware test
+        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/web-esp-transaction-v2' || github.ref == 'refs/heads/feat/adaptive-staged-boot'
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware-test-${{ github.sha }}
+          path: |
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
+            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.map
+            ./build-attiny/ATTINY13A_POWER_ALARM.hex
+          retention-days: 7
+
+      - name: Doi ten file .bin theo tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
+          cp ./build-attiny/ATTINY13A_POWER_ALARM.hex "./MAYAP-ATtiny13A-LINKFIX-${VERSION}.hex"
+
+      - name: Ky so firmware
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$OTA_SIGNING_PRIVATE_KEY" || { echo "::error::Thieu khoa ky OTA"; exit 1; }
+          printf '%s\n' "$OTA_SIGNING_PRIVATE_KEY" > ota-signing-key.pem
+          openssl dgst -sha256 -sign ota-signing-key.pem -out firmware.sig.der "./MAYAP-firmware-${GITHUB_REF_NAME#v}.bin"
+          base64 -w0 firmware.sig.der > "./MAYAP-firmware-${GITHUB_REF_NAME#v}.sig"
+          rm -f ota-signing-key.pem firmware.sig.der
+
+      - name: Tao GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ./MAYAP-firmware-*.bin
+            ./MAYAP-firmware-*.sig
+            ./MAYAP-firmware-*.elf
+            ./MAYAP-ATtiny13A-LINKFIX-*.hex
+          generate_release_notes: true

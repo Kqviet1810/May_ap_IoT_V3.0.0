@@ -1,0 +1,107 @@
+name: Reliability regression checks
+
+on:
+  push:
+    branches:
+      - main
+      - feature/web-esp-transaction-v2
+      - feat/adaptive-staged-boot
+      - feat/google-account-multitenant
+      - hardening/v3.8.1-reliability
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  reliability:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+
+      - name: Install pinned account dependencies
+        run: |
+          npx --yes pnpm@11.19.0 --dir cloudflare install --frozen-lockfile --ignore-scripts
+          node --check account.js
+          node --check cloudflare/src/account-worker.js
+
+      - name: Validate JavaScript entrypoints
+        run: |
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/reliability-wrapper.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+          node --check app.js
+          node --check protocol_v2.js
+          node --check config.js
+          node --check push.js
+          node --check sw.js
+
+      - name: Release synchronization checks
+        run: python3 tools/check_release_sync.py
+
+      - name: ATtiny LINKFIX protocol checks
+        run: python3 tools/check_attiny_protocol.py
+
+      - name: Static reliability regression checks
+        run: python3 tools/check_v381_reliability.py
+
+      - name: Protocol V2 transaction and packet regression
+        run: node --test tests/*.test.cjs
+
+      - name: Actual PID and autotune host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
+          /tmp/mayap-thermal-test
+
+      - name: Adaptive staged boot policy host tests
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
+          /tmp/mayap-boot-test
+
+      - name: ArduinoJson headers for actual bootstrap serializer host test
+        uses: actions/checkout@v7
+        with:
+          repository: bblanchon/ArduinoJson
+          ref: v7.4.3
+          path: .qa-libs/ArduinoJson
+          persist-credentials: false
+
+      - name: Runtime recovery fault injection
+        env:
+          MAYAP_ARDUINOJSON: ${{ github.workspace }}/.qa-libs/ArduinoJson/src
+        run: |
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/runtime-recovery.cpp -o /tmp/mayap-runtime-test
+          /tmp/mayap-runtime-test
+          python3 tools/test_runtime_buses.py --sanitize
+
+      - name: Reject unsafe firmware shortcuts
+        run: |
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+            echo "::error::TLS verification bypass detected"
+            exit 1
+          fi
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+            echo "::error::Private key must not be embedded in firmware"
+            exit 1
+          fi
+
+      - name: Verify formatting
+        run: git diff --check HEAD^ HEAD --
