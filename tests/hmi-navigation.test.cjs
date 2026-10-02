@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const hmi = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0', 'hmi.h'), 'utf8');
-const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0', 'config.h'), 'utf8');
+const hmi = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0', 'hmi.h'), 'utf8');
+const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0', 'config.h'), 'utf8');
 
 function bodyOf(signature) {
   const start = hmi.indexOf(signature);
