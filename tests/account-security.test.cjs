@@ -169,9 +169,9 @@ test('viewer receives existing shared broker credentials but cannot obtain contr
 });
 test('reviewed single-C512 firmware bridge and 300-second WARM stay protected',()=>{
   const crypto=require('node:crypto');
-  // Reviewed storage geometry/history and final EEPROM-backed reminder report only.
+  // V1.0.0 baseline reset reviewed: config content change is version-only; storage geometry/history remains protected.
   // Account auth/grants and signed transaction bodies retain their other guards.
-  const baseline={"config.h": "b62cb070e0ee1f6c26ebdd736854e673d82360bbc554808416d974457f2640bd", "realtime_link.h": "516483669ee72ffa1d4e4d4ee269813975cd16c149079399823d2280a6ab182f"};
+  const baseline={"config.h": "9017a532ef079ff9f6a8c303ab44f396771713dbcb277bd77061c232bbbab325", "realtime_link.h": "516483669ee72ffa1d4e4d4ee269813975cd16c149079399823d2280a6ab182f"};
   for(const file of ['config.h','realtime_link.h']) {
     const filename='MAYAP_INDUSTRIAL_v1_0_0/'+file;
     assert.equal(crypto.createHash('sha256').update(fs.readFileSync(filename,'utf8').replace(/\r\n/g,'\n')).digest('hex'),baseline[file]);
