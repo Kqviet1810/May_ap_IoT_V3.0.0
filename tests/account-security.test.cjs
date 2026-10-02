@@ -33,6 +33,44 @@ async function setup(){
   }
   return {env,sql,auth,jose,login,device,call};
 }
+test('same-origin session GET without Origin accepts a valid bearer and still authenticates',async()=>{
+  const h=await setup(), s=await h.login('same-origin-user'), [worker]=await modules;
+  h.env.ALLOWED_ORIGIN=base;
+  const read=token=>worker.default.fetch(new Request(base+'/api/account/session',{
+    headers:token?{Authorization:'Bearer '+token}:{}}),h.env,{waitUntil(){}});
+  const response=await read(s.token);
+  assert.equal(response.status,200);
+  assert.equal((await response.json()).user.sub,'same-origin-user');
+  assert.equal(response.headers.get('Access-Control-Allow-Origin'),null);
+  assert.equal((await read()).status,401);
+  assert.equal((await read('invalid-session')).status,401);
+});
+test('session origin validation requires exact explicit Origin or a matching URL for missing Origin',async()=>{
+  const h=await setup(), s=await h.login('origin-user'), [worker]=await modules;
+  h.env.ALLOWED_ORIGIN=base;
+  assert.equal((await h.call('/api/account/session',s,undefined,'GET',{Origin:base})).status,200);
+  for(const origin of ['https://attacker.example',base+'.attacker.example',base+'/', 'null','']) {
+    const response=await h.call('/api/account/session',s,undefined,'GET',{Origin:origin});
+    assert.equal(response.status,403);
+    assert.equal((await response.json()).error,'ACCESS_DENIED');
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'),null);
+  }
+  const response=await worker.default.fetch(new Request('https://other.example/api/account/session',{
+    headers:{Authorization:'Bearer '+s.token}}),h.env,{waitUntil(){}});
+  assert.equal(response.status,403);
+  assert.equal((await response.json()).error,'ACCESS_DENIED');
+});
+test('missing Origin does not relax same-origin preflight or write validation',async()=>{
+  const h=await setup(), s=await h.login('strict-origin-user'), [worker]=await modules;
+  h.env.ALLOWED_ORIGIN=base;
+  for(const method of ['OPTIONS','POST']) {
+    const response=await worker.default.fetch(new Request(base+'/api/account/logout',{method,
+      headers:{Authorization:'Bearer '+s.token,'Access-Control-Request-Method':'POST'}}),h.env,{waitUntil(){}});
+    assert.equal(response.status,403);
+    assert.equal(response.headers.get('Access-Control-Allow-Origin'),null);
+  }
+  assert.equal((await h.call('/api/account/session',s,undefined,'GET',{Origin:base})).status,200);
+});
 test('verified account picture persists safely and token expiry stays bounded',async()=>{
   const h=await setup();
   const s=await h.auth.createSession(h.env,{sub:'profile-test',name:'Việt Kiều',email:'user@example.test',picture:'https://lh3.googleusercontent.com/photo'});

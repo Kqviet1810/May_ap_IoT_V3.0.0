@@ -149,7 +149,9 @@ async function fetchAccount(request, env, ctx) {
     }
     return response;
   }
-  if(request.headers.get('Origin')!==allowedOrigin(env))return deny();
+  const origin=request.headers.get('Origin'), allowed=allowedOrigin(env);
+  // Browsers may omit Origin on same-origin reads; preflight and writes still require it.
+  if(origin!==allowed && !(origin===null && ['GET','HEAD'].includes(method) && url.origin===allowed))return deny();
   if(method==='OPTIONS') {
     if(!['GET','POST','DELETE'].includes(request.headers.get('Access-Control-Request-Method')))return deny();
     const requested=(request.headers.get('Access-Control-Request-Headers') || '').toLowerCase().split(',').map(x=>x.trim()).filter(Boolean);
