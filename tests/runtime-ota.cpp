@@ -2,12 +2,12 @@
 #include <cstdint>
 #include <cstdio>
 #include <initializer_list>
-#include "../MAYAP_INDUSTRIAL_v4_0_0/runtime_recovery_policy.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/runtime_recovery_policy.h"
 static uint32_t clockMs=100;
 uint32_t millis() { return clockMs; }
 void mayapSerialPrintf(bool, const char *, ...) {}
 #include "actual-services.inc"
-#include "../MAYAP_INDUSTRIAL_v4_0_0/arduino_ota_window.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/arduino_ota_window.h"
 enum esp_reset_reason_t { ESP_RST_POWERON, ESP_RST_EXT, ESP_RST_SW, ESP_RST_TASK_WDT };
 static esp_reset_reason_t resetReason = ESP_RST_POWERON;
 esp_reset_reason_t esp_reset_reason() { return resetReason; }
