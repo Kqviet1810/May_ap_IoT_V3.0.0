@@ -1,6 +1,6 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> Baseline hiện hành: **MAYAP release 4.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_4_0_0.md` về giới hạn kiểm thử.
+> Baseline hiện hành: **MAYAP release 1.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_1_0_0.md` về giới hạn kiểm thử.
 
 Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
 
@@ -10,10 +10,10 @@ Web 12.2.0 thêm Google Account và ownership nhiều máy trên GitHub Pages + 
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
-| Release | 4.0.0 |
-| ESP32 firmware | 4.0.0 |
-| HMI firmware | 4.0.0 |
-| Web cache | 12.2.2 |
+| Release | 1.0.0 |
+| ESP32 firmware | 1.0.0 |
+| HMI firmware | 1.0.0 |
+| Web cache | 1.0.0 |
 | ATtiny protocol | 1.0.0 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
@@ -59,7 +59,7 @@ Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mớ
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v4_0_0/   ESP32 firmware 4.0.0
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.0.0
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A
 cloudflare/                Worker + D1 migrations
 .github/workflows/         CI/build/release/deploy
@@ -70,7 +70,7 @@ doc/                       kiến trúc, deploy, commissioning, safety
 audit/                     audit lịch sử + delta audit
 ```
 
-Tên sketch hiện hành được đồng bộ với release 4.0.0: `MAYAP_INDUSTRIAL_v4_0_0/MAYAP_INDUSTRIAL_v4_0_0.ino`. Phiên bản runtime vẫn lấy từ `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`; tên thư mục không được dùng thay cho kiểm tra version trong CI.
+Tên sketch hiện hành được đồng bộ với release 1.0.0: `MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino`. Phiên bản runtime vẫn lấy từ `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`; tên thư mục không được dùng thay cho kiểm tra version trong CI.
 
 ## Build ESP32
 
@@ -94,13 +94,13 @@ esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,Flas
 Firmware ESP32 **không còn cho phép tạo `.bin` với MQTT username/password rỗng**.
 Khi build bằng Arduino IDE/CLI trên máy cá nhân:
 
-1. mở file có sẵn `MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h`, không cần đổi tên;
+1. mở file có sẵn `MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h`, không cần đổi tên;
 2. điền `MAYAP_MQTT_USERNAME` và `MAYAP_MQTT_PASSWORD` thật của HiveMQ;
 3. compile lại firmware. **Không commit/push file sau khi nhập tài khoản thật.**
 
 Tên file `build_secrets.h` đã được đưa vào Git dưới dạng template rỗng theo yêu cầu.
 Vì vậy `.gitignore` không bảo vệ các sửa đổi của file đã được theo dõi. Luôn kiểm tra
-`git diff -- MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h` trước khi commit. CI kiểm tra
+`git diff -- MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h` trước khi commit. CI kiểm tra
 template phải rỗng rồi mới tạo nội dung từ GitHub Repository Secrets khi build.
 
 Nếu file thiếu hoặc credential rỗng, compile phải fail. Đây là invariant có chủ ý để
