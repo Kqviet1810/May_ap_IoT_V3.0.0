@@ -24,7 +24,7 @@ constexpr float AUTOTUNE_MIN_AMPLITUDE_C = 0.10f;
 uint32_t elapsedMs(uint32_t now, uint32_t then) { return now - then; }
 float clampFloat(float x, float lo, float hi) { return std::max(lo, std::min(hi, x)); }
 void sanitizeMachineConfig(MachineConfig &) {}
-#include "../MAYAP_INDUSTRIAL_v4_0_0/thermal_control.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h"
 
 int main() {
   MachineConfig cfg, result;
