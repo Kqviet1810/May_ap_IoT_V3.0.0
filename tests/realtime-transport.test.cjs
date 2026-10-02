@@ -1,16 +1,22 @@
 const test=require('node:test'), assert=require('node:assert/strict');
+const fs=require('node:fs'), vm=require('node:vm');
 const {Client,CAP,MAX_PENDING}=require('../realtime_transport.js');
 const flush=()=>new Promise(setImmediate);
-function fixture(){
+function fixture(ClientType=Client,browserRoot=null,injectTimers=true){
  let now=0,id=0,active=true,refreshes=0;const timers=new Map(),sockets=[],errors=[],packets=[],events=[];
  class Socket {
   constructor(url,protocols){this.url=url;this.protocols=protocols;this.readyState=1;this.bufferedAmount=0;this.handlers={};this.sent=[];sockets.push(this);}
   addEventListener(k,f){this.handlers[k]=f;} send(s){this.sent.push(s);} close(){this.readyState=3;this.handlers.close?.();}
   message(v){this.handlers.message?.({data:typeof v==='string'?v:JSON.stringify(v)});}
  }
- const client=new Client({deviceId:'MAP-1234567890AB',url:'wss://hub.test/realtime/browser/MAP-1234567890AB',ticket:'initial',WebSocket:Socket,
+ const timerOptions={setTimeout:(f,ms)=>{const n=++id;timers.set(n,{f,at:now+ms,ms});return n;},clearTimeout:n=>timers.delete(n)};
+ if(browserRoot)for(const name of ['setTimeout','clearTimeout'])browserRoot[name]=function(...args){
+  if(this!==browserRoot)throw new TypeError('Illegal invocation');
+  browserRoot.timerCalls.push(name);return timerOptions[name](...args);
+ };
+ const client=new ClientType({deviceId:'MAP-1234567890AB',url:'wss://hub.test/realtime/browser/MAP-1234567890AB',ticket:'initial',WebSocket:Socket,
   clock:()=>now,random:()=>0,isActive:()=>active,refresh:async()=>{refreshes++;return {url:'wss://hub.test/realtime/browser/MAP-1234567890AB',ticket:'fresh-'+refreshes};},
-  setTimeout:(f,ms)=>{const n=++id;timers.set(n,{f,at:now+ms,ms});return n;},clearTimeout:n=>timers.delete(n)});
+  ...(injectTimers?timerOptions:{})});
  client.on('error',e=>errors.push(e));client.on('message',(...a)=>packets.push(a));client.on('close',()=>events.push('close'));
  return {client,sockets,timers,errors,packets,events,get refreshes(){return refreshes;},setActive:v=>active=v,
   ready(){sockets.at(-1).message({kind:'ready',deviceId:client.deviceId});},
@@ -18,6 +24,33 @@ function fixture(){
 }
 const route={deviceId:'MAP-1234567890AB',channel:'command'};
 const wire=id=>({body:JSON.stringify({requestId:id}),sig:'test'});
+function browserRoot(){
+ const root={URL,TextEncoder,queueMicrotask,timerCalls:[]};root.window=root;
+ const context=vm.createContext(root);
+ vm.runInContext(fs.readFileSync(require.resolve('../realtime_transport.js'),'utf8'),context,{filename:'realtime_transport.js'});
+ return vm.runInContext('window',context);
+}
+test('Safari-style native timers retain Window receiver through connect, close and resume',async()=>{
+ const root=browserRoot(),h=fixture(root.MayapRealtime.Client,root,false);
+ // These browser APIs reject a Client (or any other object) as their receiver.
+ assert.throws(()=>Reflect.apply(root.setTimeout,h.client,[()=>{},1]),/Illegal invocation/);
+ assert.throws(()=>Reflect.apply(root.clearTimeout,h.client,[0]),/Illegal invocation/);
+ await flush();assert.equal(h.errors.length,0);assert.equal(h.timers.size,1);h.ready();
+ const outcomes=[];h.client.send(route,wire('native-timer'),e=>outcomes.push(e.code));
+ h.sockets[0].close();assert.deepEqual(outcomes,['UNCERTAIN']);assert.equal(h.timers.size,1);
+ h.client.resume();await flush();assert.equal(h.refreshes,1);assert.equal(h.sockets.length,2);h.ready();
+ h.client.resume();h.sockets[1].message({kind:'pong'});await h.advance(8000);
+ assert.equal(h.client.connected,true);assert.equal(h.errors.length,0);
+ h.client.end();assert.equal(h.timers.size,0);
+ assert.ok(root.timerCalls.includes('setTimeout'));assert.ok(root.timerCalls.includes('clearTimeout'));
+});
+test('injected timers override browser native timers without rebinding',async()=>{
+ const root=browserRoot(),h=fixture(root.MayapRealtime.Client,root);
+ assert.equal(h.client.setTimer,h.client.options.setTimeout);assert.equal(h.client.clearTimer,h.client.options.clearTimeout);
+ await flush();h.ready();h.sockets[0].close();await h.advance(1000);h.ready();h.client.resume();
+ h.sockets[1].message({kind:'pong'});h.client.end();
+ assert.equal(h.errors.length,0);assert.equal(h.refreshes,1);assert.equal(h.timers.size,0);assert.deepEqual(root.timerCalls,[]);
+});
 test('ticket stays in subprotocol; readiness scopes the socket to one selected device',async()=>{
  const h=fixture();await flush();assert.deepEqual(h.sockets[0].protocols,['mayap.v1','ticket.initial']);assert.equal(new URL(h.sockets[0].url).search,'');
  assert.equal(h.client.connected,false);h.ready();assert.equal(h.client.connected,true);

@@ -12,7 +12,7 @@
       this.timer = 0; this.probeTimer = 0; this.refreshing = false;
       this.socket = null; this.clock = options.clock || (() => Date.now());
       this.random = options.random || Math.random;
-      this.setTimer = options.setTimeout || setTimeout; this.clearTimer = options.clearTimeout || clearTimeout;
+      this.setTimer = options.setTimeout || root.setTimeout.bind(root); this.clearTimer = options.clearTimeout || root.clearTimeout.bind(root);
       this.Socket = options.WebSocket || root.WebSocket;
       queueMicrotask(() => this.open());
     }
