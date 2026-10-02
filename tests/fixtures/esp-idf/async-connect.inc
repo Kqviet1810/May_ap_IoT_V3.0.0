@@ -87,4 +87,3 @@ static int esp_tls_low_level_conn(const char *hostname, int hostlen, int port, c
     }
     return -1;
 }
-
