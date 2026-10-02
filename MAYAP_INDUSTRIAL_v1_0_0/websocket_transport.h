@@ -103,6 +103,7 @@ class WebSocketTransport {
       const int result = MayapEspTlsPoll::connectAsync(ip_, strlen(ip_), 443, &cfg_, tls_);
       logTlsState();
       if (result < 0) { fail(-6); return; } if (!result) return;
+      configureLowLatency();
       phase_ = Phase::Upgrade;
       logPhase("UPGRADE");
     }
@@ -159,6 +160,23 @@ class WebSocketTransport {
   enum class Phase : uint8_t { Closed, Dns, Tls, Upgrade, Open };
   static constexpr uint8_t QUEUE_CAP = 8;
   struct Slot { uint8_t bytes[MayapWebSocket::FRAME_CAP + 8]; uint16_t length = 0; };
+  void configureLowLatency() {
+    // NetworkClientSecure enabled this before the transport migration. Small
+    // ACK/state frames should not wait for Nagle's outstanding TCP ACK gate.
+    int fd = -1; const int enabled = 1;
+    const int fdResult = esp_tls_get_conn_sockfd(tls_, &fd);
+    const int result = fdResult == ESP_OK && fd >= 0
+        ? setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &enabled, sizeof(enabled)) : -1;
+#if MAYAP_DIAGNOSTIC_SERIAL
+    const int error = result < 0 && fdResult == ESP_OK && fd >= 0 ? errno : 0;
+    // Performance option only: a failure must not prevent an otherwise valid
+    // connection. One bounded diagnostic per connection, never in control/ISR.
+    mayapSerialPrintf(false, "[WS-CONNECT] tcp_nodelay=%u fd_result=%d result=%d errno=%d\n",
+        result == 0 ? 1U : 0U, fdResult, result, error);
+#else
+    (void)result;
+#endif
+  }
   // Diagnostics stay on the realtime owner, use the bounded Serial mailbox,
   // and never log request/response buffers or run inside the DNS callback.
   static void logPhase(const char *phase) {

@@ -12,6 +12,9 @@
 #include <cerrno>
 #include <sys/socket.h>
 #include <sys/select.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#include <unistd.h>
 #include "../MAYAP_INDUSTRIAL_v1_0_0/websocket_codec.h"
 using std::min;
 static uint32_t clockMs=100;
@@ -26,8 +29,16 @@ constexpr int ESP_OK=0;
 struct esp_tls_t{esp_tls_conn_state_t conn_state=ESP_TLS_INIT;int sockfd=42;fd_set rset{},wset{};};
 static esp_tls_conn_state_t tlsMockState=ESP_TLS_HANDSHAKE;
 static int stateCalls=0,fdCalls=0,peerCalls=0,fdResult=0,peerResult=0;
+static int socketOptionCalls=0,socketOptionResult=0,socketFd=42;
+static bool realSocketOption=false;
 int esp_tls_get_conn_state(esp_tls_t *tls,esp_tls_conn_state_t *state){++stateCalls;*state=tls->conn_state;return ESP_OK;}
-int esp_tls_get_conn_sockfd(esp_tls_t*,int *fd){++fdCalls;*fd=42;return fdResult;}
+int esp_tls_get_conn_sockfd(esp_tls_t *tls,int *fd){++fdCalls;*fd=tls->sockfd;return fdResult;}
+int socketOption(int fd,int level,int option,const void *value,socklen_t size){
+ ++socketOptionCalls;assert(fd==socketFd&&level==IPPROTO_TCP&&option==TCP_NODELAY&&size==sizeof(int)&&*static_cast<const int*>(value)==1);
+ if(realSocketOption)return ::setsockopt(fd,level,option,value,size);
+ if(socketOptionResult<0)errno=ENOPROTOOPT;
+ return socketOptionResult;
+}
 int getpeername(int fd,sockaddr*,socklen_t*) noexcept {assert(fd==42);++peerCalls;if(peerResult<0)errno=ENOTCONN;return peerResult;}
 #ifndef MAYAP_DIAGNOSTIC_SERIAL
 #define MAYAP_DIAGNOSTIC_SERIAL 1
@@ -40,7 +51,7 @@ struct esp_tls_cfg_t{const unsigned char *cacert_buf=nullptr;size_t cacert_bytes
 constexpr int ESP_TLS_ERR_SSL_WANT_READ=-10,ESP_TLS_ERR_SSL_WANT_WRITE=-11;
 static std::string input,output;static size_t readOffset=0;
 static bool tcpPolling=false;static unsigned tcpPolls=0,tcpReadyAfter=3;
-esp_tls_t *esp_tls_init(){++tlsCount;return new esp_tls_t;}
+esp_tls_t *esp_tls_init(){++tlsCount;auto *tls=new esp_tls_t;tls->sockfd=socketFd;return tls;}
 void esp_tls_conn_destroy(esp_tls_t *p){--tlsCount;delete p;}
 int esp_tls_conn_new_async(const char *ip,int,int port,const esp_tls_cfg_t *cfg,esp_tls_t *tls){
  assert(!strcmp(ip,"1.2.3.4"));assert(port==443&&cfg->non_block&&cfg->timeout_ms==1);assert(!strcmp(cfg->common_name,"hub.test"));assert(cfg->cacert_bytes==3);
@@ -76,11 +87,13 @@ err_t dns_gethostbyname_addrtype(const char*,ip_addr_t *a,void(*callback)(const 
 #define ESP_IDF_VERSION_VAL(a,b,c) (((a)<<16)|((b)<<8)|(c))
 #define ESP_IDF_VERSION ESP_IDF_VERSION_VAL(5,5,5)
 #include "actual-esp-tls-poll.inc"
+#define setsockopt socketOption
 #include "actual-websocket-transport.inc"
+#undef setsockopt
 static std::vector<std::string> received;
 void receive(const uint8_t *p,size_t n){received.emplace_back(reinterpret_cast<const char*>(p),n);}
 std::vector<uint8_t> frame(uint8_t op,const std::string &data,bool fin=true){std::vector<uint8_t> v{static_cast<uint8_t>((fin?128:0)|op)};if(data.size()<126)v.push_back(data.size());else{v.push_back(126);v.push_back(data.size()>>8);v.push_back(data.size()&255);}v.insert(v.end(),data.begin(),data.end());return v;}
-void reset(){input.clear();output.clear();readOffset=0;tlsResult=1;dnsResult=0;writeLimit=7;writeBlocked=eof=false;admit=true;clockMs=100;received.clear();diagnostics.clear();tlsMockState=ESP_TLS_HANDSHAKE;stateCalls=fdCalls=peerCalls=fdResult=peerResult=0;tcpPolling=false;tcpPolls=0;tcpReadyAfter=3;}
+void reset(){input.clear();output.clear();readOffset=0;tlsResult=1;dnsResult=0;writeLimit=7;writeBlocked=eof=false;admit=true;clockMs=100;received.clear();diagnostics.clear();tlsMockState=ESP_TLS_HANDSHAKE;stateCalls=fdCalls=peerCalls=fdResult=peerResult=0;tcpPolling=false;tcpPolls=0;tcpReadyAfter=3;socketOptionCalls=socketOptionResult=0;socketFd=42;realSocketOption=false;}
 size_t diagnosticCount(const std::string &text){return std::count_if(diagnostics.begin(),diagnostics.end(),[&](const std::string &line){return line.find(text)!=std::string::npos;});}
 void begin(WebSocketTransport &ws){assert(ws.begin("hub.test","MAP-1234567890AB",std::string(64,'a').c_str(),123,"CA",clockMs));}
 void open(WebSocketTransport &ws,const std::string &response="HTTP/1.1 101 Switching Protocols\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: EXPECTED_ACCEPT\r\n\r\n"){
@@ -88,6 +101,28 @@ void open(WebSocketTransport &ws,const std::string &response="HTTP/1.1 101 Switc
 }
 int main(){
  using namespace MayapWebSocket;
+ // Configure the actual TCP socket option once, only after TLS succeeds.
+ {reset();WebSocketTransport ws;tlsResult=0;begin(ws);ws.loop(clockMs);
+  assert(fdCalls==0&&socketOptionCalls==0);tlsResult=1;
+  input="HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: EXPECTED_ACCEPT\r\n\r\n";
+  for(int i=0;i<100&&!ws.connected();i++)ws.loop(clockMs+=10);
+  assert(ws.connected()&&fdCalls==1&&socketOptionCalls==1);
+  for(int i=0;i<100;i++)ws.loop(clockMs+1);
+  assert(fdCalls==1&&socketOptionCalls==1);ws.disconnect();}
+ // Read back TCP_NODELAY on a real OS socket; this is not just a HAL flag.
+ {reset();socketFd=::socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);assert(socketFd>=0);realSocketOption=true;
+  int option=-1;socklen_t size=sizeof(option);
+  assert(::getsockopt(socketFd,IPPROTO_TCP,TCP_NODELAY,&option,&size)==0&&option==0);
+  WebSocketTransport ws;open(ws);size=sizeof(option);
+  assert(::getsockopt(socketFd,IPPROTO_TCP,TCP_NODELAY,&option,&size)==0&&option==1&&socketOptionCalls==1);
+  ws.disconnect();assert(::close(socketFd)==0);}
+ // A missing fd or unsupported performance option never breaks connectivity.
+ for(int mode=0;mode<2;mode++){reset();fdResult=mode==0?-7:0;socketOptionResult=mode==1?-1:0;
+  WebSocketTransport ws;open(ws);assert(fdCalls==1&&socketOptionCalls==(mode==0?0:1));
+#if MAYAP_DIAGNOSTIC_SERIAL
+  assert(diagnosticCount("tcp_nodelay=0")==1);
+#endif
+  ws.disconnect();}
  // The unmodified SDK stalls after its first select timeout, even when TCP is ready.
  {reset();tcpPolling=true;esp_tls_t tls;esp_tls_cfg_t cfg;cfg.non_block=true;cfg.timeout_ms=1;cfg.common_name="hub.test";cfg.cacert_bytes=3;
   for(int i=0;i<100;i++)assert(esp_tls_conn_new_async("1.2.3.4",7,443,&cfg,&tls)==0);
@@ -172,9 +207,9 @@ int main(){
 #endif
  }
  // 20,000 reconnects stress the actual object's resource cleanup with ASAN.
- for(int i=0;i<20000;i++){reset();WebSocketTransport ws;writeLimit=10000;open(ws);ws.disconnect();assert(admissions==0&&tlsCount==0);}
+ for(int i=0;i<20000;i++){reset();WebSocketTransport ws;writeLimit=10000;open(ws);assert(socketOptionCalls==1);ws.disconnect();assert(admissions==0&&tlsCount==0);}
 #if !MAYAP_DIAGNOSTIC_SERIAL
- assert(diagnostics.empty()&&stateCalls==0&&fdCalls==0&&peerCalls==0);
+ assert(diagnostics.empty()&&stateCalls==0&&fdCalls==1&&peerCalls==0);
 #endif
- puts("WebSocket: strict RFC6455, UTF8, fragmentation, async DNS/TLS, bounded diagnostics/queues/deadlines and 20,000 reconnects PASS");
+ puts("WebSocket: strict RFC6455, UTF8, fragmentation, async DNS/TLS, real TCP_NODELAY, bounded diagnostics/queues/deadlines and 20,000 reconnects PASS");
 }
