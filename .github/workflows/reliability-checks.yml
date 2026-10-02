@@ -78,9 +78,24 @@ jobs:
           python3 -m http.server 8765 --bind 127.0.0.1 > /tmp/mayap-qa-http.log 2>&1 &
           qa_server_pid=$!
           trap 'kill "$qa_server_pid"' EXIT
-          node tools/test_web_connection.cjs /tmp/mayap-connection-qa
-          node tools/test_web_experience.cjs /tmp/mayap-web-qa
-          node tools/test_notes_browser.cjs /tmp/mayap-notes-qa
+          run_browser_qa() {
+            local qa_log="/tmp/$(basename "$1").log"
+            if node "$1" "$2" > "$qa_log" 2>&1; then
+              cat "$qa_log"
+            else
+              cat "$qa_log"
+              python3 - "$qa_log" <<'PY'
+          import pathlib, sys
+          text = pathlib.Path(sys.argv[1]).read_text()[-6000:]
+          text = text.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+          print('::error title=Browser regression failure::' + text)
+          PY
+              return 1
+            fi
+          }
+          run_browser_qa tools/test_web_connection.cjs /tmp/mayap-connection-qa
+          run_browser_qa tools/test_web_experience.cjs /tmp/mayap-web-qa
+          MAYAP_NOTES_QA_DELAY_MS=150 run_browser_qa tools/test_notes_browser.cjs /tmp/mayap-notes-qa
 
       - name: AT24C512 notes power-cut and readback regression
         run: python3 tools/test_notes_store.py

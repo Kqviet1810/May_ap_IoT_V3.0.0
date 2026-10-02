@@ -5,6 +5,12 @@ const path = require('node:path');
 const { chromium } = require('../cloudflare/node_modules/playwright');
 const { setupNotes: setup } = require('./notes_browser_fixture.cjs');
 const out = path.resolve(process.argv[2] || '/tmp/mayap-notes-qa'); fs.mkdirSync(out,{recursive:true});
+async function assertCount(page, selector, expected, message) {
+  // count() is a snapshot, not an auto-waiting assertion. EEPROM/ACK is async.
+  await page.waitForFunction(([selector, expected]) => document.querySelectorAll(selector).length === expected,
+    [selector, expected], {timeout:10000});
+  assert.equal(await page.locator(selector).count(), expected, message);
+}
 async function main() {
   const browser = await chromium.launch({executablePath:process.env.MAYAP_CHROME,headless:true});
   const results = [];
@@ -24,19 +30,19 @@ async function main() {
       assert.equal(await page.locator('.notesForm textarea').getAttribute('maxlength'),'300');
       await page.locator('.notesForm textarea').fill('   ');
       await page.getByRole('button',{name:'Lưu',exact:true}).click();
-      assert.equal(await page.locator('.notesForm').count(),1,'Whitespace cannot save');
+      await assertCount(page,'.notesForm',1,'Whitespace cannot save');
       await page.locator('.notesForm input').fill('Soi trứng ngày 7');
       const payload = '<img src=x onerror="window.notesXss=true"> Loại 12 quả không phát triển. ' + 'Nội dung tiếng Việt dài '.repeat(7);
       await page.locator('.notesForm textarea').fill(payload);
       await page.getByRole('button',{name:'Lưu',exact:true}).click();
       await page.locator('.noteCard').waitFor();
-      assert.equal(await page.locator('.noteCard img').count(),0,'User text cannot become markup');
+      await assertCount(page,'.noteCard img',0,'User text cannot become markup');
       assert.equal(await page.evaluate(()=>Boolean(window.notesXss)),false);
       await page.getByRole('button',{name:'Sửa',exact:true}).click();
       assert.equal(await page.locator('.notesForm textarea').inputValue(),payload.trim());
       await page.locator('.notesForm textarea').fill('Kiểm tra lại vào ngày 10.');
       await page.getByRole('button',{name:'Lưu thay đổi'}).click();
-      assert.equal(await page.locator('.noteCard').count(),1,'Edit keeps original record');
+      await assertCount(page,'.noteCard',1,'Edit keeps original record');
       await page.locator('.noteContent').getByText('Kiểm tra lại vào ngày 10.').waitFor();
       for (let i=0;i<4;i++) {
         await page.getByRole('button',{name:'+ Ghi chú mới',exact:true}).click();
@@ -44,15 +50,15 @@ async function main() {
         await page.locator('.notesForm select').selectOption('machine');
         await page.getByRole('button',{name:'Lưu',exact:true}).click();
       }
-      assert.equal(await page.locator('.noteCard').count(),4,'Quick preview bounded at four');
+      await assertCount(page,'.noteCard',4,'Quick preview bounded at four');
       await page.getByRole('button',{name:'Xem tất cả',exact:true}).click();
-      assert.equal(await page.locator('.noteCard').count(),5);
-      await page.getByRole('button',{name:'Mẻ',exact:true}).click(); assert.equal(await page.locator('.noteCard').count(),1);
+      await assertCount(page,'.noteCard',5);
+      await page.getByRole('button',{name:'Mẻ',exact:true}).click(); await assertCount(page,'.noteCard',1);
       await page.getByRole('button',{name:'Tất cả',exact:true}).click();
-      await page.getByRole('searchbox',{name:'Tìm ghi chú'}).fill('bảo trì số 1'); assert.equal(await page.locator('.noteCard').count(),1);
+      await page.getByRole('searchbox',{name:'Tìm ghi chú'}).fill('bảo trì số 1'); await assertCount(page,'.noteCard',1);
       await page.getByRole('button',{name:'Xóa',exact:true}).click(); await page.locator('#confirmDialog').waitFor();
-      await page.locator('#confirmCancel').click(); assert.equal(await page.locator('.noteCard').count(),1);
-      await page.getByRole('button',{name:'Xóa',exact:true}).click(); await page.locator('#confirmAccept').click(); assert.equal(await page.locator('.noteCard').count(),0);
+      await page.locator('#confirmCancel').click(); await assertCount(page,'.noteCard',1);
+      await page.getByRole('button',{name:'Xóa',exact:true}).click(); await page.locator('#confirmAccept').click(); await assertCount(page,'.noteCard',0);
       await page.getByRole('searchbox',{name:'Tìm ghi chú'}).fill('');
       await page.getByRole('button',{name:'+ Ghi chú mới',exact:true}).click();
       await page.locator('.notesForm textarea').fill('Chưa lưu');
@@ -115,7 +121,7 @@ async function main() {
     const original=adapter.device.rows.get('MAP-1234567890AB')[0];
     await a.getByRole('button',{name:'Sửa',exact:true}).click();await a.locator('.notesForm input').fill('Cập nhật');await a.getByRole('button',{name:'Lưu thay đổi'}).click();await a.getByRole('button',{name:'Sửa',exact:true}).waitFor();
     const edited=adapter.device.rows.get('MAP-1234567890AB')[0];assert.equal(edited.id,original.id);assert.equal(edited.createdAt,original.createdAt);assert.equal(edited.version,2);
-    adapter.device.failDelete=true;await a.getByRole('button',{name:'Xóa',exact:true}).click();await a.locator('#confirmAccept').click();await a.getByText('Không thể xóa ghi chú. Thử lại.',{exact:true}).waitFor();assert.equal(await a.locator('.noteCard').count(),1);
+    adapter.device.failDelete=true;await a.getByRole('button',{name:'Xóa',exact:true}).click();await a.locator('#confirmAccept').click();await a.getByText('Không thể xóa ghi chú. Thử lại.',{exact:true}).waitFor();await assertCount(a,'.noteCard',1);
     adapter.device.failDelete=false;await a.getByRole('button',{name:'Xóa',exact:true}).click();await a.locator('#confirmAccept').click();await a.getByText('Chưa có ghi chú',{exact:true}).waitFor();
     assert.deepEqual(adapter.errors,[]);await adapter.context.close();results.push('Signed device bridge: loading/retry/errors, stable draft ID and stored versions PASS');
     console.log(results.join('\n'));

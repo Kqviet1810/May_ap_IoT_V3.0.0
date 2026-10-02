@@ -21,6 +21,8 @@ async function setupNotes(browser,options={}) {
   const device={rows:new Map(),failLoad:false,failSave:false,failDelete:false,hold:null,calls:[]};
   await h.context.exposeBinding('__notesDeviceCall',async (_,{deviceId,operation,body})=>{
     device.calls.push({deviceId,operation,body});if(device.hold)await device.hold;
+    const delay=Number(process.env.MAYAP_NOTES_QA_DELAY_MS || 0);
+    if(delay>0)await new Promise(resolve=>setTimeout(resolve,delay));
     const rows=device.rows.get(deviceId)||[];
     if(operation==='notes.read')return device.failLoad?{ok:false,code:'NOTES_EEPROM_ERROR',message:'Không thể tải ghi chú. Thử lại.'}:{ok:true,code:'NOTES_DONE',rows};
     const save=operation==='notes.save';
