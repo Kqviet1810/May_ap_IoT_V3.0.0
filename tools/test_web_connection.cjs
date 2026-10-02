@@ -13,7 +13,7 @@ const app = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init()
     controlSessions, prefetchControlSession, renderDevice, renderPushStatus };
   init();`);
 const defaults = {};
-const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0/config.h'), 'utf8');
+const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config.h'), 'utf8');
 for (const m of config.matchAll(/\b(?:float|bool|uint8_t|uint16_t|uint32_t)\s+(\w+)\s*=\s*(true|false|\d+(?:\.\d+)?)(?:f|U|UL)?\s*;/g))
   defaults[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]);
 const transport = `
