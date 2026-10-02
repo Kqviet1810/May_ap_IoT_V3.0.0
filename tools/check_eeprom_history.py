@@ -11,10 +11,10 @@ def need(cond, message):
     if not cond:
         raise SystemExit('EEPROM HISTORY CHECK FAIL: ' + message)
 
-cfg = text('MAYAP_INDUSTRIAL_v4_0_0/config.h')
-hist = text('MAYAP_INDUSTRIAL_v4_0_0/history_store.h')
-rt = text('MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h')
-mc = text('MAYAP_INDUSTRIAL_v4_0_0/machine_control.h')
+cfg = text('MAYAP_INDUSTRIAL_v1_0_0/config.h')
+hist = text('MAYAP_INDUSTRIAL_v1_0_0/history_store.h')
+rt = text('MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h')
+mc = text('MAYAP_INDUSTRIAL_v1_0_0/machine_control.h')
 app = text('app.js')
 html = text('index.html')
 worker = text('cloudflare/src/index.js')
