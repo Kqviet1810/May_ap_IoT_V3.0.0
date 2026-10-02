@@ -11,6 +11,7 @@
 #include <cstdarg>
 #include <cerrno>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include "../MAYAP_INDUSTRIAL_v1_0_0/websocket_codec.h"
 using std::min;
 static uint32_t clockMs=100;
@@ -22,10 +23,10 @@ static bool admit=true,writeBlocked=false,eof=false;
 class MayapTlsOperation{public:MayapTlsOperation(){++admissions;}~MayapTlsOperation(){--admissions;}explicit operator bool()const{return admit;}};
 enum esp_tls_conn_state_t { ESP_TLS_INIT, ESP_TLS_CONNECTING, ESP_TLS_HANDSHAKE, ESP_TLS_FAIL, ESP_TLS_DONE };
 constexpr int ESP_OK=0;
-struct esp_tls_t{esp_tls_conn_state_t state=ESP_TLS_INIT;};
+struct esp_tls_t{esp_tls_conn_state_t conn_state=ESP_TLS_INIT;int sockfd=42;fd_set rset{},wset{};};
 static esp_tls_conn_state_t tlsMockState=ESP_TLS_HANDSHAKE;
 static int stateCalls=0,fdCalls=0,peerCalls=0,fdResult=0,peerResult=0;
-int esp_tls_get_conn_state(esp_tls_t *tls,esp_tls_conn_state_t *state){++stateCalls;*state=tls->state;return ESP_OK;}
+int esp_tls_get_conn_state(esp_tls_t *tls,esp_tls_conn_state_t *state){++stateCalls;*state=tls->conn_state;return ESP_OK;}
 int esp_tls_get_conn_sockfd(esp_tls_t*,int *fd){++fdCalls;*fd=42;return fdResult;}
 int getpeername(int fd,sockaddr*,socklen_t*) noexcept {assert(fd==42);++peerCalls;if(peerResult<0)errno=ENOTCONN;return peerResult;}
 #ifndef MAYAP_DIAGNOSTIC_SERIAL
@@ -38,11 +39,23 @@ void mayapSerialPrintf(bool,const char *format,...){char line[224];va_list args;
 struct esp_tls_cfg_t{const unsigned char *cacert_buf=nullptr;size_t cacert_bytes=0;const char *common_name=nullptr;bool non_block=false;int timeout_ms=0;};
 constexpr int ESP_TLS_ERR_SSL_WANT_READ=-10,ESP_TLS_ERR_SSL_WANT_WRITE=-11;
 static std::string input,output;static size_t readOffset=0;
+static bool tcpPolling=false;static unsigned tcpPolls=0,tcpReadyAfter=3;
 esp_tls_t *esp_tls_init(){++tlsCount;return new esp_tls_t;}
 void esp_tls_conn_destroy(esp_tls_t *p){--tlsCount;delete p;}
 int esp_tls_conn_new_async(const char *ip,int,int port,const esp_tls_cfg_t *cfg,esp_tls_t *tls){
  assert(!strcmp(ip,"1.2.3.4"));assert(port==443&&cfg->non_block&&cfg->timeout_ms==1);assert(!strcmp(cfg->common_name,"hub.test"));assert(cfg->cacert_bytes==3);
- tls->state=tlsResult>0?ESP_TLS_DONE:tlsResult<0?ESP_TLS_FAIL:tlsMockState;return tlsResult;
+ if(tcpPolling){
+  if(tls->conn_state==ESP_TLS_INIT){tls->conn_state=ESP_TLS_CONNECTING;FD_ZERO(&tls->rset);FD_SET(tls->sockfd,&tls->rset);tls->wset=tls->rset;}
+  if(tls->conn_state==ESP_TLS_CONNECTING){
+   ++tcpPolls;
+   bool ready=tcpPolls>=tcpReadyAfter&&(FD_ISSET(tls->sockfd,&tls->rset)||FD_ISSET(tls->sockfd,&tls->wset));
+   // Exact SDK/lwIP timeout behavior: select clears both descriptor sets.
+   FD_ZERO(&tls->rset);FD_ZERO(&tls->wset);
+   if(!ready)return 0;
+   tls->conn_state=ESP_TLS_HANDSHAKE;return 0;
+  }
+ }
+ tls->conn_state=tlsResult>0?ESP_TLS_DONE:tlsResult<0?ESP_TLS_FAIL:tlsMockState;return tlsResult;
 }
 int esp_tls_conn_write(esp_tls_t*,const void *p,size_t n){++writeCalls;if(writeBlocked)return ESP_TLS_ERR_SSL_WANT_WRITE;const size_t len=min(n,static_cast<size_t>(writeLimit));output.append(static_cast<const char*>(p),len);return len;}
 int esp_tls_conn_read(esp_tls_t*,void *p,size_t n){++readCalls;if(readOffset==input.size())return eof?0:ESP_TLS_ERR_SSL_WANT_READ;const size_t len=min(n,input.size()-readOffset);memcpy(p,input.data()+readOffset,len);readOffset+=len;return len;}
@@ -60,11 +73,14 @@ using err_t=int;constexpr int ERR_OK=0,ERR_INPROGRESS=1,LWIP_DNS_ADDRTYPE_IPV4=0
 #define ip4_addr4(a) ((a)->b[3])
 static void(*dnsCallback)(const char*,const ip_addr_t*,void*)=nullptr;static void *dnsArg=nullptr;
 err_t dns_gethostbyname_addrtype(const char*,ip_addr_t *a,void(*callback)(const char*,const ip_addr_t*,void*),void *arg,int){dnsCallback=callback;dnsArg=arg;*a=ip_addr_t{};return dnsResult;}
+#define ESP_IDF_VERSION_VAL(a,b,c) (((a)<<16)|((b)<<8)|(c))
+#define ESP_IDF_VERSION ESP_IDF_VERSION_VAL(5,5,5)
+#include "actual-esp-tls-poll.inc"
 #include "actual-websocket-transport.inc"
 static std::vector<std::string> received;
 void receive(const uint8_t *p,size_t n){received.emplace_back(reinterpret_cast<const char*>(p),n);}
 std::vector<uint8_t> frame(uint8_t op,const std::string &data,bool fin=true){std::vector<uint8_t> v{static_cast<uint8_t>((fin?128:0)|op)};if(data.size()<126)v.push_back(data.size());else{v.push_back(126);v.push_back(data.size()>>8);v.push_back(data.size()&255);}v.insert(v.end(),data.begin(),data.end());return v;}
-void reset(){input.clear();output.clear();readOffset=0;tlsResult=1;dnsResult=0;writeLimit=7;writeBlocked=eof=false;admit=true;clockMs=100;received.clear();diagnostics.clear();tlsMockState=ESP_TLS_HANDSHAKE;stateCalls=fdCalls=peerCalls=fdResult=peerResult=0;}
+void reset(){input.clear();output.clear();readOffset=0;tlsResult=1;dnsResult=0;writeLimit=7;writeBlocked=eof=false;admit=true;clockMs=100;received.clear();diagnostics.clear();tlsMockState=ESP_TLS_HANDSHAKE;stateCalls=fdCalls=peerCalls=fdResult=peerResult=0;tcpPolling=false;tcpPolls=0;tcpReadyAfter=3;}
 size_t diagnosticCount(const std::string &text){return std::count_if(diagnostics.begin(),diagnostics.end(),[&](const std::string &line){return line.find(text)!=std::string::npos;});}
 void begin(WebSocketTransport &ws){assert(ws.begin("hub.test","MAP-1234567890AB",std::string(64,'a').c_str(),123,"CA",clockMs));}
 void open(WebSocketTransport &ws,const std::string &response="HTTP/1.1 101 Switching Protocols\r\nUpgrade: WebSocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: EXPECTED_ACCEPT\r\n\r\n"){
@@ -72,6 +88,18 @@ void open(WebSocketTransport &ws,const std::string &response="HTTP/1.1 101 Switc
 }
 int main(){
  using namespace MayapWebSocket;
+ // The unmodified SDK stalls after its first select timeout, even when TCP is ready.
+ {reset();tcpPolling=true;esp_tls_t tls;esp_tls_cfg_t cfg;cfg.non_block=true;cfg.timeout_ms=1;cfg.common_name="hub.test";cfg.cacert_bytes=3;
+  for(int i=0;i<100;i++)assert(esp_tls_conn_new_async("1.2.3.4",7,443,&cfg,&tls)==0);
+  assert(tls.conn_state==ESP_TLS_CONNECTING&&tcpPolls==100);}
+ // Production repair re-arms after any number of timeouts and reaches Open.
+ for(unsigned wait:{3U,100U,600U}){reset();tcpPolling=true;tcpReadyAfter=wait;writeLimit=10000;WebSocketTransport ws;
+  input="HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: EXPECTED_ACCEPT\r\n\r\n";
+  begin(ws);for(unsigned i=0;i<wait+2&&!ws.connected();i++)ws.loop(clockMs+=20);
+  assert(ws.connected()&&tcpPolls==wait&&admissions==0);ws.disconnect();assert(tlsCount==0);}
+ // Repair never overflows fd_set and never changes TLS handshake polling.
+ {reset();esp_tls_t tls;tls.conn_state=ESP_TLS_CONNECTING;tls.sockfd=FD_SETSIZE;
+  esp_tls_cfg_t cfg;cfg.non_block=true;assert(MayapEspTlsPoll::connectAsync("1.2.3.4",7,443,&cfg,&tls)==-1);assert(errno==EBADF&&tls.conn_state==ESP_TLS_FAIL);}
 #if MAYAP_DIAGNOSTIC_SERIAL
  // Versions once, transitions once, and no handshake/header secrets in logs.
  {reset();WebSocketTransport::logVersionsOnce();WebSocketTransport::logVersionsOnce();assert(diagnosticCount("arduino=host-core idf=host-idf")==1);}

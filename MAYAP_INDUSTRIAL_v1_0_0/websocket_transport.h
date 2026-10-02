@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <esp_tls.h>
+#include "esp_tls_async_poll.h"
 #include <mbedtls/base64.h>
 #include <mbedtls/sha1.h>
 #include <lwip/dns.h>
@@ -99,7 +100,7 @@ class WebSocketTransport {
       logPhase("TLS"); logTlsState();
     }
     if (phase_ == Phase::Tls) {
-      const int result = esp_tls_conn_new_async(ip_, strlen(ip_), 443, &cfg_, tls_);
+      const int result = MayapEspTlsPoll::connectAsync(ip_, strlen(ip_), 443, &cfg_, tls_);
       logTlsState();
       if (result < 0) { fail(-6); return; } if (!result) return;
       phase_ = Phase::Upgrade;

@@ -35,6 +35,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     transport = (root / 'MAYAP_INDUSTRIAL_v1_0_0/websocket_transport.h').read_text(encoding='utf-8')
     transport = '\n'.join(line for line in transport.splitlines() if not line.startswith('#include'))
     (out / 'actual-websocket-transport.inc').write_text(transport, encoding='utf-8')
+    poll = (root / 'MAYAP_INDUSTRIAL_v1_0_0/esp_tls_async_poll.h').read_text(encoding='utf-8')
+    poll = '\n'.join(line for line in poll.splitlines() if not line.startswith('#include'))
+    (out / 'actual-esp-tls-poll.inc').write_text(poll, encoding='utf-8')
     ota = (root / 'MAYAP_INDUSTRIAL_v1_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
@@ -131,7 +134,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-web-connect', 'runtime-transactions'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
@@ -157,6 +160,18 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         regression = subprocess.run([str(executable)], capture_output=True, text=True)
         assert regression.returncode != 0, 'Missing HIGH guard was not detected'
         print('Regression proof: legal >30 ms final LOW fails without production HIGH guard, as expected')
+        poll_header = out / 'actual-esp-tls-poll.inc'
+        original_poll = poll_header.read_text(encoding='utf-8')
+        rearm = 'FD_ZERO(&tls->wset); FD_SET(tls->sockfd, &tls->wset);'
+        assert rearm in original_poll
+        poll_header.write_text(original_poll.replace(rearm, 'FD_ZERO(&tls->wset);'), encoding='utf-8')
+        executable = out / 'runtime-esp-tls-poll-regression'
+        subprocess.run([args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                        str(root / 'tests/runtime-esp-tls-poll.cpp'), '-o', str(executable)], check=True)
+        result = subprocess.run([str(executable)], capture_output=True, text=True)
+        poll_header.write_text(original_poll, encoding='utf-8')
+        assert result.returncode != 0, 'Missing TCP readiness re-arm was not detected'
+        print('Regression proof: actual IDF TCP polling stalls without write fd_set re-arm, as expected')
         # Each targeted mutation restores one of the review's actual failure
         # windows. Compilation must pass and the runtime assertions must fail.
         for name, replacement, label in (
