@@ -1,4 +1,4 @@
-# MAYAP 4.0.0 — Runtime Self-Recovery
+# MAYAP 1.0.0 — Runtime Self-Recovery
 
 Tiếp nối commit Adaptive Staged Boot `d5a0233c6ed39e517938f09336cc1d06425e6c19` trên nhánh `feat/adaptive-staged-boot`. Không thay Boot Manager, thứ tự startup, Recovery Level 0–3, thời điểm BOOT_SUCCESS, logo hoặc dòng trạng thái boot.
 
@@ -48,9 +48,9 @@ Network công bố radio quiesce rồi sang chu kỳ sau mới kiểm tra busy f
 
 ## Các file thay đổi
 
-- Thêm `MAYAP_INDUSTRIAL_v4_0_0/runtime_recovery_policy.h`: policy pure C++, ngưỡng/cooldown và timer wraparound.
-- Thêm `MAYAP_INDUSTRIAL_v4_0_0/service_recovery.h`: heartbeat/ACK/request/isolate và handshake radio.
-- Thêm `MAYAP_INDUSTRIAL_v4_0_0/i2c_supervisor.h`: supervisor shared bus.
+- Thêm `MAYAP_INDUSTRIAL_v1_0_0/runtime_recovery_policy.h`: policy pure C++, ngưỡng/cooldown và timer wraparound.
+- Thêm `MAYAP_INDUSTRIAL_v1_0_0/service_recovery.h`: heartbeat/ACK/request/isolate và handshake radio.
+- Thêm `MAYAP_INDUSTRIAL_v1_0_0/i2c_supervisor.h`: supervisor shared bus.
 - Sửa `.ino`: nối các owner recovery, Supervisor và I2C supervisor runtime; staged coordinator/setup giữ nguyên.
 - Sửa `config.h`: chỉ 2 khai báo API I2C, không đổi constant/schema.
 - Sửa `machine_control.h`: báo kết quả RTC/EEPROM và thêm recovery vào driver SHT485; không đổi `MachineController`/fault/output logic.
