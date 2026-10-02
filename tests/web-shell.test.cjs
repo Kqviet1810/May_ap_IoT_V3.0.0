@@ -32,7 +32,7 @@ test('slow static fetch falls back promptly and still refreshes the versioned sh
   complete(new Response('fresh'));
   await Promise.all(request.lifetime);
   assert.equal(w.values.get('https://web.test/app.js'),'fresh');
-  assert.ok(w.opened.every(name=>name==='mayap-web-v12.2.2'));
+  assert.ok(w.opened.every(name=>name==='mayap-web-v1.0.0'));
 });
 
 test('normal network remains fresh-first and cleans the fallback timer', async () => {
