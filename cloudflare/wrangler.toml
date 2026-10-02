@@ -9,7 +9,7 @@ compatibility_flags = ["nodejs_compat"]
 # wrangler secret put, KHONG commit vao repo.
 [vars]
 GOOGLE_CLIENT_ID = "327661992995-a46mlcjqrn83b225ljbdnsetlbqt0rru.apps.googleusercontent.com"
-ALLOWED_ORIGIN = "https://kqviet1810.github.io"
+ALLOWED_ORIGIN = "https://mayap-push-worker.vietk-mayaptrung.workers.dev"
 # Quy mo hien tai: cho may moi tu provisioning. Dat = "1" neu sau nay muon
 # quay lai che do factory allowlist bat buoc trong device_inventory.
 REQUIRE_DEVICE_INVENTORY = "0"
@@ -26,3 +26,16 @@ database_id = "e92a393c-8596-4254-b274-68e57a6de290"
 # Chay doc lap voi ESP32 - phat hien khi thiet bi im lang bat thuong.
 [triggers]
 crons = ["* * * * *"]
+
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*", "/realtime/*"]
+
+[[durable_objects.bindings]]
+name = "DEVICE_HUB"
+class_name = "DeviceHub"
+
+[[migrations]]
+tag = "device-hub-v1"
+new_sqlite_classes = ["DeviceHub"]

@@ -37,22 +37,27 @@ build_workflow = read(".github/workflows/build-firmware.yml")
 release = json.loads(read("release-manifest.json"))["firmware"]
 require_re(config, rf'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"{re.escape(release)}"', "firmware version")
 
-# MQTT deploy image must fail at compile time if broker credentials are absent.
-require(config, "static_assert(sizeof(MQTT_BROKER_HOST) > 1U", "MQTT host compile guard")
-require(config, "static_assert(sizeof(MQTT_USERNAME) > 1U", "MQTT username compile guard")
-require(config, "static_assert(sizeof(MQTT_PASSWORD) > 1U", "MQTT password compile guard")
-require(build_workflow, 'username = "__ci_mqtt_user__"', "PR MQTT compile placeholder")
-require(build_workflow, 'password = "__ci_mqtt_password__"', "PR MQTT password placeholder")
-require(build_workflow, 'Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD', "deploy MQTT secrets gate")
+# Per-device NVS identity replaces fleet broker credentials. Admission is
+# asynchronous and retains the existing memory/recovery gate.
+transport = read("MAYAP_INDUSTRIAL_v1_0_0/websocket_transport.h")
+hub = read("cloudflare/src/device-hub.js")
+require(transport, "dns_gethostbyname_addrtype", "nonblocking DNS")
+require(transport, "esp_tls_conn_new_async", "nonblocking TLS")
+require(transport, "cfg_.timeout_ms = 1", "bounded async TLS select")
+require(transport, "cfg_.common_name = host_", "TLS hostname and SNI")
+require(transport, "QUEUE_CAP = 8", "bounded TX queue")
+require(hub, "acceptWebSocket(server)", "hibernating GA Durable Object sockets")
+require(hub, "blockConcurrencyWhile", "serialized anti-replay checks")
+require(hub, "SLOW_CONSUMER", "bounded peer receive credit")
+require(wrangler, "new_sqlite_classes", "GA SQLite Durable Object migration")
+if "PubSubClient" in build_workflow or "MAYAP_MQTT_" in build_workflow:
+    raise SystemExit("FAIL: obsolete production broker dependency")
 require(build_workflow, "github.event_name == 'workflow_dispatch'", "manual test artifact gate")
 require(build_workflow, "firmware-test-${{ github.sha }}", "test artifact tied to commit SHA")
-
-# Web MQTT session returned after page boot must update the live WEB object.
-require(app, "WEB = Object.freeze({ ...WEB, ...runtimeMqtt });", "web MQTT runtime credential refresh")
-require(app, "state.mqttSessionState = 'ready';", "web MQTT session ready state")
-require(app, "if (mqttReady) connectMqtt();", "web MQTT init readiness gate")
-require(app, "state.mqttSessionState === 'auth-required' && device", "explicit auth status without false device offline")
-require(app, "state.mqttSessionState === 'error' && !state.mqtt", "visible broker/auth retry status")
+require(app, "runtimeRealtime = { ...result.realtime, deviceId: device.id }", "device-scoped realtime session")
+require(app, "state.realtimeSessionState = 'ready';", "realtime ready state")
+require(app, "state.realtimeSessionState === 'auth-required' && device", "explicit auth status without false device offline")
+require(app, "state.realtimeSessionState === 'error' && !state.realtime", "visible realtime/auth retry status")
 require(app, "device.presenceEpoch === state.subscriptionEpoch && device.presence?.online === false", "device offline requires current presence")
 require(app, "Date.now() - device.snapshotAt > WEB.staleAfterMs", "snapshot freshness independent of presence/config")
 

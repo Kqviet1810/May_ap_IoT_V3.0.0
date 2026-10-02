@@ -91,7 +91,6 @@ static TaskHandle_t otaTaskHandle = nullptr;
 // khi doi mode radio. Task ghi co cua chinh no, networkTask chi doc.
 static volatile uint8_t mqttIoBusy = 0U;
 static volatile uint8_t cloudIoBusy = 0U;
-static bool mqttWriteQos1Promoted = false;
 
 static volatile uint32_t controlHeartbeatMs = 0U;
 static volatile uint32_t hmiHeartbeatMs = 0U;
@@ -236,49 +235,6 @@ void hmiTask(void *parameter) {
   }
 }
 
-#if MAYAP_DIAGNOSTIC_SERIAL
-static const char *mqttStateText(int state) {
-  switch (state) {
-    case MQTT_CONNECTION_TIMEOUT: return "TIMEOUT";
-    case MQTT_CONNECTION_LOST: return "CONNECTION_LOST";
-    case MQTT_CONNECT_FAILED: return "TCP_TLS_CONNECT_FAILED";
-    case MQTT_DISCONNECTED: return "DISCONNECTED";
-    case MQTT_CONNECTED: return "CONNECTED";
-    case MQTT_CONNECT_BAD_PROTOCOL: return "BAD_PROTOCOL";
-    case MQTT_CONNECT_BAD_CLIENT_ID: return "BAD_CLIENT_ID";
-    case MQTT_CONNECT_UNAVAILABLE: return "BROKER_UNAVAILABLE";
-    case MQTT_CONNECT_BAD_CREDENTIALS: return "BAD_CREDENTIALS";
-    case MQTT_CONNECT_UNAUTHORIZED: return "UNAUTHORIZED";
-    default: return "UNKNOWN";
-  }
-}
-#endif
-
-// PubSubClient mac dinh subscribe QoS0. Web gui command/config/reminder/history
-// bang QoS1; broker giao theo min(pub,sub), nen neu khong nang subscription
-// len QoS1 thi goi quan trong van thanh QoS0. Ham nay nang 4 kenh ghi ngay sau
-// moi lan reconnect; subscribe lap lai cung topic la hop le va idempotent.
-static void promoteMqttWriteSubscriptionsToQos1() {
-  using namespace MayapRealtimeInternal;
-  if (!mqtt.connected()) {
-    mqttWriteQos1Promoted = false;
-    return;
-  }
-  if (mqttWriteQos1Promoted) return;
-
-  const bool ok = mqtt.subscribe(topicOf("config/set"), 1) &&
-                  mqtt.subscribe(topicOf("reminders/set"), 1) &&
-                  mqtt.subscribe(topicOf("command"), 1) &&
-                  mqtt.subscribe(topicOf("history/request"), 1);
-  if (ok) {
-    mqttWriteQos1Promoted = true;
-    mayapSerialPrintf(false, "[WEBLINK] kenh ghi da subscribe QoS1\n");
-  }
-}
-
-// Task nay CHI quan ly STA/portal/NTP. Khi nguoi dung mo cong doi Wi-Fi, dung
-// doi mode radio neu MQTT/Cloud dang o giua mot I/O blocking; hai task kia se
-// thay request portal va tu dong quiesce, sau do networkTask moi cho portal di.
 void networkTask(void *parameter) {
   (void)parameter;
   mayapServiceAdmit(MayapRecovery::Service::Network);
@@ -320,13 +276,6 @@ void mqttTask(void *parameter) {
   (void)parameter;
   mayapServiceAdmit(MayapRecovery::Service::Mqtt);
   mayapWebLinkBegin();
-  // Preserve the existing transport configuration and protocol contract.
-  MayapRealtimeInternal::mqtt.setKeepAlive(30);
-  MayapRealtimeInternal::mqtt.setSocketTimeout(5);
-#if MAYAP_MQTT_USE_TLS
-  MayapRealtimeInternal::netClient.setConnectionTimeout(5000);
-  MayapRealtimeInternal::netClient.setHandshakeTimeout(8);
-#endif
   __atomic_store_n(&mqttReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
 #if MAYAP_DIAGNOSTIC_SERIAL
@@ -338,7 +287,6 @@ void mqttTask(void *parameter) {
     if (mayapServiceRecoveryRequested(MayapRecovery::Service::Mqtt)) {
       __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
       mayapMqttRecover(now);
-      mqttWriteQos1Promoted = false;
       __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
       mayapServiceRecoveryComplete(MayapRecovery::Service::Mqtt);
@@ -346,9 +294,7 @@ void mqttTask(void *parameter) {
     if (mayapWifiPortalExclusiveRequested() || mayapRadioRecoveryRequested() ||
         mayapServiceIsolated(MayapRecovery::Service::Mqtt, now)) {
       __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
-      if (MayapRealtimeInternal::mqtt.connected()) MayapRealtimeInternal::mqtt.disconnect();
-      MayapRealtimeInternal::netClient.stop();
-      mqttWriteQos1Promoted = false;
+      if (MayapRealtimeInternal::socketTransport.busy()) MayapRealtimeInternal::socketTransport.disconnect();
       __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
       mayapServiceBeat(MayapRecovery::Service::Mqtt);
@@ -361,26 +307,25 @@ void mqttTask(void *parameter) {
     // kiem tra o tren nhung truoc khi ta danh dau busy.
     if (!mayapWifiPortalExclusiveRequested() && !mayapRadioRecoveryRequested()) {
       mayapWebLinkUpdate(now);
-      promoteMqttWriteSubscriptionsToQos1();
 #if MAYAP_DIAGNOSTIC_SERIAL
       if (mayapSerialDebugEnabled() &&
           (lastMqttDiagAt == 0U || elapsedMs(now, lastMqttDiagAt) >= 5000UL)) {
         lastMqttDiagAt = now;
         const NetworkStatus netStatus = mayapGetNetworkStatus();
-        const int mqttState = MayapRealtimeInternal::mqtt.state();
-        const uint32_t retryInMs = MayapRealtimeInternal::mqttBackoff.ready(now)
+        const int mqttState = MayapRealtimeInternal::socketTransport.state();
+        const uint32_t retryInMs = MayapRealtimeInternal::linkBackoff.ready(now)
             ? 0U
-            : static_cast<uint32_t>(MayapRealtimeInternal::mqttBackoff.nextAttemptAt - now);
+            : static_cast<uint32_t>(MayapRealtimeInternal::linkBackoff.nextAttemptAt - now);
         mayapSerialPrintf(false,
-            "[MQTT-DIAG] wifi=%u rssi=%d mqtt=%u state=%d(%s) tcp=%u "
+            "[WS-DIAG] wifi=%u rssi=%d websocket=%u state=%d(%s) tcp=%u "
             "backoff=%u retry=%lums heap=%u min=%u largest=%u\n",
             netStatus.connected ? 1U : 0U,
             netStatus.connected ? WiFi.RSSI() : 0,
-            MayapRealtimeInternal::mqtt.connected() ? 1U : 0U,
+            MayapRealtimeInternal::socketTransport.connected() ? 1U : 0U,
             mqttState,
-            mqttStateText(mqttState),
-            MayapRealtimeInternal::netClient.connected() ? 1U : 0U,
-            static_cast<unsigned>(MayapRealtimeInternal::mqttBackoff.step),
+            "WEBSOCKET",
+            MayapRealtimeInternal::socketTransport.busy() ? 1U : 0U,
+            static_cast<unsigned>(MayapRealtimeInternal::linkBackoff.step),
             static_cast<unsigned long>(retryInMs),
             static_cast<unsigned>(ESP.getFreeHeap()),
             static_cast<unsigned>(ESP.getMinFreeHeap()),
@@ -389,7 +334,7 @@ void mqttTask(void *parameter) {
 #endif
     }
     __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
-    __atomic_store_n(&mqttConnected, MayapRealtimeInternal::mqtt.connected() ? 1U : 0U, __ATOMIC_RELEASE);
+    __atomic_store_n(&mqttConnected, MayapRealtimeInternal::socketTransport.connected() ? 1U : 0U, __ATOMIC_RELEASE);
     mayapServiceBeat(MayapRecovery::Service::Mqtt);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
   }

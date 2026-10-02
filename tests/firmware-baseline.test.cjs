@@ -7,8 +7,9 @@ const ota = read('MAYAP_INDUSTRIAL_v1_0_0/ota_web_update.h');
 const hmi = read('MAYAP_INDUSTRIAL_v1_0_0/hmi.h');
 
 test('three transient TLS users share nonblocking admission with memory budget', () => {
-  for (const name of ['cloud_alert_link.h', 'ota_web_update.h', 'realtime_link.h'])
+  for (const name of ['cloud_alert_link.h', 'ota_web_update.h'])
     assert.match(read(`MAYAP_INDUSTRIAL_v1_0_0/${name}`), /MayapTlsOperation tlsOperation/);
+  assert.match(read('MAYAP_INDUSTRIAL_v1_0_0/websocket_transport.h'), /new\s*\(std::nothrow\) MayapTlsOperation/);
   const gate = read('MAYAP_INDUSTRIAL_v1_0_0/network_io_guard.h');
   assert.match(gate, /__atomic_compare_exchange_n/);
   assert.match(gate, /49152U : 73728U/);
@@ -37,6 +38,14 @@ test('Wi-Fi guide uses HMI, and named credential template is empty', () => {
   assert.match(html, /Cài đặt chung → Hệ thống → Đổi Wi‑Fi/);
   assert.doesNotMatch(html, /Giữ nút BOOT/);
   const secret = read('MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h');
-  assert.match(secret, /#define MAYAP_MQTT_USERNAME ""/);
-  assert.match(secret, /#define MAYAP_MQTT_PASSWORD ""/);
+  assert.match(secret, /#define MAYAP_OTA_PASSWORD ""/);
+  assert.doesNotMatch(secret, /MAYAP_MQTT/);
+});
+
+test('production dependencies contain no broker library, fleet credential or MQTT browser bundle',()=>{
+ assert.equal(fs.existsSync(path.resolve(__dirname,'../vendor/mqtt.min.js')),false);
+ assert.equal(fs.existsSync(path.resolve(__dirname,'../MAYAP_INDUSTRIAL_v1_0_0/mqtt_transport.h')),false);
+ assert.doesNotMatch(read('MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h'),/PubSubClient|MqttTransport|MQTT_BROKER/);
+ assert.doesNotMatch(read('.github/workflows/build-firmware.yml'),/PubSubClient|MAYAP_MQTT_/);
+ assert.doesNotMatch(read('index.html'),/mqtt.min.js/);
 });

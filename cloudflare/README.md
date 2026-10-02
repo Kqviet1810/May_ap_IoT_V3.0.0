@@ -1,109 +1,63 @@
-# MAYAP Cloudflare Worker — v3.8.1
+# MAYAP Cloudflare — proposed V1.1.0
 
-Backend hiện hành cho provisioning, browser session, MQTT web bootstrap/signing, trạng thái thiết bị, firmware metadata và Web Push.
+Workers Static Assets hosts the existing PWA. `src/account-worker.js` keeps
+Google accounts, ownership, provisioning, API, D1 and Push, and admits authenticated
+WebSockets to one GA SQLite `DeviceHub` per machine. DeviceHub routes signed V2
+messages and ESP32 ACKs using hibernating sockets; it does not control the machine.
 
-## Entrypoint
+The full contract, Free-plan worksheet, cutover, manual settings and hardware
+checklist are in [the migration guide](../doc/CLOUDFLARE_REALTIME_MIGRATION.md).
+The old MQTT runtime and fleet credentials have been removed.
 
-```text
-src/reliability-wrapper.js
-  -> src/security-wrapper.js
-     -> src/index.js
-```
-
-Không deploy trực tiếp `index.js` làm entrypoint nếu muốn giữ hardening/reliability hiện hành.
-
-## Cài phụ thuộc
-
-`package.json` đang pin dependency trực tiếp. Repo hiện chưa có `package-lock.json`.
+## Local setup
 
 ```bash
-cd cloudflare
-npm install --ignore-scripts
+npx --yes pnpm@11.19.0 install --frozen-lockfile --ignore-scripts
+python3 ../tools/build_web_assets.py
+npx pnpm@11.19.0 dev
 ```
 
-Khi đã tạo và review `package-lock.json`, commit lockfile; workflow deploy sẽ tự chuyển sang:
+Real Google login requires the configured authorized HTTPS origin. Automated tests
+seed an isolated **local** D1 fixture without weakening production login:
 
 ```bash
-npm ci --ignore-scripts
+cd ..
+node --test tests/*.test.cjs
+python3 tools/test_realtime_workerd.py
+# Also test native Chromium (install pinned Playwright Chromium first):
+python3 tools/test_realtime_workerd.py --browser
 ```
 
-Không tạo lockfile động trong production deploy rồi coi đó là reproducible build.
+The asset builder uses an explicit public-file allowlist. Firmware, tests, node
+modules, private keys, config overrides and `.dev.vars` cannot become public assets.
 
-## D1
+## Resources and settings
 
-Database binding: `DB`, database name `mayap_push`.
+- `DB`: existing D1 `mayap_push`, migration history `0001`–`0005`.
+- `DEVICE_HUB`: DeviceHub SQLite DO, migration `device-hub-v1`.
+- `ASSETS`: generated `public/`; APIs and /realtime/* run the Worker first.
+- Existing one-minute Cron for sparse offline/Push state remains.
+- `ALLOWED_ORIGIN`: exact final HTTPS Worker/custom-domain origin.
+- `GOOGLE_CLIENT_ID`: existing GIS web client; authorize the final origin in Google.
+- Provisioning defaults and factory inventory enable/disable checks remain.
+- Runtime pinned to compatibility date 2026-10-01 and nodejs_compat.
 
-Production deploy dùng migration history:
+Preserve existing `DEVICE_KEY_PEPPER` and `MAYAP_SESSION_PEPPER`. Push requires
+VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY, VAPID_SUBJECT. GITHUB_TOKEN remains optional
+for release reads. There are no broker/fleet WebSocket credentials. Existing
+unique device keys are in NVS and peppered D1 hashes. Secrets stay in Cloudflare
+Dashboard/`wrangler secret put`, never source, static config or URLs.
 
-```bash
-npx wrangler d1 migrations apply mayap_push --remote
-```
+## Deployment
 
-## Secrets
+The reviewed GitHub Actions deployment runs local checks/workerd, stages assets,
+applies D1 migrations, then deploys Worker/assets/DO migration together. It can be
+run manually on a selected ref. After commissioning, repository variable
+`CLOUDFLARE_REALTIME_AUTODEPLOY=1` enables deployment of the exact successful main
+build SHA. GitHub secrets are CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID.
 
-Đặt bằng Cloudflare Dashboard hoặc `wrangler secret put`; không commit secret vào `wrangler.toml`.
-
-Tối thiểu theo tính năng:
-
-```text
-DEVICE_KEY_PEPPER
-VAPID_PUBLIC_KEY
-VAPID_PRIVATE_KEY
-VAPID_SUBJECT
-MAYAP_MQTT_PASSWORD
-```
-
-Khuyến nghị cấu hình tường minh thêm:
-
-```text
-MAYAP_MQTT_HOST
-MAYAP_MQTT_USERNAME
-MAYAP_MQTT_WSS_URL   # tùy chọn nếu URL không theo host:8884/mqtt
-GITHUB_TOKEN         # tùy chọn
-```
-
-## Provisioning policy
-
-`wrangler.toml` hiện mặc định:
-
-```text
-REQUIRE_DEVICE_INVENTORY=0
-MAX_NEW_DEVICE_REGISTRATIONS_PER_HOUR=20
-NEW_DEVICE_REGISTRATION_WINDOW_MINUTES=60
-MAX_PAIRED_BROWSERS=3
-BROWSER_SESSION_DAYS=90
-```
-
-Với inventory=0, máy mới có device credentials hợp lệ được reliability wrapper auto-admit theo IP rate-limit và tạo inventory record. Nếu một Device ID đã có inventory record `enabled=0`, máy đó vẫn bị chặn. Đặt `REQUIRE_DEVICE_INVENTORY=1` để bật strict factory allowlist.
-
-## MQTT
-
-Kiến trúc hiện hành **không dùng EMQX JWT**.
-
-Worker trả MQTT config cho browser đã xác thực. Write channel quan trọng được HMAC theo Device ID:
-
-```text
-command
-config/set
-reminders/set
-```
-
-Không chuyển broker password vào source web tĩnh.
-
-## Web Push
-
-Worker nhận alert/heartbeat từ ESP32 qua HTTPS. Push dùng VAPID. Alarm state/cooldown được giữ phía server để firmware lỗi không tạo push storm vô hạn.
-
-Cron chạy mỗi phút để đánh giá trạng thái online/offline; threshold hiện hành trong core Worker là 180 giây.
-
-## OTA
-
-Nguồn release là GitHub Releases của repo. Worker lấy metadata/file cho ESP32; firmware tự kiểm SHA-256 + ECDSA signature. Private signing key không thuộc Worker/firmware source.
-
-## Compatibility date
-
-`wrangler.toml` đang pin `2026-08-01` + `nodejs_compat`. Giữ nguyên cho đến khi có regression test khi nâng runtime; không tự đổi theo ngày deploy.
-
-## Deploy
-
-Khuyến nghị dùng workflow `.github/workflows/deploy-cloudflare-worker.yml` thay vì deploy tay. Workflow chạy syntax check, release-sync checker, reliability checker, D1 migrations rồi mới `wrangler deploy`.
+No remote deployment or OTA release was performed for this PR. First provision an
+isolated pilot Worker/D1 and test one wired bench ESP32. Coordinate cloud/Web
+cutover with device commissioning: existing MQTT firmware cannot speak WebSocket.
+Use GitHub Actions as the deployment source; do not enable a second automatic
+Cloudflare Builds pipeline for the same production Worker.

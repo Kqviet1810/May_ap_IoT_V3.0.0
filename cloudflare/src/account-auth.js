@@ -59,15 +59,6 @@ export async function createSession(env, identity, agent = '') {
     VALUES(?,?,?,?,?,?)`).bind(id, identity.sub, await hash(token,env), now, expiry, agent.slice(0,200)).run();
   return { token, id, expiry };
 }
-export function mqttCredentials(env) {
-  // Existing direct HiveMQ transport. This shared credential is NOT a tenant ACL.
-  const host = String(env.MAYAP_MQTT_HOST || '2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud').trim();
-  const url = String(env.MAYAP_MQTT_WSS_URL || `wss://${host}:8884/mqtt`).trim();
-  const username = String(env.MAYAP_MQTT_USERNAME || 'Mayap_Iot').trim();
-  const password = String(env.MAYAP_MQTT_PASSWORD || '');
-  if (!/^wss:\/\//i.test(url) || !username || !password) throw new Error('MQTT_NOT_CONFIGURED');
-  return { url, username, password };
-}
 export async function hmacHex(secret, value) {
   const key = await crypto.subtle.importKey('raw', typeof secret === 'string' ? new TextEncoder().encode(secret) : secret,
     { name:'HMAC', hash:'SHA-256' }, false, ['sign']);

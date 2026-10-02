@@ -736,9 +736,6 @@ inline void mayapPrintNetworkConfig() {
   mayapSerialPrintf(false, "[CONFIG] wifi_ssid=%s da_luu_mat_khau=%s\n",
       activeSsid[0] ? activeSsid : "(chua cau hinh)",
       activePassword[0] ? "CO" : "KHONG");
-  mayapSerialPrintf(false, "[CONFIG] mqtt_broker=%s:%u tls=%s topic_root=%s\n",
-      MQTT_BROKER_HOST, MQTT_BROKER_PORT, MQTT_USE_TLS ? "BAT" : "TAT",
-      MQTT_TOPIC_ROOT);
   mayapSerialPrintf(false, "[CONFIG] cloud_api_host=%s cloud_device_key=%s\n",
       CLOUD_API_HOST[0] ? CLOUD_API_HOST : "(chua cau hinh)",
       CLOUD_DEVICE_SECRET[0] ? "DA CAU HINH" : "CHUA CAU HINH (build flag rong)");

@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { chromium } = require(process.env.MAYAP_PLAYWRIGHT || 'playwright');
+const { chromium } = require(process.env.MAYAP_PLAYWRIGHT || '../cloudflare/node_modules/playwright');
 const root = path.resolve(__dirname, '..');
 const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
@@ -15,20 +15,17 @@ const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config
 const defaults = {};
 for (const match of firmware.matchAll(/\b(?:float|bool|uint8_t|uint16_t|uint32_t)\s+(\w+)\s*=\s*(true|false|\d+(?:\.\d+)?)(?:f|U|UL)?\s*;/g))
   defaults[match[1]] = match[2] === 'true' ? true : match[2] === 'false' ? false : Number(match[2]);
-const fakeMqtt = `
+const fakeRealtime = `
 window.__transport = { subscriptions: [], sessions: [], connects: 0, dropFirst: false };
-window.mqtt = { connect() {
+window.MayapRealtime = { Client: function(options) {
   window.__transport.connects++;
-  const handlers = {}, client = { connected: false, disconnecting: false,
+  const handlers = {}, client = { connected: false, disconnecting: false, deviceId:options.deviceId, resume(){},renew(){},
     on(name, fn) { (handlers[name] ||= []).push(fn); return client; },
     emit(name, ...args) { (handlers[name] || []).forEach(fn => fn(...args)); },
-    subscribe(filters, cb) { window.__transport.subscriptions.push(filters);
-      setTimeout(() => cb(null, Object.entries(filters).map(([topic, v]) => ({ topic, qos: v.qos }))), 20); },
     unsubscribe() {}, reconnect() { client.emit('connect'); },
     end() { client.disconnecting = true; client.emit('close'); },
-    publish(topic, wire, options, cb) {
-      cb?.(); if (!topic.endsWith('/session') || !wire) return;
-      const msg = JSON.parse(wire); window.__transport.sessions.push({ at: performance.now(), ...msg });
+    send(route, msg, cb) {
+      cb?.(); if (route.channel!=='session') return; window.__transport.sessions.push({ at: performance.now(), ...msg });
       if (!msg.active || !msg.sync) return;
       if (window.__transport.dropFirst) { window.__transport.dropFirst = false; return; }
       setTimeout(() => window.__deliver?.(), 25);
@@ -39,11 +36,13 @@ window.mqtt = { connect() {
 } };`;
 
 async function setup(browser, options = {}) {
-  let authFailures = options.authFailures || 0;
+  let authFailures = options.authFailures || 0, claimed = options.paired !== false;
   const context = await browser.newContext({ viewport: { width: options.width || 390, height: options.height || 844 },
     isMobile: Boolean(options.mobile), hasTouch: Boolean(options.mobile), serviceWorkers: 'block', colorScheme: options.scheme || 'light' });
   await context.addInitScript(({ theme, paired, defaults, dropFirst }) => {
     window.__nativeStorageGet = Storage.prototype.getItem;
+    sessionStorage.setItem('mayap.account.session.v1','aa'.repeat(32));
+    localStorage.setItem('mayap.account.qa-sub.selected','MAP-1234567890AB');
     if (theme) localStorage.setItem('mayap.theme', theme);
     if (paired) {
       localStorage.setItem('mayap.web.v10.devices', JSON.stringify([{ id: 'MAP-1234567890AB', name: 'Máy ấp nhà mình', pairingToken: 'qa-token' }]));
@@ -63,17 +62,20 @@ async function setup(browser, options = {}) {
   }, { theme: options.theme, paired: options.paired !== false, defaults, dropFirst: Boolean(options.dropFirst) });
   await context.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.origin === 'http://127.0.0.1:8765') {
+    if (url.origin === 'http://127.0.0.1:8765' && !url.pathname.startsWith('/api/')) {
       if (url.pathname === '/app.js') return route.fulfill({ contentType: 'application/javascript', body: source });
-      if (url.pathname === '/vendor/mqtt.min.js') return route.fulfill({ contentType: 'application/javascript', body: fakeMqtt });
+      if (url.pathname === '/realtime_transport.js') return route.fulfill({ contentType: 'application/javascript', body: fakeRealtime });
       return route.continue();
     }
     let body = { success: false, error: 'QA fixture' };
-    if (url.pathname.endsWith('/mqtt-session') && authFailures-- > 0)
+    if(url.pathname==='/api/account/session') body={success:true,user:{sub:'qa-sub',name:'QA account'},expiresAt:Date.now()+86400000,devices:claimed?[{device_id:'MAP-1234567890AB',device_name:'Máy ấp nhà mình',role:'owner'}]:[]};
+    if(url.pathname==='/api/account/devices/claim'){claimed=true;body={success:true,device_id:'MAP-1234567890AB',device_name:'Máy ấp nhà mình'};}
+
+    if (url.pathname.endsWith('/realtime-session') && authFailures-- > 0)
       return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify(body)});
-    if (url.pathname.endsWith('/mqtt-session') || url.pathname.endsWith('/verify-pin')) body = {
+    if (url.pathname.endsWith('/realtime-session') || url.pathname.endsWith('/devices/claim')) body = {
       success: true, pairing_token: 'qa-token', device_name: 'Máy ấp nhà mình',
-      mqtt: { url: 'wss://qa.invalid/mqtt', username: 'qa', password: 'qa' },
+      realtime: {url:'wss://qa.invalid/realtime/browser/MAP-1234567890AB',ticket:'qa-ticket'},
       control: { sessionId: 'qa-session', sessionKey: '07'.repeat(32), grant: 'qa|grant', grantSig: '08'.repeat(32), expiresAt: Math.floor(Date.now()/1000)+300 } };
     if (url.pathname.endsWith('/firmware/latest')) body = { success: true, version: '4.0.0' };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
@@ -168,7 +170,7 @@ async function inspectHeader(page) {
       return {x:rect.x,y:rect.y,width:rect.width,height:rect.height,
         labelY:el.firstElementChild.getBoundingClientRect().y};
     });
-    return {titleTop:title.top,titleBottom:title.bottom,readingsLeft:readings.left,readingsWidth:readings.width,readingsTop:readings.top,readingsHeight:readings.height,fields,
+    return {titleVisible:title.height>0,titleTop:title.top,titleBottom:title.bottom,readingsLeft:readings.left,readingsWidth:readings.width,readingsTop:readings.top,readingsHeight:readings.height,fields,
       clipped:[...document.querySelectorAll('.title h1,.title p,.live>span,.live>strong')]
         .filter(el => el.scrollWidth>el.clientWidth+1).map(el => el.id || el.textContent),
       rows:getComputedStyle(document.querySelector('.topbar')).gridTemplateRows.split(' ').length};
@@ -205,7 +207,7 @@ async function checkHeaderStates(page, {width,height,theme}) {
       });
       assert.ok(popup.inViewport && popup.unobscured,`${width}x${height}/${theme}/${scenario}: fault popup is accessible outside strip`);
       if (width===390 && scenario==='emergency') await page.screenshot({path:path.join(out,`MAYAP-fault-popup-${theme}.png`)});
-      await page.locator('.title').click();
+      await page.locator('#liveTemp').click();
       assert.equal(await page.locator('#faultPopup').isVisible(),false);
     }
     result.push(scenario);
@@ -231,7 +233,7 @@ async function main() {
         assert.equal(overflow, false, `${width}/${theme}/${tab} horizontal overflow`);
         const header = await inspectHeader(page);
         assert.equal(header.rows,1,`${width}x${height}/${tab}: title and readings share one row`);
-        assert.ok(header.titleTop<header.readingsTop+header.readingsHeight && header.titleBottom>header.readingsTop,'Title aligns beside readings');
+        if(header.titleVisible) assert.ok(header.titleTop<header.readingsTop+header.readingsHeight && header.titleBottom>header.readingsTop,'Visible title aligns beside readings');
         assert.deepEqual(header.clipped,[],`${width}x${height}/${theme}/${tab}: title and readings fit`);
         assert.ok(Math.max(...header.fields.map(f=>f.labelY))-Math.min(...header.fields.map(f=>f.labelY))<=.5,'Reading labels align');
         if (tab!=='settings') {
@@ -271,7 +273,8 @@ async function main() {
             assert.equal(operating.heights.length,8,'Eight standard operating cells, optional humidifier remains hidden');
             assert.equal(operating.hiddenHumidifier,0);
             assert.ok(Math.max(...operating.heights)-Math.min(...operating.heights)<=.5,'All eight operating cells have equal height');
-            assert.ok(operating.noteVisible && operating.note==='Theo dõi và điều khiển máy.','Mobile device subtitle is visible');
+            assert.equal(operating.note,'Theo dõi và điều khiển máy.');
+            assert.equal(await page.locator('.mobileIdentity').isVisible(),true,'Account identity is the current mobile header');
             if (shouldFit) assert.ok(operating.navGap>=8 && operating.navGap<=12,'Operating card ends close to the tab bar with a safe gap');
           }
           layouts.push({width,height,theme,tab,shouldFit,...layout});
@@ -302,7 +305,7 @@ async function main() {
           }),'Readings remain visible after scrolling back to the top');
         }
         const gradientElements = await page.evaluate(() => [...document.querySelectorAll('*')]
-          .filter(el => /gradient\(/i.test(getComputedStyle(el).backgroundImage))
+          .filter(el => el.getBoundingClientRect().width>0 && el.getBoundingClientRect().height>0 && /gradient\(/i.test(getComputedStyle(el).backgroundImage))
           .map(el => el.id || el.className || el.tagName));
         assert.deepEqual(gradientElements, [], `${width}/${theme}/${tab}: backgrounds must be solid`);
         if ((width === 390 || width === 1440 || width===1719 || width===1734) && tab !== 'settings')
@@ -398,7 +401,7 @@ async function main() {
     assert.ok(sessions.length >= 2);
     const retryMs = sessions[1].at-sessions[0].at;
     assert.ok(retryMs >= 650 && retryMs < 1200);
-    assert.equal(await page.evaluate(() => window.__transport.subscriptions.length), 1);
+    assert.equal(await page.evaluate(() => window.__transport.connects), 1);
     await swipe(page, 260, 35, -140);
     assert.equal(await page.evaluate(() => document.body.dataset.page), 'batch');
     await swipe(page, 260, 35, -140);
@@ -498,7 +501,7 @@ async function main() {
     assert.equal(await pairing.page.evaluate(() => window.__nativeStorageGet.call(localStorage, 'mayap.web.v10.mqtt.private')), null,
       'Credentials must not persist in native storage');
     assert.deepEqual(pairing.errors, []);
-    results.push('Pairing: legacy PIN accepted, auth remains, no reload, one MQTT client, credentials absent from persistent storage.');
+    results.push('Pairing: account ownership claimed with PIN, auth remains, no reload, one native realtime client, credentials absent from persistent storage.');
     await pairing.context.close();
     const retry = await setup(browser, { authFailures:1, width:390, mobile:true });
     assert.equal(await retry.page.evaluate(() => window.__transport.connects), 1);

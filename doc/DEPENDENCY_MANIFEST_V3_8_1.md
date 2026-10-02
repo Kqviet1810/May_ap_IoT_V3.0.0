@@ -1,3 +1,5 @@
+> Cập nhật transport cho V1.1.0; xem [migration guide](CLOUDFLARE_REALTIME_MIGRATION.md) về cấu hình và giới hạn commissioning.
+
 # MAYAP v3.8.1 - Dependency manifest
 
 Mục tiêu: đủ để tái tạo build, rà lỗi dependency và hỗ trợ bảo trì dài hạn mà không triển khai hệ thống SBOM enterprise.
@@ -12,7 +14,7 @@ Mục tiêu: đủ để tái tạo build, rà lỗi dependency và hỗ trợ b
 | Arduino ESP32 core | 3.3.11 |
 | FQBN | `esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled` |
 | U8g2 | 2.36.19 |
-| PubSubClient | 2.8.0 |
+| Realtime transport | first-party RFC6455 + esp-tls async |
 | ArduinoJson | 7.4.3 |
 | TLS / crypto | ESP32 Arduino core + mbedTLS |
 | OTA layout | dual OTA, `default_8MB` |
@@ -34,19 +36,19 @@ Mục tiêu: đủ để tái tạo build, rà lỗi dependency và hỗ trợ b
 |---|---|
 | Cloud runtime | Cloudflare Workers |
 | Database | Cloudflare D1 |
-| Worker entrypoint v3.8.1 | `cloudflare/src/reliability-wrapper.js` |
+| Worker entrypoint | `cloudflare/src/account-worker.js` |
 | Security layer | `cloudflare/src/security-wrapper.js` |
 | Core API | `cloudflare/src/index.js` |
-| MQTT broker | HiveMQ Cloud / Serverless theo build config |
-| Browser realtime | MQTT over WSS |
+| Realtime hub | GA SQLite Cloudflare Durable Objects + Hibernation |
+| Browser realtime | native WebSocket + first-party bounded Client |
 | Push | Web Push qua Cloudflare Worker |
-| Static frontend | GitHub Pages |
+| Static frontend | Workers Static Assets, GitHub Actions deployment |
 
 ## Build/release invariants
 
 - Không dùng `setInsecure()` trong firmware.
 - Không commit private OTA signing key vào repository/firmware.
-- MQTT username/password deploy nằm trong GitHub Secrets và sinh `build_secrets.h` trong CI.
+- Identity/credential riêng từng máy lưu NVS/D1; không có broker/fleet credential trong CI.
 - OTA release phải có `.bin` và `.sig`.
 - Firmware chỉ chấp nhận remote OTA khi size, SHA-256 và ECDSA signature hợp lệ.
 - Tag release phải khớp `MAYAP_FIRMWARE_VERSION`.
@@ -65,11 +67,11 @@ Sau mỗi lần nâng dependency phải chạy lại:
 - ESP32 compile CI.
 - ATtiny compile/budget CI.
 - provisioning 2 máy.
-- MQTT reconnect.
+- WebSocket reconnect, lease, replay, native browser/workerd.
 - Cloud Push.
 - OTA interruption test nếu thay ESP32 core/TLS/HTTP/Update.
 - ít nhất soak test rút gọn 8 giờ; release lớn vẫn yêu cầu 72 giờ.
 
 ## Rà soát định kỳ
 
-Khuyến nghị 3-6 tháng/lần kiểm tra changelog/CVE của ESP32 core, ArduinoJson, PubSubClient và U8g2. Không cần tự động merge dependency update vào firmware đang chạy ổn định.
+Khuyến nghị 3-6 tháng/lần kiểm tra changelog/CVE của ESP32 core, ArduinoJson, esp-tls và U8g2. Không cần tự động merge dependency update vào firmware đang chạy ổn định.

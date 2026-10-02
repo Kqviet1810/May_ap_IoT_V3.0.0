@@ -1,3 +1,5 @@
+> Tài liệu lịch sử của baseline V1.0.0/PR #24. Hosting, broker và read-isolation mô tả dưới đây đã được thay thế bởi [migration Cloudflare realtime](CLOUDFLARE_REALTIME_MIGRATION.md); luồng Google account/ownership/claim vẫn là nền tảng hiện hành.
+
 # Google Account + ownership — phạm vi tối giản của PR #24
 
 Frontend vẫn là GitHub Pages: `https://kqviet1810.github.io/May_ap_trung_V2.1.1/`.

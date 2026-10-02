@@ -20,10 +20,6 @@
       "sha256": "fb2b5828ccdd8997736f9618ae32f3635370c7253f2d1b8efbbd763002d15354"
     },
     {
-      "file": "MAYAP_INDUSTRIAL_v1_0_0/mqtt_transport.h",
-      "sha256": "af23f54d217f77f868c11c100282cbb897dd8a9abf05cbced9c4e68ef0413d0d"
-    },
-    {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
       "sha256": "e669f1363f29ddc63e65616881c4f76efdf25a5219d4e0fd8eb418c08643d488"
     },
@@ -57,11 +53,11 @@
     },
     {
       "file": "protocol_v2.js",
-      "sha256": "5d1680d292023aab4ea71995030b140587a42c3f0e7d7c598301d0491840d815"
+      "sha256": "c25f3c770acafc9b45e37d7c63297ab6e60149e497784cad8cf4301d2a55dd96"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "c47ccaf97de869ba2bda1210c108d41d799aed56c19acc9c178b56554fc081a8",
+      "sha256": "fe565f0ef434cc5fef4a35ed89136b378ca8bc2f3271025264627b129a5c740f",
       "filter": "config"
     },
     {
@@ -158,7 +154,7 @@
     },
     {
       "file": "app.js",
-      "signature": "async function signMqttWrite(",
+      "signature": "async function signRealtimeWrite(",
       "sha256": "56d19b1731bfc75dc316e74ce6d5a8a1197cd0e241a80a5cd637f265fa7ab2e4",
       "copyReplacements": [
         [
@@ -175,7 +171,7 @@
     {
       "file": "app.js",
       "signature": "function retrySameRequest(",
-      "sha256": "d1449f0ee8a0fb7c9f0699f81652c98fbcb9571b3b05e2c0631575c6ded0c49e"
+      "sha256": "737b91f84a7f9fd40943cb9183c677ccca709c8da557499e78ee94530daffb80"
     },
     {
       "file": "app.js",
@@ -190,7 +186,7 @@
     {
       "file": "app.js",
       "signature": "function rememberOutcome(",
-      "sha256": "42f694fef8f2f1239a6ae59a0b839957db021e45cf3180e4d2fd3b7972e83f7c"
+      "sha256": "f516da9c84fa07ca8797848f39eb30634f8afb4044bbf8594ea41cdff08641ac"
     },
     {
       "file": "app.js",
@@ -244,7 +240,7 @@
     {
       "file": "app.js",
       "signature": "async function sendConfig(formId, group) {",
-      "sha256": "225b37508447d98cdbeff30bc2ee94d7496fc93746054566a57585dc009d7430",
+      "sha256": "22cf34036b64863173d63aacd85df1a2479740bd8ce16917478ed455dd6664b2",
       "copyReplacements": [
         [
           "'Hãy thêm máy trước'",
@@ -267,7 +263,7 @@
     {
       "file": "app.js",
       "signature": "async function sendCommand(action, options = {}) {",
-      "sha256": "374ca812c576586950be7012e7b62da724e1cf62d90ca0707fd553c463ee63a6",
+      "sha256": "53a204bbdea4ac20578d44553d02d6fbb809d1721135388887420e4c74a09c8e",
       "copyReplacements": [
         [
           "'Máy đang ngoại tuyến'",
@@ -282,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "6aa5743ce346e2b4bc22b5ec5272e3978c9a0f8c5899ff0c56a03b0e60e781a9",
+      "sha256": "96136496484b8d3b11ed616d435c1a42e4f6fe2ebbc25c2097894795b8991db2",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -356,8 +352,8 @@
     },
     {
       "file": "app.js",
-      "signature": "function publish(topic, payload, options = {}) {",
-      "sha256": "bcdc25170cba1dff1bdcf145624d2d2a553cd20491cffe39f82bcd65db932944",
+      "signature": "function publish(route, payload, options = {}) {",
+      "sha256": "a84423d5631f9aab4f06d2c591b6dd3d97bc503fb1f298b5d642c18cda0651e6",
       "copyReplacements": [
         [
           "'Chưa kết nối với máy chủ'",
@@ -367,5 +363,6 @@
     }
   ],
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
-  "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged."
+  "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
+  "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed."
 }

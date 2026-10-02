@@ -1,19 +1,19 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> Baseline hiện hành: **MAYAP release 1.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_1_0_0.md` về giới hạn kiểm thử.
+> Baseline đã audit: **MAYAP release 1.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_1_0_0.md` về giới hạn kiểm thử.
 
 Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
 
 Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
 
-Web 12.2.0 thêm Google Account và ownership nhiều máy trên GitHub Pages + Worker/D1: [Account và cấu hình OAuth](doc/GOOGLE_ACCOUNT_MULTITENANT.md). Giữ HiveMQ trực tiếp, cache-first, bootstrap retained, lazy data và WARM 5 phút từ [Luồng kết nối nhanh](doc/WEB_FAST_CONNECT.md). API kiểm ownership; command giữ HMAC V2. Credential MQTT chung chưa cô lập quyền đọc topic giữa khách hàng.
+Nhánh migration dự kiến **V1.1.0** chuyển realtime sang Cloudflare WebSocket + SQLite Durable Objects và đưa Web PWA lên Workers Static Assets. ESP32 vẫn là controller duy nhất. Account/API/D1/Push và signed command/ACK V2 được giữ; không còn broker hoặc credential fleet. Chưa phát hành OTA. Xem [kiến trúc, cấu hình, quota, test và commissioning](doc/CLOUDFLARE_REALTIME_MIGRATION.md).
 
 | Thành phần | Phiên bản hiện hành |
 |---|---:|
-| Release | 1.0.0 |
-| ESP32 firmware | 1.0.0 |
+| Release dự kiến | 1.1.0 |
+| ESP32 firmware | 1.1.0 |
 | HMI firmware | 1.0.0 |
-| Web cache | 1.0.0 |
+| Web cache | 1.1.0 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
@@ -24,42 +24,38 @@ Các giá trị trên được khai báo ở `release-manifest.json` và đượ
 ## Kiến trúc hiện hành
 
 ```text
-                 MQTT/TLS + WSS
-ESP32-S3  <---------------------------->  Web PWA
-   |                                          |
-   | HTTPS/TLS                                | HTTPS
-   v                                          v
-Cloudflare Worker + D1  ---------------->  Web Push
-   |
-   +--> GitHub Releases (metadata + firmware OTA)
+Web PWA (Workers Static Assets) -- WSS --> DeviceHub / máy <-- WSS -- ESP32-S3
+               |                          (routing + lease)           |
+               +-- HTTPS --> Worker account/API/D1/Push <-- HTTPS ------+
+                                   |
+                       GitHub source / CI / deployment
 
 ESP32-S3 <---- pulse-width protocol v4 ----> ATtiny13A
 ```
 
-- **Điều khiển thời gian thực:** Web ↔ ESP32 qua MQTT. Network I/O không chạy trong `controlTask`.
-- **Lệnh ghi MQTT:** Web chỉ nhận broker credential sau khi phiên trình duyệt đã xác thực; các kênh ghi quan trọng còn được ký HMAC riêng theo thiết bị.
-- **Cloud:** Worker đảm nhiệm provisioning, PIN/session, Web Push, trạng thái online/offline và metadata OTA.
-- **OTA Internet:** chỉ kiểm tra/tải firmware sau khi operator xác nhận tại HMI; ESP32 kiểm SHA-256 và chữ ký ECDSA trước khi nạp.
-- **An toàn nhiệt:** firmware không phải lớp bảo vệ duy nhất. Phần cứng phải có thermostat/thermal relay độc lập, contactor an toàn và thermal fuse theo `doc/SAFETY_HARDWARE_REQUIREMENTS.md`.
-
-Chi tiết: `doc/ARCHITECTURE_V3_8_1.md`.
+- ESP32 điều khiển PID/heater/safety/turning/alarm/batch; Internet mất vẫn chạy độc lập.
+- Hub kiểm identity/ownership và chuyển gói tin; chỉ ACK có HMAC từ ESP32 xác nhận kết quả.
+- Telemetry dùng socket/attachment có giới hạn; D1 chỉ làm control plane.
+- Cloud tiếp tục provisioning, account, PIN, Push, trạng thái và metadata OTA.
+- OTA Internet vẫn cần xác nhận HMI, SHA-256 và ECDSA; PR này không phát hành OTA.
+- Yêu cầu phần cứng an toàn giữ nguyên: [SAFETY_HARDWARE_REQUIREMENTS](doc/SAFETY_HARDWARE_REQUIREMENTS.md).
 
 ## Trải nghiệm người dùng
 
-Người dùng cuối **không nhập hostname, port, WSS, MQTT username/password hay Cloudflare token**. Luồng chuẩn là:
+Người dùng cuối **không nhập hostname, port, WebSocket URL hay Cloudflare token**. Luồng chuẩn là:
 
 1. Máy tạo Device ID dạng `MAP-XXXXXXXXXXXX` từ eFuse MAC.
 2. ESP32 có device key 256-bit riêng, lưu NVS.
 3. Máy đăng ký/provision qua Worker và đồng bộ PIN Web.
-4. Trên GitHub Pages, người dùng đăng nhập **Google**, claim máy lần đầu bằng **Device ID + PIN**.
-5. Worker cấp MAYAP account session, kiểm ownership trước khi cấp MQTT/control grant; lần sau login Google tự lấy lại danh sách máy trên điện thoại/PC khác.
+4. Trên Web cùng origin Cloudflare, người dùng đăng nhập **Google**, claim máy lần đầu bằng **Device ID + PIN**.
+5. Worker cấp MAYAP account session, kiểm ownership trước khi cấp ticket WebSocket/control grant; lần sau login Google tự lấy lại danh sách máy trên điện thoại/PC khác.
 
 Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mới theo rate-limit và ghi vào `device_inventory`. Nếu đặt `=1`, quay lại chế độ factory allowlist nghiêm ngặt.
 
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.0.0
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.0
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A
 cloudflare/                Worker + D1 migrations
 .github/workflows/         CI/build/release/deploy
@@ -89,24 +85,9 @@ CI dùng FQBN:
 esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
 ```
 
-### MQTT credential bắt buộc khi build local
+### Build local và identity
 
-Firmware ESP32 **không còn cho phép tạo `.bin` với MQTT username/password rỗng**.
-Khi build bằng Arduino IDE/CLI trên máy cá nhân:
-
-1. mở file có sẵn `MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h`, không cần đổi tên;
-2. điền `MAYAP_MQTT_USERNAME` và `MAYAP_MQTT_PASSWORD` thật của HiveMQ;
-3. compile lại firmware. **Không commit/push file sau khi nhập tài khoản thật.**
-
-Tên file `build_secrets.h` đã được đưa vào Git dưới dạng template rỗng theo yêu cầu.
-Vì vậy `.gitignore` không bảo vệ các sửa đổi của file đã được theo dõi. Luôn kiểm tra
-`git diff -- MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h` trước khi commit. CI kiểm tra
-template phải rỗng rồi mới tạo nội dung từ GitHub Repository Secrets khi build.
-
-Nếu file thiếu hoặc credential rỗng, compile phải fail. Đây là invariant có chủ ý để
-không thể phát sinh lại binary vẫn boot nhưng MQTT lặp `state=5 (UNAUTHORIZED)`.
-GitHub Actions branch/tag tự tạo `build_secrets.h` từ Repository Secrets; PR chỉ dùng
-placeholder không bí mật để kiểm compile và không phát hành binary deploy.
+Không cần broker username/password khi build. Mỗi ESP32 có key ngẫu nhiên 256-bit trong NVS; Worker lưu hash có pepper và cấp command key riêng như baseline. Template `build_secrets.h` rỗng chỉ giữ optional LAN OTA password; không có credential fleet. Bench có thể dùng `build_secrets.local.h` đã được gitignore để override host pilot. Không commit key thiết bị hoặc private OTA key.
 
 ### Build profile
 
@@ -173,4 +154,4 @@ Private signing key chỉ được đặt trong GitHub Actions secret. Firmware 
 
 ## Nguyên tắc source-of-truth
 
-Khi comment/tài liệu cũ mâu thuẫn với code thực thi, phải xác minh lại và sửa tài liệu; không dùng comment cũ để thay đổi hành vi an toàn đang chạy. Với heater safety, provisioning, MQTT auth, ATtiny và OTA, mọi thay đổi phải đi qua regression gate và commissioning trước khi phát hành hàng loạt.
+Khi comment/tài liệu cũ mâu thuẫn với code thực thi, phải xác minh lại và sửa tài liệu; không dùng comment cũ để thay đổi hành vi an toàn đang chạy. Với heater safety, provisioning, WebSocket auth, ATtiny và OTA, mọi thay đổi phải đi qua regression gate và commissioning trước khi phát hành hàng loạt.

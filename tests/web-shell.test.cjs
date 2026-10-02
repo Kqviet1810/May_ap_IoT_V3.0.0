@@ -32,7 +32,7 @@ test('slow static fetch falls back promptly and still refreshes the versioned sh
   complete(new Response('fresh'));
   await Promise.all(request.lifetime);
   assert.equal(w.values.get('https://web.test/app.js'),'fresh');
-  assert.ok(w.opened.every(name=>name==='mayap-web-v1.0.0'));
+  assert.ok(w.opened.every(name=>name==='mayap-web-v1.1.0'));
 });
 
 test('normal network remains fresh-first and cleans the fallback timer', async () => {
@@ -52,13 +52,13 @@ test('offline startup includes cached public config hardening; error pages do no
   assert.equal(failed.values.get('https://web.test/app.js'),'good code');
 });
 
-test('Cloud auth requests never enter shell cache and pinned MQTT reuses the current release', async () => {
+test('Cloud auth requests never enter shell cache and pinned QR scanner reuses the current release', async () => {
   let calls=0;
-  const w = worker(async()=> {calls++; return new Response('network');}, {'https://web.test/vendor/mqtt.min.js':'pinned'});
-  assert.equal(w.request('https://worker.test/api/device/mqtt-session').response,undefined);
+  const w = worker(async()=> {calls++; return new Response('network');}, {'https://web.test/vendor/jsQR.min.js':'pinned'});
+  assert.equal(w.request('https://worker.test/api/device/realtime-session').response,undefined);
   assert.equal(w.request('https://web.test/api/account/session').response,undefined);
   assert.equal(w.request('https://web.test/auth/google/callback?code=secret').response,undefined);
   assert.equal(w.request('https://worker.test/config.js').response,undefined);
-  assert.equal(await (await w.request('https://web.test/vendor/mqtt.min.js').response).text(),'pinned');
+  assert.equal(await (await w.request('https://web.test/vendor/jsQR.min.js').response).text(),'pinned');
   assert.equal(calls,0);
 });

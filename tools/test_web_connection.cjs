@@ -1,8 +1,8 @@
-// Real DOM + WebCrypto with an isolated broker/Cloud fixture. No machine I/O.
+// Real DOM + WebCrypto with an isolated realtime/Cloud fixture. No machine I/O.
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
-const { chromium } = require(process.env.MAYAP_PLAYWRIGHT || 'playwright');
+const { chromium } = require(process.env.MAYAP_PLAYWRIGHT || '../cloudflare/node_modules/playwright');
 const root = path.resolve(__dirname, '..');
 const out = path.resolve(process.argv[2] || path.join(root, 'work', 'connection-qa'));
 fs.mkdirSync(out, { recursive: true });
@@ -18,40 +18,25 @@ for (const m of config.matchAll(/\b(?:float|bool|uint8_t|uint16_t|uint32_t)\s+(\
   defaults[m[1]] = m[2] === 'true' ? true : m[2] === 'false' ? false : Number(m[2]);
 const transport = `
 window.__transport = { connects: 0, subscriptions: [], sessions: [], commands: [], clients: [], holdLive: true };
-window.mqtt = { connect(url, options) {
+window.MayapRealtime = { Client: function(options) {
   const t = window.__transport, handlers = {};
   t.connects++;
-  const client = { connected: false, disconnecting: false, options,
+  const client = { connected: false, disconnecting: false, options, deviceId:options.deviceId, resume(){}, renew(){},
     on(name, fn) { (handlers[name] ||= []).push(fn); return client; },
     emit(name, ...args) { (handlers[name] || []).forEach(fn => fn(...args)); },
     deliver(suffix, body, retain = false) {
       client.emit('packetreceive', { cmd: 'publish' });
-      client.emit('message', 'mayap/v1/MAP-1234567890AB/' + suffix, JSON.stringify(body), { retain });
+      client.emit('message', {deviceId:client.deviceId,channel:suffix}, body, {cached:retain});
     },
     snapshot() { client.deliver('snapshot', { bootId: 123, revision: 1,
       runtime: { temperature: 37.8, humidity: 59, batchRunning: true, machineState: 'DANG AP',
         currentDay: 7, heaterPower: 25, lightOn: true, circulationFanOn: true,
         turnState: 3, nextTurnMinutes: 52, activeFaults: [] } }); },
-    subscribe(filters, options, callback) {
-      const cb = typeof options === 'function' ? options : callback;
-      if (typeof filters === 'string') filters = { [filters]: options };
-      t.subscriptions.push(Object.keys(filters));
-      setTimeout(() => {
-        for (const topic of Object.keys(filters)) {
-          if (topic.endsWith('/presence')) client.deliver('presence', { online: true, bootId: 123, proto: 2, fw: '4.0.0' }, true);
-          if (topic.endsWith('/bootstrap')) client.deliver('bootstrap', { v: 1, proto: 2, bootId: 123, revision: 1,
-            temperature: 37.4, humidity: 58, machineState: 'DANG AP', batchRunning: true,
-            publishedAt: Math.floor(Date.now()/1000), faultCode: 0, humidifierInstalled: true }, true);
-        }
-        cb(null, Object.entries(filters).map(([topic, v]) => ({ topic, qos: v.qos })));
-      }, 20);
-    },
     unsubscribe() {}, reconnect() { t.manualReconnects = (t.manualReconnects || 0) + 1; },
     end() { client.disconnecting = true; client.connected = false; client.emit('close'); },
-    publish(topic, wire, options, cb) {
-      cb?.(); if (!wire) return;
-      const body = JSON.parse(wire);
-      if (topic.endsWith('/session')) {
+    send(route, body, cb) {
+      cb?.(); const topic=route.channel;
+      if (topic==='session') {
         t.sessions.push(body);
         if (body.active && body.sync) setTimeout(() => {
           if (!t.holdLive) client.snapshot();
@@ -63,13 +48,13 @@ window.mqtt = { connect(url, options) {
           if (body.reminders) client.deliver('reminders/reported', { bootId: 123, revision: 1, reminders: [] }, true);
         }, 25);
       }
-      if (topic.endsWith('/command')) (async () => {
+      if (topic==='command') (async () => {
         const key = await crypto.subtle.importKey('raw', new Uint8Array(32).fill(7), { name:'HMAC', hash:'SHA-256' }, false, ['sign', 'verify']);
         const enc = new TextEncoder(), payload = JSON.parse(body.body);
         const sig = new Uint8Array(body.sig.match(/../g).map(h=>parseInt(h,16)));
         const valid = await crypto.subtle.verify('HMAC', key, sig,
           enc.encode('mayap-mqtt-write:v2\\nMAP-1234567890AB\\ncommand\\n'+body.grant+'\\n'+body.body));
-        t.commands.push({ valid, payload, qos: options.qos, retain: options.retain });
+        t.commands.push({ valid, payload, channel:route.channel });
         for (const phase of ['received', 'completed']) {
           const ack = { v:2, requestId:payload.requestId, operation:payload.action.replaceAll('_','.'),
             phase, result:phase === 'received' ? 'accepted' : 'applied', ok:true,
@@ -83,7 +68,7 @@ window.mqtt = { connect(url, options) {
     }
   };
   t.clients.push(client);
-  setTimeout(() => { client.connected = true; client.emit('packetreceive', {cmd:'connack'}); client.emit('connect'); },20);
+  setTimeout(() => { client.connected = true; client.emit('packetreceive', {cmd:'connack'}); client.emit('connect'); client.deliver('presence',{online:true,bootId:123,proto:2}); client.deliver('bootstrap',{v:1,proto:2,bootId:123,revision:1,temperature:37.4,humidity:58,machineState:'DANG AP',batchRunning:true,publishedAt:Math.floor(Date.now()/1000),faultCode:0,humidifierInstalled:true},true); },20);
   return client;
 } };`;
 
@@ -112,7 +97,7 @@ async function main() {
         if(route.request().method()==='OPTIONS')return route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:204,headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765','Access-Control-Allow-Headers':'authorization,content-type','Access-Control-Allow-Methods':'GET,POST,DELETE'}});
         if (url.origin === 'http://127.0.0.1:8765' && !url.pathname.startsWith('/api/')) {
           if (url.pathname === '/app.js') return route.fulfill({ contentType:'application/javascript', body:app });
-          if (url.pathname === '/vendor/mqtt.min.js') return route.fulfill({ contentType:'application/javascript', body:transport });
+          if (url.pathname === '/realtime_transport.js') return route.fulfill({ contentType:'application/javascript', body:transport });
           return route.continue();
         }
         requests.push(url.pathname);
@@ -120,9 +105,9 @@ async function main() {
         if (url.pathname === '/api/account/session') body = { success:true,
           user:{sub:'qa-sub',name:'QA account'},expiresAt:Date.now()+86400000,
           devices:[{device_id:'MAP-1234567890AB',device_name:'Máy thử',role:'owner'}] };
-        if (url.pathname.endsWith('/mqtt-session')) {
+        if (url.pathname.endsWith('/realtime-session')) {
           await authGate;
-          body = { success:true, mqtt:{url:'wss://qa.invalid/mqtt',username:'qa',password:'qa'},
+          body = { success:true, realtime:{url:'wss://qa.invalid/realtime/browser/MAP-1234567890AB',ticket:'qa-ticket'},
             control:{grant:'qa|grant',grantSig:'08'.repeat(32),sessionKey:'07'.repeat(32),expiresAt:Math.floor(Date.now()/1000)+300} };
         }
         if (url.pathname.endsWith('/firmware/latest')) body = { success:true, version:'4.0.0' };
@@ -144,7 +129,7 @@ async function main() {
       assert.equal(await page.locator('#onlinePill').innerText(), 'ĐANG ĐỒNG BỘ');
       assert.match(await page.locator('#dataFreshness').innerText(), /Máy chủ ·/);
       assert.equal(await page.locator('#outputHumidifierTile').isVisible(),true,'Bootstrap exposes installed humidifier without loading full config');
-      assert.deepEqual(await page.evaluate(()=>window.__transport.subscriptions[0].map(t=>t.split('/').at(-1))), ['presence','bootstrap','snapshot','ack']);
+      assert.equal(await page.evaluate(()=>window.__transport.connects),1);
       await page.evaluate(()=> { window.__transport.holdLive=false; window.__transport.clients[0].snapshot(); });
       await page.waitForFunction(()=>document.body.dataset.connection === 'online' && window.__qa.controlReady(window.__qa.state.devices[0]));
       assert.equal(await page.locator('#liveTemp').innerText(), '37,8°C');
@@ -154,7 +139,7 @@ async function main() {
       await page.waitForFunction(()=>window.__transport.commands.length === 1 && window.__qa.state.pending.size === 0);
       assert.equal(requests.length, httpBefore, 'No HTTP per command');
       const command = await page.evaluate(()=>window.__transport.commands[0]);
-      assert.ok(command.valid); assert.equal(command.qos,1); assert.equal(command.retain,false);
+      assert.ok(command.valid); assert.equal(command.channel,'command');
       assert.equal(command.payload.bootId,123); assert.ok(command.payload.expiresAt); assert.ok(command.payload.seq);
       const resume = await page.evaluate(()=> {
         const start=performance.now();
@@ -201,11 +186,11 @@ async function main() {
       assert.equal(await page.evaluate(()=>window.__transport.connects),1);
       let allowRenew;
       const renewGate=new Promise(resolve=>{allowRenew=resolve;});
-      await context.route('**/api/device/mqtt-session',async route=> {
+      await context.route('**/api/device/realtime-session',async route=> {
         requests.push(new URL(route.request().url()).pathname);
         await renewGate;
         await route.fulfill({headers:{'Access-Control-Allow-Origin':'http://127.0.0.1:8765'},status:200,contentType:'application/json',body:JSON.stringify({success:true,
-          mqtt:{url:'wss://qa.invalid/mqtt',username:'qa',password:'qa'},
+          realtime:{url:'wss://qa.invalid/realtime/browser/MAP-1234567890AB',ticket:'qa-ticket'},
           control:{grant:'qa|renew',grantSig:'08'.repeat(32),sessionKey:'07'.repeat(32),expiresAt:Math.floor(Date.now()/1000)+300}})});
       });
       await page.evaluate(()=> {
@@ -225,8 +210,8 @@ async function main() {
       assert.equal(await page.evaluate(()=>window.__transport.connects),1);
       await page.evaluate(()=>window.__qa.showPage('settings'));
       await page.waitForFunction(()=>window.__qa.state.devices[0].configAt > 0);
-      assert.ok(await page.evaluate(()=>window.__transport.subscriptions.flat().some(t=>t.endsWith('/config/reported'))));
-      assert.equal(await page.evaluate(()=>window.__transport.subscriptions.flat().some(t=>t.endsWith('/history/reported') || t.endsWith('/reminders/reported') || t.endsWith('/log'))), false);
+      assert.ok(await page.evaluate(()=>window.__transport.sessions.some(s=>s.config)));
+      assert.equal(await page.evaluate(()=>window.__transport.sessions.some(s=>s.reminders || s.log)),false);
       await page.evaluate(()=>document.getElementById('remindersForm').closest('details').open=true);
       await page.waitForFunction(()=>window.__qa.state.devices[0].remindersLoaded);
       await page.evaluate(()=>window.__qa.showPage('device'));
@@ -242,8 +227,8 @@ async function main() {
       assert.deepEqual(errors,[]);
       assert.equal(await page.evaluate(()=>Storage.prototype.getItem.call(localStorage,'mayap.account.qa-sub.runtime.v1.MAP-1234567890AB') !== null),true);
       await page.screenshot({ path:path.join(out, `degraded-${width}.png`) });
-      results.push({ width, cacheBeforeAuth:true, bootstrapRetained:true, snapshotSupersedes:true,
-        lazy:true, signedCommandAndAck:true, noClickHttp:true, brokerReuse:true,
+      results.push({ width, cacheBeforeAuth:true, cachedBootstrap:true, snapshotSupersedes:true,
+        lazy:true, signedCommandAndAck:true, noClickHttp:true, socketReuse:true,
         simulatedResumeMs:Math.round(resume.duration), warm300s:true, idleRetainsSocket:true,
         warmReturnNoClickHttp:true, expiredGrantUi:true, proactiveGrantRenew:true, offlineAndDegraded:true, errors });
       await context.close();

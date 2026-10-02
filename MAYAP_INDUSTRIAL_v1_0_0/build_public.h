@@ -4,17 +4,13 @@
 // MAYAP v3.8.0 - PUBLIC BUILD CONFIG
 //
 // Tat ca gia tri trong file nay KHONG PHAI BI MAT va duoc phep commit public.
-// Chi MQTT username/password that nam trong build_secrets.h khi build local.
+// Identity/command keys are generated and stored separately per device in NVS.
 // Ban tren Git chi duoc chua template rong; KHONG push file da dien mat khau.
 // ============================================================================
 
 #define MAYAP_WIFI_SSID ""
 #define MAYAP_WIFI_PASSWORD ""
 
-#define MAYAP_MQTT_HOST "2f4b95444c554498bd4a4b2da0de8013.s1.eu.hivemq.cloud"
-#define MAYAP_MQTT_PORT 8883
-#define MAYAP_MQTT_USE_TLS 1
-#define MAYAP_MQTT_TOPIC_ROOT "mayap/v1"
 
 #define MAYAP_DEVICE_SECRET ""
 #define MAYAP_ENABLE_LEGACY_DEVICE_MIGRATION 0
@@ -25,7 +21,7 @@
 
 // Trust bundle cho hai dich vu HTTPS/TLS dang dung:
 // - GTS Root R4: Cloudflare Worker/Google Trust Services chain hien tai.
-// - ISRG Root X1: HiveMQ Cloud s1.eu.hivemq.cloud (Let's Encrypt chain).
+// - ISRG Root X1: alternate HTTPS trust chain (also used by OTA endpoints).
 // mbedTLS/ESP32 chap nhan nhieu PEM certificate noi tiep trong cung CA buffer.
 #define MAYAP_TLS_ROOT_CA R"PEM(
 -----BEGIN CERTIFICATE-----

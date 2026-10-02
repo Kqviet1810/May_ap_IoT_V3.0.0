@@ -1,3 +1,5 @@
+> Lịch sử tối ưu kết nối MQTT ở baseline. Transport hiện hành dùng [Cloudflare WebSocket/DeviceHub](CLOUDFLARE_REALTIME_MIGRATION.md); cache, UX và transaction semantics được giữ.
+
 # Web 12.1.10: cache first and stable MQTT lifecycle
 
 Based on main `61e7c27d42d139a32750665040fed7036b4e8d3b`; branch `feat/web-fast-connect`.

@@ -75,7 +75,7 @@ jobs:
       - name: Cai thu vien
         run: |
           for attempt in 1 2 3; do
-            arduino-cli lib install U8g2@2.36.19 PubSubClient@2.8.0 ArduinoJson@7.4.3 && break
+            arduino-cli lib install U8g2@2.36.19 ArduinoJson@7.4.3 && break
             test "$attempt" = 3 && exit 1
             sleep 5
           done
@@ -109,6 +109,21 @@ jobs:
       - name: Protocol V2 transaction and packet regression
         run: node --test tests/*.test.cjs
 
+      - name: Install pinned Chromium for browser regressions
+        working-directory: cloudflare
+        run: npx pnpm@11.19.0 exec playwright install --with-deps chromium
+
+      - name: Real Cloudflare runtime and native browser realtime
+        run: python3 tools/test_realtime_workerd.py --browser
+
+      - name: Browser connection and UX regression
+        run: |
+          python3 -m http.server 8765 --bind 127.0.0.1 > /tmp/mayap-qa-http.log 2>&1 &
+          qa_server_pid=$!
+          trap 'kill "$qa_server_pid"' EXIT
+          node tools/test_web_connection.cjs /tmp/mayap-connection-qa
+          node tools/test_web_experience.cjs /tmp/mayap-web-qa
+
       - name: Actual PID and autotune host tests
         run: |
           g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
@@ -126,46 +141,26 @@ jobs:
           python3 tools/test_runtime_buses.py --sanitize --check-regression
           python3 tools/test_single_eeprom.py --sanitize
 
-      - name: Tao MQTT credential cho compile
+      - name: Tao OTA credential tuy chon cho compile
         env:
-          MAYAP_MQTT_USERNAME: ${{ secrets.MAYAP_MQTT_USERNAME }}
-          MAYAP_MQTT_PASSWORD: ${{ secrets.MAYAP_MQTT_PASSWORD }}
           MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
         run: |
-          python3 - <<'PY'
+          python3 - <<'PYOTA'
           import json, os
           from pathlib import Path
-
-          is_release_build = (
-              os.getenv("GITHUB_REF", "").startswith("refs/tags/")
-              or os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
-          )
-          if not is_release_build:
-              # Push/PR chi xac minh compile; khong tao binary deploy voi credential that.
-              username = "__ci_mqtt_user__"
-              password = "__ci_mqtt_password__"
-              ota_password = "__ci_ota_password__"
-          else:
-              username = os.getenv("MAYAP_MQTT_USERNAME", "").strip()
-              password = os.getenv("MAYAP_MQTT_PASSWORD", "")
-              ota_password = os.getenv("MAYAP_OTA_PASSWORD", "")
-              if not username or not password:
-                  raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
-
+          release = os.getenv("GITHUB_REF", "").startswith("refs/tags/") or os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          password = os.getenv("MAYAP_OTA_PASSWORD", "") if release else "__ci_ota_password__"
           Path("MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h").write_text(
-              "#pragma once\n"
-              + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
-              + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n"
-              # Optional secret: absent = LAN OTA disabled, never unauthenticated.
-              + "#define MAYAP_OTA_PASSWORD " + json.dumps(ota_password) + "\n",
-              encoding="utf-8",
-          )
-          PY
+              "#pragma once\n#define MAYAP_OTA_PASSWORD " + json.dumps(password) + "\n", encoding="utf-8")
+          PYOTA
 
       - name: Kiem tra JavaScript
         run: |
           node --check app.js
           node --check protocol_v2.js
+          node --check realtime_transport.js
+          node --check cloudflare/src/device-hub.js
+          node --check cloudflare/src/realtime-auth.js
           node --check push.js
           node --check sw.js
           node --check config.js

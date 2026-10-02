@@ -10,7 +10,7 @@ function browser() {
     Object.assign(window.hooks, { state, transactions, startTransaction, handleAck,
       verifyDeviceAck, sweepUncertain, handleConfigReport, handleReminderReport,
       moveToUncertain, publish, retrySameRequest, storeControlSession,
-      signMqttWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
+      signRealtimeWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
       buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
       refreshFaultPopupContent });
   })();`);
@@ -204,21 +204,21 @@ test('config, reminders and batch state reconcile without hiding a later signed 
   assert.equal(h.state.uncertain.has('cmd-batch'), true);
 });
 
-test('PUBACK is browser-clock timing; retries use identical signed envelope and request ID', async () => {
+test('Hub forwarding receipt is browser-clock timing; retries use identical signed envelope and request ID', async () => {
   const h = browser();
   const { pending } = await start(h, 'cmd-retry');
-  h.state.mqttConnected = true;
+  h.state.realtimeConnected = true;
   const calls = [];
-  h.state.mqtt = { connected: true, publish(topic, wire, opts, callback) {
-    calls.push({ topic, wire, opts }); callback?.();
+  h.state.realtime = { connected: true, send(topic, wire, callback) {
+    calls.push({ topic, wire }); callback?.();
   } };
   const envelope = { body: '{"requestId":"cmd-retry"}', sig: 'signed' };
-  h.retrySameRequest('cmd-retry', 'mayap/v1/MAP-1234567890AB/command', envelope);
+  h.retrySameRequest('cmd-retry', { deviceId: h.device.id, channel: 'command' }, envelope);
   for (const fn of [...h.timers.values()]) fn();
   await Promise.resolve();
   assert.equal(calls.length, 1);
-  assert.deepEqual(JSON.parse(calls[0].wire), envelope);
-  assert.equal(pending.tBrokerPuback, 0);
+  assert.deepEqual(calls[0].wire, envelope);
+  assert.equal(pending.tHubForwarded, 0);
 });
 
 test('session HMAC binds channel/body; expired session requires refresh; firmware replay gates remain', async () => {
@@ -227,7 +227,7 @@ test('session HMAC binds channel/body; expired session requires refresh; firmwar
   await h.storeControlSession(h.device, { sessionKey: raw, grant: 'w-1234567890abcdef|1780000000|' + 'a'.repeat(24),
     grantSig: 'b'.repeat(64), expiresAt: Math.floor(Date.now() / 1000) + 120 });
   const pending = h.startTransaction('cmd-auth', { operation: 'light.toggle', deviceId: h.device.id }, 100);
-  const wire = await h.signMqttWrite(h.device, 'command', { v: 2, requestId: 'cmd-auth' });
+  const wire = await h.signRealtimeWrite(h.device, 'command', { v: 2, requestId: 'cmd-auth' });
   const session = h.controlSessions.get(h.device.id);
   const body = JSON.parse(wire.body);
   const input = `mayap-mqtt-write:v2\n${h.device.id}\ncommand\n${wire.grant}\n${wire.body}`;
@@ -237,7 +237,7 @@ test('session HMAC binds channel/body; expired session requires refresh; firmwar
     Buffer.from(wire.sig, 'hex'), new TextEncoder().encode(input.replace('\ncommand\n', '\nconfig/set\n'))), false);
   assert.equal(pending.ackKey, session.key);
   session.expiresAt = Math.floor(Date.now() / 1000) - 1;
-  await assert.rejects(h.signMqttWrite(h.device, 'command',
+  await assert.rejects(h.signRealtimeWrite(h.device, 'command',
     { v: 2, requestId: 'cmd-expired-local' }), { code: 'AUTH_ERROR' });
   const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h'), 'utf8');
   assert.match(firmware, /expiry < static_cast<unsigned long>\(now\)/);

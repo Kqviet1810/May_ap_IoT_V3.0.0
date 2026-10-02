@@ -2,49 +2,11 @@
   'use strict';
 
   const $ = (id) => document.getElementById(id);
-  const MQTT_OVERRIDE_STORAGE = 'mayap.web.v10.mqtt.private';
-  function loadMqttOverride() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(MQTT_OVERRIDE_STORAGE) || 'null');
-      if (!saved || !/^wss:\/\//i.test(String(saved.mqttUrl || ''))) return {};
-      return { mqttUrl: String(saved.mqttUrl).trim(),
-        mqttUsername: String(saved.mqttUsername || ''),
-        mqttPassword: String(saved.mqttPassword || '') };
-    } catch (_) { return {}; }
-  }
-  function saveProvisionedMqtt(result) {
-    const mqtt = result?.mqtt;
-    const mqttUrl = String(mqtt?.url || '').trim();
-    const mqttUsername = String(mqtt?.username || '');
-    const mqttPassword = String(mqtt?.password || '');
-    let parsed; try { parsed = new URL(mqttUrl); } catch (_) {}
-    if (!parsed || parsed.protocol !== 'wss:' || !mqttUsername || !mqttPassword) return false;
-    const runtimeMqtt = { mqttUrl, mqttUsername, mqttPassword };
-    localStorage.setItem(MQTT_OVERRIDE_STORAGE, JSON.stringify(runtimeMqtt));
-    // Credential duoc cap sau khi WEB da khoi tao. Cap nhat ngay cau hinh
-    // runtime trong tab hien tai; neu chi ghi vao RAM-storage thi WEB van
-    // giu mqttUrl/user/pass rong va connectMqtt() se khong bao gio chay.
-    WEB = Object.freeze({ ...WEB, ...runtimeMqtt });
-    return true;
-  }
-  let WEB = Object.freeze({
-    mqttUrl: '',
-    mqttUsername: '',
-    mqttPassword: '',
-    topicRoot: 'mayap/v1',
-    reconnectPeriodMs: 3000,
-    connectTimeoutMs: 8000,
-    keepaliveSeconds: 60,
-    sessionTtlMs: 15000,
-    sessionRefreshMs: 9000,
-    staleAfterMs: 90000,
-    offlineAfterMs: 120000,
-    brokerSilenceAfterMs: 90000,
-    commandTimeoutMs: 10000,
-    configTimeoutMs: 15000,
-    ...window.MAYAP_WEB_CONFIG,
-    ...loadMqttOverride()
-  });
+  let runtimeRealtime = null;
+  const WEB = Object.freeze({ reconnectPeriodMs: 2000, connectTimeoutMs: 15000,
+    keepaliveSeconds: 30, sessionTtlMs: 45000, sessionRefreshMs: 15000,
+    staleAfterMs: 8000, offlineAfterMs: 30000, hubSilenceAfterMs: 90000,
+    commandTimeoutMs: 10000, configTimeoutMs: 15000, ...window.MAYAP_WEB_CONFIG });
 
   let STORAGE = 'mayap.web.v10';
   let RUNTIME_CACHE = `${STORAGE}.runtime.v1`;
@@ -130,14 +92,14 @@
   const state = {
     devices: window.MayapAccount ? [] : loadDevices(),
     selectedId: localStorage.getItem(`${STORAGE}.selected`) || '',
-    mqtt: null,
-    mqttConnected: false,
-    mqttMessage: 'Chưa kết nối với máy',
-    mqttSessionState: 'idle',
+    realtime: null,
+    realtimeConnected: false,
+    realtimeMessage: 'Chưa kết nối với máy',
+    realtimeSessionState: 'idle',
     subscriptions: new Set(),
     subscriptionEpoch: 0,
     subscriptionRequests: new Map(),
-    mqttCredentials: null,
+    realtimeCredentials: null,
     syncRetryTimers: [],
     subscriptionRetryTimer: 0,
     authRequests: new Map(),
@@ -147,8 +109,8 @@
     hiddenMonoAt: 0,
     hiddenElapsedMs: 0,
     backgroundTimer: 0,
-    brokerProbe: null,
-    mqttResumeProbeRequired: false,
+    hubProbe: null,
+    realtimeResumeProbeRequired: false,
     authRetryAt: 0,
     authRetryDelay: 5000,
     sessionTimer: 0,
@@ -198,16 +160,16 @@
   }
 
   function controlReady(device) {
-    return isDeviceOnline(device) && controlGrantReady(device);
+    return state.realtime?.deviceId === device?.id && isDeviceOnline(device) && controlGrantReady(device);
   }
 
   function prefetchControlSession() {
     const device = currentDevice();
-    if (device?.accountRole === 'viewer' || !device?.pairingToken || !state.mqttConnected || device.dataSource !== 'live' ||
-        !device.snapshotAt || !browserSessionActive() || state.mqttSessionState === 'auth-required' ||
+    if (device?.accountRole === 'viewer' || !device?.pairingToken || !state.realtimeConnected || device.dataSource !== 'live' ||
+        !device.snapshotAt || !browserSessionActive() || state.realtimeSessionState === 'auth-required' ||
         Date.now() < state.authRetryAt || state.authRequests.has(device.id)) return;
     if (Number(controlSessions.get(device.id)?.expiresAt || 0) > Math.floor(Date.now() / 1000) + 60) return;
-    refreshMqttSession().then(() => {
+    refreshRealtimeSession().then(() => {
       if (device.id !== state.selectedId) return;
       renderDevice();
       if (document.body.dataset.page === 'batch' && controlReady(device)) loadTelemetryHistory();
@@ -237,7 +199,7 @@
         features: device.features || {},
         snapshot: device.snapshot, receivedAt: device.snapshotAt }));
       device.cacheWrittenAt = Date.now();
-    } catch (_) {} // Private mode/quota failure must not interrupt MQTT or control.
+    } catch (_) {} // Private mode/quota failure must not interrupt WebSocket or control.
   }
 
   function createDevice(id, name, pairingToken = '') {
@@ -461,7 +423,7 @@
     return postCloudJson('/api/device/change-pin', { device_id: deviceId, old_pin: oldPin, new_pin: newPin });
   }
 
-  async function signMqttWrite(device, channel, body) {
+  async function signRealtimeWrite(device, channel, body) {
     if (!device?.pairingToken) {
       const error = new Error('Cần xác thực lại PIN: bấm + và thêm lại đúng ID thiết bị để làm mới quyền điều khiển.');
       error.code = 'AUTH_ERROR';
@@ -653,34 +615,13 @@
     return `${prefix}-${raw}`.slice(0, REQUEST_ID_MAX);
   }
 
-  function topicBase(deviceId) {
-    return `${String(WEB.topicRoot || 'mayap/v1').replace(/\/+$/, '')}/${deviceId}`;
-  }
-
-  function topics(deviceId) {
-    const base = topicBase(deviceId);
-    return {
-      presence: `${base}/presence`,
-      bootstrap: `${base}/bootstrap`,
-      snapshot: `${base}/snapshot`,
-      report: `${base}/config/reported`,
-      remindersReport: `${base}/reminders/reported`,
-      ack: `${base}/ack`,
-      log: `${base}/log`,
-      historyReport: `${base}/history/reported`,
-      config: `${base}/config/set`,
-      reminders: `${base}/reminders/set`,
-      command: `${base}/command`,
-      historyRequest: `${base}/history/request`,
-      session: `${base}/session`
-    };
-  }
-
-  function parseTopic(topic) {
-    const root = String(WEB.topicRoot || 'mayap/v1').replace(/^\/+|\/+$/g, '');
-    const escaped = root.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = String(topic).match(new RegExp(`^${escaped}/(MAP-[A-F0-9]{12})/(presence|bootstrap|snapshot|config/reported|reminders/reported|ack|log|history/reported)$`));
-    return match ? { deviceId: match[1], channel: match[2] } : null;
+  function routes(deviceId) {
+    const route = channel => ({ deviceId, channel });
+    return { presence: route('presence'), bootstrap: route('bootstrap'), snapshot: route('snapshot'),
+      report: route('config/reported'), remindersReport: route('reminders/reported'), ack: route('ack'),
+      log: route('log'), historyReport: route('history/reported'), config: route('config/set'),
+      reminders: route('reminders/set'), command: route('command'), historyRequest: route('history/request'),
+      session: route('session') };
   }
 
   function toast(message, timeout = 2600) {
@@ -813,7 +754,7 @@
 
   function connectionStatus(device) {
     if (!device) return 'none';
-    if (!state.mqttConnected) return device.snapshot ? 'cache' : 'connecting';
+    if (!state.realtimeConnected) return device.snapshot ? 'cache' : 'connecting';
     // Only a presence received on this connection proves the device's LWT state.
     if (device.presenceEpoch === state.subscriptionEpoch && device.presence?.online === false) return 'offline';
     if (!device.snapshot || !device.snapshotAt) return 'waiting';
@@ -935,19 +876,19 @@
     const labels = {
       online: ['TRỰC TUYẾN', 'online', 'Wi‑Fi đã kết nối'],
       degraded: ['DỮ LIỆU CHẬM', 'soft', 'Chờ dữ liệu mới từ máy'],
-      cache: ['ĐANG ĐỒNG BỘ', 'soft', state.mqttConnected ? 'Đã nối máy chủ · chờ máy' : 'Đang nối máy chủ…'],
+      cache: ['ĐANG ĐỒNG BỘ', 'soft', state.realtimeConnected ? 'Đã nối máy chủ · chờ máy' : 'Đang nối máy chủ…'],
       connecting: ['ĐANG KẾT NỐI', 'soft', 'Đang nối máy chủ…'],
       waiting: ['CHỜ THIẾT BỊ', 'soft', 'Đã nối máy chủ · chờ máy'],
       offline: ['MÁY NGOẠI TUYẾN', 'offline', 'Máy đã ngắt kết nối'],
       none: ['CHƯA CÓ MÁY', 'soft', 'Thêm máy để bắt đầu']
     };
     const [label, css, connectionDetail] = labels[connection];
-    const detail = ['online', 'degraded'].includes(connection) && !controlGrantReady(device) && state.mqttSessionState !== 'auth-required'
+    const detail = ['online', 'degraded'].includes(connection) && !controlGrantReady(device) && state.realtimeSessionState !== 'auth-required'
       ? `${connection === 'degraded' ? 'Chờ dữ liệu · ' : ''}Đang chuẩn bị quyền điều khiển…` : connectionDetail;
     pill.textContent = label;
     pill.className = `pill ${css}`;
-    $('wifiConnectionText').textContent = state.mqttSessionState === 'auth-required' && device
-      ? `${detail} · ghép nối lại để điều khiển` : state.mqttSessionState === 'error' && !state.mqtt
+    $('wifiConnectionText').textContent = state.realtimeSessionState === 'auth-required' && device
+      ? `${detail} · ghép nối lại để điều khiển` : state.realtimeSessionState === 'error' && !state.realtime
         ? 'Chưa nối máy chủ · đang thử lại' : detail;
     $('sideStatus').textContent = label;
     if ($('dataFreshness')) {
@@ -987,7 +928,7 @@
   }
 
   // Muc "Cap nhat firmware" trong Cai dat: lay phien ban dang chay tu truong
-  // "fw" da co san trong ban tin presence (MQTT, retained) - khong can them
+  // "fw" da co san trong ban tin presence (WebSocket, retained) - khong can them
   // gi phia firmware. Phien ban MOI NHAT lay tu Cloudflare (Worker tu doc
   // GitHub Releases cua repo nay, xem cloudflare/src/index.js). Chi hien nut
   // "Cap nhat" khi THAT SU co ban moi hon; nguoc lai hien thong tin thiet bi.
@@ -1084,7 +1025,7 @@
       bodyEl.innerHTML = `<p class="settingFootnote">Chưa lấy được danh sách phiên bản. Kiểm tra lại trên màn hình máy: Cài đặt chung → Hệ thống → Cập nhật.</p>${rollbackButtonHtml}`;
     }
     $('firmwareRollbackBtn')?.addEventListener('click', () => {
-      // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui MQTT.
+      // Rollback chi duoc xac nhan vat ly tren HMI; web khong gui WebSocket.
       toast('Quay lại phần mềm phải xác nhận trực tiếp trên màn hình máy: Cài đặt chung → Hệ thống → Cập nhật → Quay lại bản cũ.', 6500);
     });
   }
@@ -1129,7 +1070,7 @@
     device.batchUiPendingUntil = 0;
   }
 
-  // Anh xa action MQTT -> trang thai batchRunning mong doi, dung de doi
+  // Anh xa action WebSocket -> trang thai batchRunning mong doi, dung de doi
   // chieu voi snapshot runtime (xem batchUiAwaitingConfirmTarget ben duoi).
   function batchTargetForAction(action) {
     if (action === 'batch_start') return 'running';
@@ -1697,41 +1638,28 @@
     return Math.max(Number(device.revision || 0) + 1, Math.floor(Date.now() / 1000));
   }
 
-  function publish(topic, payload, options = {}) {
-    if (!state.mqttConnected || !state.mqtt?.connected) {
+  function publish(route, payload, options = {}) {
+    if (!state.realtimeConnected || !state.realtime?.connected) {
       const error = new Error('Chưa kết nối với máy chủ'); error.code = 'TRANSPORT_ERROR'; throw error;
     }
-    const wire = JSON.stringify(payload);
-    const bytes = encoder.encode(wire).length + encoder.encode(topic).length + PACKET_POLICY.MQTT_OVERHEAD;
+    const bytes = encoder.encode(JSON.stringify({ v: 1, channel: route.channel, payload })).length;
     if (bytes > PACKET_POLICY.NORMAL_CAP) {
-      const error = new Error(`Gói MQTT vượt giới hạn ${PACKET_POLICY.NORMAL_CAP} B (${bytes} B)`);
-      error.code = 'PROTOCOL_ERROR';
-      throw error;
+      const error = new Error(`Gói realtime vượt giới hạn ${PACKET_POLICY.NORMAL_CAP} B (${bytes} B)`);
+      error.code = 'PROTOCOL_ERROR'; throw error;
     }
     if (options.awaitAck) return new Promise((resolve, reject) => {
       try {
-        state.mqtt.publish(topic, wire, { qos: 1, retain: false }, (error) => {
+        state.realtime.send(route, payload, error => {
           if (error) { error.code = 'UNCERTAIN'; reject(error); }
           else {
-            const id = options.requestId;
-            const pending = state.pending.get(id) || state.uncertain.get(id);
-            const tPuback = performance.now();
-            if (pending && pending.tBrokerPuback == null) pending.tBrokerPuback = tPuback;
-            const outcome = terminalOutcomes.get(id);
-            if (outcome && outcome.tBrokerPuback == null) {
-              outcome.tBrokerPuback = tPuback;
-              console.info('[TX broker PUBACK after terminal]', { operation: outcome.operation,
-                publishToBrokerPubackMs: outcome.tPublished == null ? null
-                  : Math.round(tPuback - outcome.tPublished),
-                clickToBrokerPubackMs: Math.round(tPuback - outcome.tCreated) });
-            }
-            resolve(); // Broker PUBACK; controller outcome still pending.
+            const pending = state.pending.get(options.requestId) || state.uncertain.get(options.requestId);
+            if (pending && pending.tHubForwarded == null) pending.tHubForwarded = performance.now();
+            resolve(); // Hub forwarding receipt; only a signed ESP32 ACK is an outcome.
           }
         });
       } catch (error) { error.code = 'TRANSPORT_ERROR'; reject(error); }
     });
-    state.mqtt.publish(topic, wire, { qos: options.qos ?? 1,
-      retain: options.retain ?? false });
+    state.realtime.send(route, payload);
   }
 
   function startTransaction(id, pending, timeoutMs) {
@@ -1825,7 +1753,7 @@
     if (!pending) return;
     let attempts = 0;
     const retry = () => {
-      if (state.pending.get(id) !== pending || !state.mqttConnected) return;
+      if (state.pending.get(id) !== pending || !state.realtimeConnected) return;
       // Reuse the signed envelope and requestId; ESP replays the cached result.
       publish(topic, envelope, { awaitAck: true, requestId: id }).catch((error) =>
         console.warn('[TX retry]', pending.operation, error));
@@ -1871,18 +1799,18 @@
     startTransaction(id, { kind: 'config', operation: 'config.save', deviceId: device.id,
       formId, revision, config, patch, bootId: device.bootId }, WEB.configTimeoutMs);
     try {
-      // retain:false (KHONG giu lai tren broker) - day la lenh "luu cau hinh"
+      // retain:false (KHONG giu lai tren hub) - day la lenh "luu cau hinh"
       // 1 lan, khong phai trang thai. Voi retain:true truoc day, ESP32 se
       // nhan lai CHINH payload nay moi lan subscribe lai topic config/set -
-      // dieu nay xay ra o MOI lan ket noi lai MQTT (ke ca WiFi chap chon
+      // dieu nay xay ra o MOI lan ket noi lai WebSocket (ke ca WiFi chap chon
       // thoang qua, khong chi luc khoi dong lai), gay ghi EEPROM lai vo ich
       // va co the DE LEN cau hinh moi hon nguoi dung vua sua truc tiep tren
       // HMI sau lan luu web gan nhat - loi im lang, rat kho tu phat hien.
-      const envelope = await signMqttWrite(device, 'config/set', payload);
+      const envelope = await signRealtimeWrite(device, 'config/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).config, envelope, { awaitAck: true, requestId: id });
-      retrySameRequest(id, topics(device.id).config, envelope);
+      await publish(routes(device.id).config, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, routes(device.id).config, envelope);
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
@@ -1936,11 +1864,11 @@
       deviceId: device.id, action }, WEB.commandTimeoutMs);
 
     try {
-      const envelope = await signMqttWrite(device, 'command', payload);
+      const envelope = await signRealtimeWrite(device, 'command', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).command, envelope, { awaitAck: true, requestId: id });
-      retrySameRequest(id, topics(device.id).command, envelope);
+      await publish(routes(device.id).command, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, routes(device.id).command, envelope);
       return true;
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return true;
@@ -1959,14 +1887,14 @@
     transactions.remove(id);
   }
 
-  // A terminal ACK can beat the MQTT.js PUBACK callback (or its error).
+  // A terminal ACK can beat the WebSocket.js PUBACK callback (or its error).
   // Keep a bounded terminal record so that the later callback cannot undo it.
   const terminalOutcomes = new Map();
   function pendingOutcomeKnown(id) { return terminalOutcomes.has(id); }
   function rememberOutcome(id, ok, pending) {
     terminalOutcomes.set(id, { ok, at: performance.now(), operation: pending.operation,
       tCreated: pending.tCreated, tPublished: pending.tPublished,
-      tBrokerPuback: pending.tBrokerPuback });
+      tHubForwarded: pending.tHubForwarded });
   }
 
   function handleAck(device, ack) {
@@ -2020,13 +1948,13 @@
     const deviceCompleted = Number(ack.tDeviceCompleted);
     console.info('[TX latency]', { operation: pending.operation, code: ack.code || result,
       late, tCreatedBrowser: pending.tCreated, tPublishBrowser: pending.tPublished,
-      tBrokerPubackBrowser: pending.tBrokerPuback ?? null, tAckBrowser,
+      tHubForwardedBrowser: pending.tHubForwarded ?? null, tAckBrowser,
       tDeviceReceivedEsp: ack.tDeviceReceived, tDeviceCompletedEsp: ack.tDeviceCompleted,
       webToPublishMs: Math.round((pending.tPublished || pending.tCreated) - pending.tCreated),
-      publishToBrokerPubackMs: pending.tBrokerPuback && pending.tPublished
-        ? Math.round(pending.tBrokerPuback - pending.tPublished) : null,
-      clickToBrokerPubackMs: pending.tBrokerPuback == null ? null
-        : Math.round(pending.tBrokerPuback - pending.tCreated),
+      publishToHubForwardedMs: pending.tHubForwarded && pending.tPublished
+        ? Math.round(pending.tHubForwarded - pending.tPublished) : null,
+      clickToHubForwardedMs: pending.tHubForwarded == null ? null
+        : Math.round(pending.tHubForwarded - pending.tCreated),
       publishToReceivedAckMs: pending.tDeviceReceived && pending.tPublished
         ? Math.round(pending.tDeviceReceived - pending.tPublished) : null,
       clickToTerminalAckMs: Math.round(tAckBrowser - pending.tCreated),
@@ -2183,8 +2111,8 @@
     'LUU NHAC NHO BI TU CHOI': 'Máy từ chối lưu danh sách nhắc nhở (lỗi bộ nhớ) - thử lại sau',
     'THIEU REMINDERS': 'Thiếu dữ liệu nhắc nhở gửi lên',
     // F-01 (audit truoc phat hanh v3.7.1): may tu choi lenh vi dang dung
-    // broker MQTT cong khai mac dinh (khong xac thuc) - xem
-    // mqttCommandChannelTrusted() trong realtime_link.h.
+    // hub WebSocket cong khai mac dinh (khong xac thuc) - xem
+    // realtimeCommandChannelTrusted() trong realtime_link.h.
     'BROKER CONG KHAI - LENH TU XA BI KHOA': 'Máy chưa được thiết lập kết nối điều khiển bảo mật nên lệnh điều khiển từ xa bị khoá để an toàn - vui lòng thao tác trực tiếp trên máy',
     'CHU KY LENH KHONG HOP LE': 'Yêu cầu điều khiển không có chữ ký hợp lệ - hãy xác thực lại PIN nếu vừa đổi hoặc đặt lại PIN'
   };
@@ -2331,11 +2259,11 @@
     startTransaction(id, { kind: 'reminders', operation: 'reminders.save',
       deviceId: device.id, revision, nextList }, WEB.configTimeoutMs);
     try {
-      const envelope = await signMqttWrite(device, 'reminders/set', payload);
+      const envelope = await signRealtimeWrite(device, 'reminders/set', payload);
       armTransaction(id);
       transactionPublished(id);
-      await publish(topics(device.id).reminders, envelope, { awaitAck: true, requestId: id });
-      retrySameRequest(id, topics(device.id).reminders, envelope);
+      await publish(routes(device.id).reminders, envelope, { awaitAck: true, requestId: id });
+      retrySameRequest(id, routes(device.id).reminders, envelope);
     } catch (error) {
       if (state.uncertain.has(id) || pendingOutcomeKnown(id)) return;
       if (error.code === 'UNCERTAIN') { state.pending.get(id)?.onTimeout(); return; }
@@ -2574,7 +2502,7 @@
 
   // ==================== Bieu do nhiet do 30 phut / AT24C32 ====================
   // ESP32 luu 24h vao EEPROM ngoai (5 phut/mau). Web chi yeu cau 30 phut qua
-  // MQTT khi can va tiep tuc chen mau live 5s tu snapshot; khong ghi Cloud/D1.
+  // WebSocket khi can va tiep tuc chen mau live 5s tu snapshot; khong ghi Cloud/D1.
   function telemetryEnsureDevice(device = currentDevice()) {
     const deviceId = device?.id || '';
     if (telemetryChart.deviceId === deviceId) return;
@@ -2624,7 +2552,7 @@
     const fresh = telemetryChart.historyLoaded &&
       Date.now() - telemetryChart.historyLoadedAt < TELEMETRY_HISTORY_REFRESH_MS;
     if (!force && (fresh || telemetryChart.historyLoading || Date.now() < telemetryChart.historyRetryAt)) return;
-    if (!state.mqttConnected || !state.mqtt?.connected) {
+    if (!state.realtimeConnected || !state.realtime?.connected) {
       telemetrySetStatus('Đang chờ kết nối thiết bị');
       telemetryChart.historyRetryAt = Date.now() + 5000;
       return;
@@ -2647,7 +2575,7 @@
     telemetrySetStatus('Đang đọc lịch sử 30 phút gần nhất…');
     try {
       const body = { v: 1, requestId, minutes: 30 };
-      const envelope = await signMqttWrite(device, 'history/request', body);
+      const envelope = await signRealtimeWrite(device, 'history/request', body);
       if (telemetryChart.deviceId !== device.id || telemetryChart.activeRequestId !== requestId) return;
       if (Number(device.presence?.proto || 0) >= 2) {
         startTransaction(requestId, { kind: 'history', operation: 'history.read',
@@ -2656,8 +2584,8 @@
         armTransaction(requestId);
         transactionPublished(requestId);
       }
-      await publish(topics(device.id).historyRequest, envelope, { awaitAck: true, requestId });
-      retrySameRequest(requestId, topics(device.id).historyRequest, envelope);
+      await publish(routes(device.id).historyRequest, envelope, { awaitAck: true, requestId });
+      retrySameRequest(requestId, routes(device.id).historyRequest, envelope);
       window.setTimeout(() => {
         if (state.pending.has(requestId)) return; // V2 transaction owns its timeout.
         if (telemetryChart.activeRequestId !== requestId || !telemetryChart.historyLoading) return;
@@ -2860,7 +2788,7 @@
     clearInterval(state.sessionTimer);
     state.sessionTimer = 0;
     deactivateSession(state.selectedId);
-    // MQTT.js retains ownership of the healthy socket and normal reconnects.
+    // WebSocket.js retains ownership of the healthy socket and normal reconnects.
   }
 
   function checkBackgroundDeadline() {
@@ -2874,7 +2802,7 @@
   function enterBackground() {
     state.lastBrowserResumeAt = 0;
     persistRuntimeCache(currentDevice(), true);
-    state.mqttResumeProbeRequired = true;
+    state.realtimeResumeProbeRequired = true;
     if (state.backgroundMode !== 'visible') { checkBackgroundDeadline(); return; }
     state.backgroundMode = 'warm';
     state.hiddenAt = Date.now();
@@ -2886,7 +2814,7 @@
   }
 
   function sendSession(deviceId, active = true, sync = false) {
-    if (!state.mqttConnected || !deviceId) return;
+    if (!state.realtimeConnected || !deviceId) return;
     const warm = state.backgroundMode === 'warm';
     const remaining = warm ? warmRemainingMs() : 0;
     if (active && !browserSessionActive()) {
@@ -2900,14 +2828,15 @@
       log: !warm && device?.requestedData.has('log') && (device.logSyncAttempts || 0) < 3
     };
     try {
-      publish(topics(deviceId).session, {
+      publish(routes(deviceId).session, {
         clientId: controlClientId,
         active,
+        foreground: !document.hidden,
         ttlMs: active ? Math.max(1, Math.floor(warm ? Math.min(WEB.sessionTtlMs, remaining) : WEB.sessionTtlMs)) : 1000,
         sync: active && !warm && (sync || Object.values(needed).some(Boolean)),
         scope: 'runtime',
         ...needed
-      }, { qos: 0, retain: false });
+      }, {});
       if (active && needed.log) device.logSyncAttempts = (device.logSyncAttempts || 0) + 1;
     } catch (_) {}
   }
@@ -2916,7 +2845,7 @@
     clearInterval(state.sessionTimer);
     clearSyncRetries();
     state.sessionTimer = 0;
-    if (!state.selectedId || !state.mqttConnected || !browserSessionActive()) return;
+    if (!state.selectedId || !state.realtimeConnected || !browserSessionActive()) return;
     sendSession(state.selectedId, true, sync);
     const selectedId = state.selectedId;
     if (sync && !document.hidden) state.syncRetryTimers = [700, 1600].map((ms) => setTimeout(() => {
@@ -2957,11 +2886,11 @@
         prefetchControlSession();
       }
     }).catch((error) => {
-      state.mqttMessage = 'Chưa nhận được dữ liệu từ máy. Đang thử kết nối lại…';
+      state.realtimeMessage = 'Chưa nhận được dữ liệu từ máy. Đang thử kết nối lại…';
       renderDevice();
       clearTimeout(state.subscriptionRetryTimer);
       state.subscriptionRetryTimer = setTimeout(() => {
-        if (device.id === state.selectedId && state.mqttConnected && browserSessionActive())
+        if (device.id === state.selectedId && state.realtimeConnected && browserSessionActive())
           syncSelectedDevice(true);
       }, 3000);
     });
@@ -2986,189 +2915,82 @@
   }
 
   async function subscribeDevice(deviceId) {
-    if (!state.mqttConnected || !state.mqtt?.connected || !deviceId) return;
-    const outputTopics = topics(deviceId);
-    const selected = deviceId === state.selectedId;
-    const device = state.devices.find(item => item.id === deviceId);
-    const optional = { config: outputTopics.report, reminders: outputTopics.remindersReport,
-      log: outputTopics.log, history: outputTopics.historyReport };
-    const desired = selected
-      ? [outputTopics.presence, outputTopics.bootstrap, outputTopics.snapshot, outputTopics.ack,
-        ...[...(device?.requestedData || [])].map(name => optional[name]).filter(Boolean)]
-      : [outputTopics.presence];
-    const epoch = state.subscriptionEpoch;
-    const key = `${epoch}:${deviceId}:${selected}`;
-    if (state.subscriptionRequests.has(key)) {
-      await state.subscriptionRequests.get(key);
-      return subscribeDevice(deviceId); // Additional lazy topics wait for the core SUBACK.
-    }
-    const missing = desired.filter((topic) => !state.subscriptions.has(topic));
-    if (!missing.length) return;
-    const client = state.mqtt;
-    const request = new Promise((resolve, reject) => {
-      let settled = false;
-      const timeout = setTimeout(() => { settled = true; reject(new Error('SUBSCRIBE_TIMEOUT')); }, 8000);
-      const filters = Object.fromEntries(missing.map((topic) =>
-        [topic, { qos: topic.endsWith('/snapshot') ? 0 : 1 }]));
-      client.subscribe(filters, (error, granted) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timeout);
-        if (client !== state.mqtt || epoch !== state.subscriptionEpoch || !state.mqttConnected)
-          return reject(new Error('CONNECTION_CHANGED'));
-        if (error || !missing.every((topic) => granted?.some((item) =>
-          item.topic === topic && (item.qos === 0 || item.qos === 1))))
-          return reject(error || new Error('SUBSCRIBE_REJECTED'));
-        missing.forEach((topic) => state.subscriptions.add(topic));
-        resolve();
-      });
-    });
-    state.subscriptionRequests.set(key, request);
-    try {
-      await request;
-      if (selected && deviceId !== state.selectedId) unsubscribeDevice(deviceId);
-    } finally { state.subscriptionRequests.delete(key); }
+    if (!deviceId || deviceId !== state.selectedId) return;
+    if (state.realtime?.deviceId !== deviceId) await refreshRealtimeSession();
   }
 
   function unsubscribeDevice(deviceId) {
-    if (!state.mqtt?.connected || !deviceId) return;
-    const outputTopics = topics(deviceId);
-    [outputTopics.bootstrap, outputTopics.snapshot, outputTopics.report, outputTopics.remindersReport, outputTopics.ack, outputTopics.log, outputTopics.historyReport]
-      .forEach((topic) => {
-        if (!state.subscriptions.has(topic)) return;
-        state.mqtt.unsubscribe(topic);
-        state.subscriptions.delete(topic);
-      });
+    if (state.realtime?.deviceId === deviceId && deviceId !== state.selectedId) state.realtime.end();
   }
 
-  function connectMqtt(force = false) {
-    const credentials = [WEB.mqttUrl, WEB.mqttUsername, WEB.mqttPassword];
-    if (!force && state.mqtt && !state.mqtt.disconnecting && state.mqttCredentials?.every((value, i) => value === credentials[i])) {
-      if (state.mqttConnected && !state.sessionTimer) syncSelectedDevice(false);
+  function connectRealtime(force = false) {
+    const session = runtimeRealtime;
+    if (!session || session.deviceId !== state.selectedId) return;
+    if (!force && state.realtime?.deviceId === session.deviceId && !state.realtime.disconnecting) {
+      if (state.realtime.connected) state.realtime.renew(session.ticket);
+      else state.realtime.resume();
       return;
     }
-    if (!WEB.mqttUrl || !/^wss?:\/\//i.test(WEB.mqttUrl)) {
-      state.mqttSessionState = 'error';
-      state.mqttMessage = 'Chưa có phiên kết nối. Hãy ghép nối máy.';
-      renderDevice();
-      return;
-    }
-    if (!window.mqtt?.connect) {
-      state.mqttSessionState = 'error';
-      state.mqttMessage = 'Không tải được thành phần kết nối. Hãy tải lại trang.';
-      renderDevice();
-      return;
-    }
-
-    const options = {
-      clientId: `mayap-web-${Math.random().toString(16).slice(2, 12)}`,
-      clean: true,
-      reconnectPeriod: WEB.reconnectPeriodMs,
-      connectTimeout: WEB.connectTimeoutMs,
-      keepalive: WEB.keepaliveSeconds,
-      resubscribe: false
-    };
-    if (WEB.mqttUsername) options.username = WEB.mqttUsername;
-    if (WEB.mqttPassword) options.password = WEB.mqttPassword;
-
-    const previous = state.mqtt;
-    state.mqttConnected = false;
+    const previous = state.realtime;
+    state.realtimeConnected = false;
     state.subscriptionEpoch++;
     state.subscriptions.clear();
-    cancelBrokerProbe();
-    clearInterval(state.sessionTimer);
-    state.sessionTimer = 0;
-    clearTimeout(state.subscriptionRetryTimer);
-    clearSyncRetries();
-    const client = window.mqtt.connect(WEB.mqttUrl, options);
-    state.mqtt = client;
-    state.mqttLastPacketAt = Date.now();
-    state.mqttCredentials = credentials;
-    if (previous) previous.end(true);
-    state.mqttMessage = 'Đang kết nối với máy…';
-    renderDevice();
-
+    clearInterval(state.sessionTimer); state.sessionTimer = 0; clearSyncRetries();
+    previous?.end();
+    const client = new window.MayapRealtime.Client({ ...session,
+      isActive: () => browserSessionActive() && state.realtimeSessionState !== 'auth-required' &&
+        session.deviceId === state.selectedId,
+      refresh: async () => {
+        if (session.deviceId !== state.selectedId) throw new Error('DEVICE_CHANGED');
+        const next = await requestRealtimeSession(currentDevice());
+        if (!next) throw new Error('AUTH_REQUIRED');
+        return next;
+      } });
+    state.realtime = client;
+    state.realtimeMessage = 'Đang kết nối với máy…'; renderDevice();
     client.on('packetreceive', () => {
-      if (state.mqtt === client) {
-        state.mqttLastPacketAt = Date.now();
-        state.mqttResumeProbeRequired = false;
-        cancelBrokerProbe();
-      }
+      if (state.realtime === client) { state.realtimeLastPacketAt = Date.now(); state.realtimeResumeProbeRequired = false; }
     });
-    state.mqtt.on('connect', () => {
-      if (state.mqtt !== client) return;
-      state.mqttLastPacketAt = Date.now();
-      state.mqttConnected = true;
-      state.mqttSessionState = 'ready';
-      state.mqttMessage = 'Đã kết nối máy chủ';
-      state.subscriptions.clear();
-      state.subscriptionEpoch++;
-      state.devices.forEach((device) => {
-        device.logSyncAttempts = 0;
-        if (device.id !== state.selectedId) subscribeDevice(device.id).catch(console.error);
-        // Existing direct-HiveMQ cleanup for stale retained config/set messages.
-        try {
-          state.mqtt.publish(topics(device.id).config, '', { qos: 1, retain: true });
-        } catch (_) {}
-      });
-      syncSelectedDevice(true);
-      renderDevice();
+    client.on('connect', () => {
+      if (state.realtime !== client) return;
+      state.realtimeConnected = true; state.realtimeSessionState = 'ready'; state.subscriptionEpoch++;
+      state.realtimeMessage = 'Đã kết nối máy chủ';
+      state.devices.forEach(device => { device.logSyncAttempts = 0; });
+      syncSelectedDevice(true); renderDevice();
     });
-    state.mqtt.on('reconnect', () => {
-      if (state.mqtt !== client) return;
-      state.mqttConnected = false;
-      state.mqttMessage = 'Đang kết nối lại với máy…';
-      renderDevice();
+    client.on('close', () => {
+      if (state.realtime !== client) return;
+      state.subscriptionEpoch++; clearInterval(state.sessionTimer); state.sessionTimer = 0; clearSyncRetries();
+      state.realtimeConnected = false; state.realtimeMessage = 'Kết nối bị gián đoạn'; renderDevice();
     });
-    state.mqtt.on('close', () => {
-      if (state.mqtt !== client) return;
-      state.subscriptionEpoch++;
-      state.subscriptions.clear();
-      cancelBrokerProbe();
-      clearInterval(state.sessionTimer);
-      state.sessionTimer = 0;
-      clearTimeout(state.subscriptionRetryTimer);
-      clearSyncRetries();
-      state.mqttConnected = false;
-      state.mqttMessage = 'Kết nối bị gián đoạn';
-      renderDevice();
+    client.on('reconnect', () => {
+      if (state.realtime !== client) return;
+      state.realtimeMessage = 'Đang kết nối lại với máy…'; renderDevice();
     });
-    state.mqtt.on('offline', () => {
-      if (state.mqtt !== client) return;
-      state.mqttConnected = false;
-      state.mqttMessage = 'Thiết bị của bạn đang mất Internet';
-      renderDevice();
+    client.on('error', () => {
+      if (state.realtime !== client) return;
+      state.realtimeMessage = 'Kết nối máy chủ gặp lỗi. Đang thử lại…'; renderDevice();
     });
-    state.mqtt.on('error', (error) => {
-      if (state.mqtt !== client) return;
-      state.mqttMessage = 'Kết nối máy chủ gặp lỗi. Đang thử lại…';
-      renderDevice();
-    });
-    state.mqtt.on('message', (topic, data, packet) => {
-      if (state.mqtt !== client) return;
-      const parsedTopic = parseTopic(topic);
-      if (!parsedTopic) return;
-      const device = state.devices.find((item) => item.id === parsedTopic.deviceId);
+    client.on('message', (route, payload, packet) => {
+      if (state.realtime !== client || route.deviceId !== state.selectedId) return;
+      const device = state.devices.find(item => item.id === route.deviceId);
       if (!device) return;
-      let payload;
-      try { payload = JSON.parse(data.toString()); } catch (_) { return; }
-
-      if (parsedTopic.channel === 'presence') handlePresence(device, payload);
-      else if (parsedTopic.channel === 'bootstrap') handleBootstrap(device, payload);
-      else if (parsedTopic.channel === 'snapshot' && !packet?.retain) handleSnapshot(device, payload);
-      else if (parsedTopic.channel === 'config/reported') {
+      if (route.channel === 'presence') handlePresence(device, payload);
+      else if (route.channel === 'bootstrap') handleBootstrap(device, payload);
+      else if (route.channel === 'snapshot' && !packet?.cached) handleSnapshot(device, payload);
+      else if (route.channel === 'config/reported') {
         if (device.liveEpoch === state.subscriptionEpoch && Number(payload.bootId) && Number(payload.bootId) !== device.bootId) return;
         const before = device.configAt;
         handleConfigReport(device, payload);
         if (device.configAt !== before) device.configRevision = device.revision;
         if (device.id === state.selectedId) renderDevice();
       }
-      else if (parsedTopic.channel === 'reminders/reported') {
+      else if (route.channel === 'reminders/reported') {
         if (device.liveEpoch === state.subscriptionEpoch && Number(payload.bootId) && Number(payload.bootId) !== device.bootId) return;
         handleReminderReport(device, payload); device.remindersLoaded = true;
         if (device.id === state.selectedId) renderDevice();
       }
-      else if (parsedTopic.channel === 'ack') {
+      else if (route.channel === 'ack') {
         verifyDeviceAck(device, payload).then((valid) => {
           if (valid) handleAck(device, payload);
           else if (state.pending.has(String(payload.requestId || '')) ||
@@ -3177,8 +2999,8 @@
           }
         }).catch((error) => console.error('[TX] ACK verify', error));
       }
-      else if (parsedTopic.channel === 'log') handleLog(device, payload);
-      else if (parsedTopic.channel === 'history/reported') handleTemperatureHistory(device, payload);
+      else if (route.channel === 'log') handleLog(device, payload);
+      else if (route.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });
   }
 
@@ -3502,7 +3324,7 @@
       saveDevices();
       toast('Đã thêm máy · đang kết nối tự động');
       controlSessions.delete(id);
-      await refreshMqttSession();
+      await refreshRealtimeSession();
       controlSession(currentDevice()).catch((error) => console.warn('[SESSION]', error.code || 'TRANSPORT_ERROR'));
     });
 
@@ -3956,115 +3778,60 @@
     }
   }
 
-  async function refreshMqttSession() {
-    const device = currentDevice();
-    if (state.authRequests.has(device?.id)) return state.authRequests.get(device.id);
-    const request = provisionMqttSession();
-    state.authRequests.set(device?.id, request);
-    try { return await request; } finally { state.authRequests.delete(device?.id); }
+  async function refreshRealtimeSession() {
+    const session = await requestRealtimeSession(currentDevice());
+    if (session) { connectRealtime(); return true; }
+    return false;
   }
-
-  async function provisionMqttSession() {
-    const device = currentDevice() || state.devices[0];
-    if (!device?.id || !device.pairingToken) {
-      state.mqttSessionState = 'auth-required';
-      state.mqttMessage = state.devices.length ? 'Cần đăng nhập tài khoản MAYAP' : 'Bấm + để thêm thiết bị vào tài khoản';
-      return false;
-    }
-    state.mqttSessionState = 'loading';
-    const result = await postCloudJson('/api/device/mqtt-session', {
-      device_id: device.id,
-      control_client_id: controlClientId
+  async function requestRealtimeSession(device) {
+    if (!device?.id) return null;
+    const existing = state.authRequests.get(device.id);
+    if (existing) return existing;
+    const request = loadRealtimeSession(device);
+    state.authRequests.set(device.id, request);
+    try { return await request; }
+    finally { if (state.authRequests.get(device.id) === request) state.authRequests.delete(device.id); }
+  }
+  async function loadRealtimeSession(device) {
+    if (!device?.id || !device.pairingToken) return null;
+    const result = await postCloudJson('/api/device/realtime-session', {
+      device_id: device.id, control_client_id: controlClientId
     }, 10000);
-    if (device.id !== state.selectedId) {
-      if (!state.mqtt) { state.mqttSessionState = 'error'; state.authRetryAt = 0; }
-      return false;
-    }
-    if (result.success && saveProvisionedMqtt(result)) {
-      connectMqtt(); // WSS/SUBSCRIBE can proceed while the control key imports.
+    if (device.id !== state.selectedId) return null;
+    if (result.success && result.realtime?.url && result.realtime?.ticket) {
       try {
         if (!result.control && device.accountRole !== 'viewer') throw new Error('PROTOCOL_ERROR');
         if (result.control) await storeControlSession(device, result.control);
-        state.mqttSessionState = 'ready';
-        state.authRetryDelay = 5000;
-        state.authRetryAt = 0;
-        return true;
-      } catch (_) {
-        // An invalid server session must not leave startup stuck at "loading".
-        controlSessions.delete(device.id);
-      }
+        runtimeRealtime = { ...result.realtime, deviceId: device.id };
+        state.realtimeSessionState = 'ready'; state.authRetryDelay = 5000; state.authRetryAt = 0;
+        return runtimeRealtime;
+      } catch (_) { controlSessions.delete(device.id); }
     }
-    state.mqttSessionState = [401, 403].includes(result.status) ? 'auth-required' : 'error';
-    if (state.mqttSessionState === 'auth-required') controlSessions.delete(device.id);
+    state.realtimeSessionState = [401, 403].includes(result.status) ? 'auth-required' : 'error';
+    if (state.realtimeSessionState === 'auth-required') controlSessions.delete(device.id);
     state.authRetryAt = Date.now() + state.authRetryDelay;
     state.authRetryDelay = Math.min(30000, state.authRetryDelay * 2);
-    state.mqttMessage = state.mqttSessionState === 'auth-required'
-      ? 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại Google.'
-      : 'Chưa kết nối được máy chủ. Đang thử lại…';
-    return false;
+    state.realtimeMessage = state.realtimeSessionState === 'auth-required'
+      ? 'Phiên đăng nhập hết hạn. Hãy đăng nhập lại Google.' : 'Chưa kết nối được máy chủ. Đang thử lại…';
+    return null;
   }
-
-  function cancelBrokerProbe() {
-    if (state.brokerProbe) clearTimeout(state.brokerProbe.timer);
-    state.brokerProbe = null;
-  }
-
-  function probeResumedBroker() {
-    const client = state.mqtt;
-    if (state.brokerProbe || !client?.connected || !state.selectedId) return;
-    const probe = { client, at: Date.now(), monoAt: performance.now(), timer: 0 };
-    state.brokerProbe = probe;
-    const timeoutMs = Math.max(8000, WEB.connectTimeoutMs);
-    probe.timer = setTimeout(() => {
-      if (state.brokerProbe !== probe || state.mqtt !== client) return;
-      cancelBrokerProbe();
-      if (document.hidden) return;
-      // A timer delivered late after another OS suspension is not proof of death.
-      if (Math.max(Date.now() - probe.at, performance.now() - probe.monoAt) > timeoutMs * 2) {
-        probeResumedBroker();
-        return;
-      }
-      state.mqttResumeProbeRequired = false;
-      connectMqtt(true);
-    }, timeoutMs);
-    try {
-      // Public MQTT.js API: SUBACK/PINGRESP/any incoming traffic proves broker
-      // liveness even when the ESP32 is offline. No control or HTTP request.
-      client.subscribe(topics(state.selectedId).presence, { qos: 1 }, (error) => {
-        if (state.mqtt !== client || state.brokerProbe !== probe || error) return;
-        state.mqttLastPacketAt = Date.now();
-        state.mqttResumeProbeRequired = false;
-        cancelBrokerProbe();
-      });
-    } catch (_) {} // The bounded probe deadline owns replacement.
-  }
-
+  function cancelHubProbe() {} // Probe lifecycle belongs to the native transport.
+  function probeResumedHub() { state.realtime?.probe(); }
   async function recoverBrowserConnection() {
-    if (document.hidden) return;
-    // A suspended browser can resume with connected=true on a dead socket.
-    // MQTT traffic (including PINGRESP), not device snapshots, proves liveness;
-    // an offline ESP32 must not cause a reconnect loop to a healthy broker.
-    if (state.mqtt) {
-      const silenceLimit = Math.max(WEB.brokerSilenceAfterMs, WEB.keepaliveSeconds * 2000);
-      if (state.mqtt.disconnecting || (state.mqttConnected && state.mqtt.stream?.destroyed)) {
-        connectMqtt(true);
-      } else if (state.mqttConnected && Date.now() - state.mqttLastPacketAt > silenceLimit) {
-        if (state.mqttResumeProbeRequired || state.brokerProbe) probeResumedBroker();
-        else connectMqtt(true);
-      }
-      return;
+    if (document.hidden || state.realtimeSessionState === 'auth-required') return;
+    if (state.realtime && state.realtime.deviceId === state.selectedId && !state.realtime.disconnecting) {
+      state.realtime.resume(); return;
     }
-    if (state.mqttSessionState !== 'error' ||
-        Date.now() < state.authRetryAt || !currentDevice()?.pairingToken) return;
-    const ready = await refreshMqttSession();
-    if (ready) connectMqtt(); else renderDevice();
+    if (Date.now() >= state.authRetryAt && currentDevice()?.pairingToken) {
+      await refreshRealtimeSession(); renderDevice();
+    }
   }
 
   function accountDevices(rows) {
     if (!window.MayapAccount?.current) return;
     const ids = new Set(rows.map(row => row.device_id));
     const removed = state.devices.filter(device => !ids.has(device.id));
-    if (removed.length) { state.mqtt?.end(true); state.mqtt = null; state.mqttConnected = false; controlSessions.clear(); }
+    if (removed.length) { state.realtime?.end(true); state.realtime = null; state.realtimeConnected = false; controlSessions.clear(); }
     state.devices = rows.map(row => {
       const device = state.devices.find(d => d.id === row.device_id) || createDevice(row.device_id, row.device_name || row.device_id, 'account-session');
       device.name = row.device_name || row.device_id;
@@ -4075,7 +3842,7 @@
     if (!ids.has(state.selectedId)) state.selectedId = state.devices[0]?.id || '';
   }
   window.addEventListener('mayap-logout', () => {
-    state.mqtt?.end(true); state.mqtt = null; state.mqttConnected = false;
+    state.realtime?.end(true); state.realtime = null; state.realtimeConnected = false;
     controlSessions.clear(); state.devices = []; clearInterval(state.sessionTimer);
   });
   async function init() {
@@ -4088,7 +3855,7 @@
     accountDevices(account.devices);
     window.addEventListener('mayap-account-devices', event => {
       accountDevices(event.detail); renderSelector();
-      if (!state.mqtt && currentDevice()) refreshMqttSession();
+      if (!state.realtime && currentDevice()) refreshRealtimeSession();
     });
     // Goi showPage() thay vi chi dat dataset.page: truoc day tieu de va chu
     // thich luc moi mo trang lay tu chuoi VIET CUNG trong index.html (vi
@@ -4108,14 +3875,8 @@
     registerServiceWorker();
     setInterval(prefetchControlSession, 5000);
     renderPushStatus();
-    // Available RAM WSS credentials can subscribe without waiting for HTTPS.
-    if (currentDevice()?.pairingToken && WEB.mqttUrl && WEB.mqttUsername && WEB.mqttPassword) {
-      connectMqtt();
-      return;
-    }
-    const mqttReady = await refreshMqttSession();
-    if (mqttReady) connectMqtt();
-    else renderDevice();
+    const realtimeReady = await refreshRealtimeSession();
+    if (!realtimeReady) renderDevice();
   }
 
   window.addEventListener('pagehide', (event) => {
@@ -4123,7 +3884,7 @@
     if (event?.persisted) enterBackground();
     else {
       state.lastBrowserResumeAt = 0;
-      state.mqttResumeProbeRequired = true;
+      state.realtimeResumeProbeRequired = true;
       persistRuntimeCache(currentDevice(), true);
       idleBackground();
     }
@@ -4131,7 +3892,7 @@
   function resumeBrowserConnection(event) {
     if (document.hidden) { checkBackgroundDeadline(); return; }
     if (state.backgroundMode !== 'visible') {
-      state.mqttResumeProbeRequired = true;
+      state.realtimeResumeProbeRequired = true;
       // Evaluate real elapsed time first, even if every background timer froze.
       checkBackgroundDeadline();
       state.backgroundMode = 'visible';
@@ -4144,9 +3905,9 @@
     const now = Date.now();
     if (state.lastBrowserResumeAt && now >= state.lastBrowserResumeAt && now - state.lastBrowserResumeAt < 250) return;
     state.lastBrowserResumeAt = now;
-    if (event?.type === 'online' && !state.mqtt && state.mqttSessionState === 'error') state.authRetryAt = 0;
+    if (event?.type === 'online' && !state.realtime && state.realtimeSessionState === 'error') state.authRetryAt = 0;
     recoverBrowserConnection();
-    if (state.mqttConnected) syncSelectedDevice(selectedNeedsSync());
+    if (state.realtimeConnected) syncSelectedDevice(selectedNeedsSync());
     prefetchControlSession();
   }
   window.addEventListener('online', resumeBrowserConnection);

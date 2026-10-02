@@ -1,8 +1,8 @@
 {
-  "release": "1.0.0",
-  "firmware": "1.0.0",
+  "release": "1.1.0",
+  "firmware": "1.1.0",
   "hmi": "1.0.0",
-  "web": "1.0.0",
+  "web": "1.1.0",
   "web_storage_schema": 10,
   "attiny_protocol": 4,
   "esp32_core": "3.3.11",
@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "MAYAP IoT V1.0.0 baseline. CI phai pass truoc build, release va deploy."
+  "notes": "Cloudflare-native WebSocket/DeviceHub migration; controller and HMI behavior retained. No OTA rollout is implied."
 }

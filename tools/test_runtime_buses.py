@@ -32,9 +32,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     end = network.index('inline void mayapSetWifiPortalOtaQuiesced', start)
     (out / 'actual-network.inc').write_text(network[start:end], encoding='utf-8')
     realtime = (root / 'MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h').read_text(encoding='utf-8')
-    start = realtime.index('inline bool subscribeAll() {')
-    end = realtime.index('inline void attemptConnect', start)
-    (out / 'actual-mqtt-subscriptions.inc').write_text(realtime[start:end], encoding='utf-8')
+    transport = (root / 'MAYAP_INDUSTRIAL_v1_0_0/websocket_transport.h').read_text(encoding='utf-8')
+    transport = '\n'.join(line for line in transport.splitlines() if not line.startswith('#include'))
+    (out / 'actual-websocket-transport.inc').write_text(transport, encoding='utf-8')
     ota = (root / 'MAYAP_INDUSTRIAL_v1_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
@@ -54,15 +54,15 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     end = realtime.index('}  // namespace MayapRealtimeInternal', start)
     (out / 'actual-event-publish.inc').write_text(realtime[start:end], encoding='utf-8')
     start = realtime.index('inline void applyWifiPowerMode(')
-    end = realtime.index('// ------------------------------- Chu de MQTT', start)
+    end = realtime.index('// --------------------------- Hop thu cau hinh/runtime', start)
     power = realtime[start:end]
     start = realtime.index('inline void serviceWifiPowerMode()')
     end = realtime.index('inline void serviceConfigPublish()', start)
     (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
-                       ('inline void handleSessionMessage(', 'inline void mqttMessageCallback('),
-                       ('inline void serviceSessionTimeout(', '// MQTT owner is')):
+                       ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),
+                       ('inline void serviceSessionTimeout(', '// realtime owner is')):
         start = realtime.index(begin)
         stop = realtime.index(end, start)
         # The session callback is followed by other message helpers; extract its
@@ -104,7 +104,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-mqtt-subscriptions', 'runtime-web-connect'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-web-connect'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]

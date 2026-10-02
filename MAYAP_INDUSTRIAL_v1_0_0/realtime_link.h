@@ -4,10 +4,7 @@
 #include "network_io_guard.h"
 #include <Arduino.h>
 #include <WiFi.h>
-#if MQTT_USE_TLS
-#include <WiFiClientSecure.h>
-#endif
-#include "mqtt_transport.h"
+#include "websocket_transport.h"
 #include "protocol_limits.h"
 #include "web_realtime_policy.h"
 #include <ArduinoJson.h>
@@ -15,36 +12,10 @@
 #include <mbedtls/md.h>
 #include <time.h>
 
-// ============================================================================
-// LOP GIAO TIEP THOI GIAN THUC WEB <-> ESP32 (MQTT qua broker)
-// ----------------------------------------------------------------------------
-// Thay the cho "MQTT chua on dinh": ban web (app.js) da san co giao thuc MQTT
-// day du (presence/snapshot/config/command/ack/log/session) nhung firmware
-// truoc day CHUA co client MQTT nao ca. File nay them client MQTT non-blocking,
-// dung LAI toan bo hang doi lenh/luu cau hinh da co san cua HMI (queueCommand/
-// startConfigSave) de web va HMI chia se cung mot co che an toan, khong tao
-// duong dieu khien thiet bi rieng biet thu hai.
-//
-// QUAN TRONG VE LUONG (khac hmi.h o mot diem): moi thao tac MQTT that su
-// (mqtt.loop/publish/connect/subscribe, tuc co I/O mang) CHI duoc goi tu
-// mqttTask ben trong mayapWebLinkUpdate(). Cac ham controlTask goi
-// (mayapWebSet.../mayapWebConfirm...) khong bao gio goi thang vao PubSubClient
-// - chung chi ghi vao hop thu webMux-protected roi mqttTask tu doc va phat
-// o vong lap ke tiep. Day la diem khac voi hmiSetConfig/hmiSetRuntime (hmi.h
-// khong co I/O mang nen duoc phep ghi truc tiep); voi web, publish la I/O nen
-// PHAI o lai trong mqttTask de khong lam controlTask (vong dieu khien thuc)
-// bi cham/block boi socket.
-//
-// Vi tri include: PHAI sau hmi.h (can queueCommand/startConfigSave/sanitizeConfig
-// dang la ham global trong hmi.h) va TRUOC machine_control.h (MachineController
-// se goi nguoc lai mayapWebSetConfig/mayapWebSetRuntime/mayapWebConfirmCommand/
-// mayapWebConfirmConfigSave/mayapWebPushEventLog o vai diem no da cap nhat HMI).
-//
-// Thu vien can cai qua Library Manager (Arduino IDE) hoac platformio.ini:
-//   - "PubSubClient" cua Nick O'Leary
-//   - "ArduinoJson" cua Benoit Blanchon, BAT BUOC ban 7.x (dung lop
-//     JsonDocument thong nhat cua v7; ban 6.x khong co API nay)
-// ============================================================================
+// WebSocket/TLS transport owner. All controller hooks only write bounded
+// mailboxes under webMux; this dedicated task alone owns network I/O.
+// HMI/control queues, V2 HMAC/replay fences and signed terminal ACKs stay local.
+// Include after hmi.h and before machine_control.h.
 
 namespace MayapRealtimeInternal {
 
@@ -58,7 +29,7 @@ inline bool timeReached(uint32_t now, uint32_t target) {
 constexpr uint8_t WEB_REQUEST_ID_CAPACITY = 40U;  // khop firmware/web (xem app.js)
 
 // Mutex duy nhat bao ve toan bo hop thu trao doi giua controlTask (ghi
-// mayapWebSet.../mayapWebConfirm...) va mqttTask (doc trong
+// mayapWebSet.../mayapWebConfirm...) va realtime owner (doc trong
 // mayapWebLinkUpdate). Cac vung critical section o day deu ngan (copy struct/
 // vai truong), khong bao gio giu mutex qua mot loi goi I/O.
 static portMUX_TYPE webMux = portMUX_INITIALIZER_UNLOCKED;
@@ -85,26 +56,13 @@ inline void ensureIdentity() {
   if (bootId == 0U) bootId = 1U;
 }
 
-// ------------------------------ MQTT client -----------------------------------
-// netClient/mqtt chi duoc dung tu mqttTask (mayapWebLinkUpdate va cac ham
-// no goi truc tiep). Khong co ham nao khac trong file nay dung chung ngoai do.
-#if MQTT_USE_TLS
-static WiFiClientSecure netClient;
-#else
-static WiFiClient netClient;
-#endif
-static MqttTransport mqtt(netClient);
-static bool mqttBufferReady = false;
-static bool mqttTlsReady = !MQTT_USE_TLS;
-
-// Backoff RIENG cho MQTT, doc lap hoan toan voi backoff cua STA Wi-Fi
-// (network_service.h) va Cloud Push (cloud_alert_link.h) - moi lop tu quan
-// ly chu ky retry cua minh, khong anh huong lan nhau.
-static BackoffTimer mqttBackoff{};
+static WebSocketTransport socketTransport;
+static BackoffTimer linkBackoff{};
+static bool connectionAnnounced = false;
 
 // ------------------------- Phien web (foreground/background) -----------------
-// Chi doc/ghi tu mqttTask (session den qua MQTT callback, cung chay trong
-// mqtt.loop() goi tu mqttTask) nen khong can mutex.
+// Chi doc/ghi tu realtime owner (session den qua realtime callback, cung chay trong
+// socketTransport.loop() goi tu realtime owner) nen khong can mutex.
 static bool webSessionActive = false;
 struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
 static WebClientLease webClientLeases[8];
@@ -118,7 +76,7 @@ static bool forceSnapshotPublish = false;
 inline void applyWifiPowerMode(bool highPerformance) {
   if (wifiPowerModeValid && highPerfWifiApplied == highPerformance) return;
   // WIFI_PS_NONE: khong ngu, do tre thap nhat cho realtime. WIFI_PS_MIN_MODEM:
-  // tiet kiem nang luong nhung van thuc day kip DTIM de nhan MQTT/lenh portal.
+  // tiet kiem nang luong nhung van thuc day kip DTIM de nhan realtime/lenh portal.
   if (esp_wifi_set_ps(highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM) != ESP_OK) {
     wifiPowerModeValid = false;
     return; // Retry after radio is ready; do not cache a failed hardware change.
@@ -129,17 +87,9 @@ inline void applyWifiPowerMode(bool highPerformance) {
                     highPerformance ? "PERFORMANCE" : "SAVE");
 }
 
-// ------------------------------- Chu de MQTT ----------------------------------
-static char topicScratch[80];
-inline const char *topicOf(const char *suffix) {
-  snprintf(topicScratch, sizeof(topicScratch), "%s/%s/%s", MQTT_TOPIC_ROOT,
-           deviceId, suffix);
-  return topicScratch;
-}
-
 // --------------------------- Hop thu cau hinh/runtime --------------------------
 // Ghi boi controlTask qua mayapWebSetConfig/mayapWebSetRuntime; doc boi
-// mqttTask. Bao ve boi webMux vi MachineConfig/MachineRuntime khong nho
+// realtime owner. Bao ve boi webMux vi MachineConfig/MachineRuntime khong nho
 // (vai chuc/vai tram byte) - copy trong critical section la ngan va an toan.
 static MachineConfig knownConfig{};
 static bool knownConfigValid = false;
@@ -159,9 +109,9 @@ static bool remindersDirty = false;
 static uint32_t webRemindersRevision = 0U;
 
 // --------------------- Tuong quan lenh/luu cau hinh voi web --------------------
-// pendingCommands/pendingConfigSave duoc GHI boi mqttTask (khi nhan lenh tu
+// pendingCommands/pendingConfigSave duoc GHI boi realtime owner (khi nhan lenh tu
 // web va queueCommand()/startConfigSave() thanh cong) va DOC+XOA boi ca hai
-// task (mqttTask khi het han, controlTask qua mayapWebConfirmCommand/
+// task (realtime owner khi het han, controlTask qua mayapWebConfirmCommand/
 // mayapWebConfirmConfigSave khi MachineController xu ly xong) - can webMux.
 struct PendingCommand {
   bool used = false;
@@ -196,8 +146,8 @@ static PendingConfigSave pendingReminderSave;
 
 // ------------------------------- Hop thu phat ACK -------------------------------
 // mayapWebConfirmCommand/mayapWebConfirmConfigSave chay tren controlTask va
-// KHONG duoc goi thang vao PubSubClient (I/O mang) - chung chi day ket qua vao
-// day, mqttTask se rut ra va publish that su.
+// KHONG duoc goi thang vao WebSocketTransport (I/O mang) - chung chi day ket qua vao
+// day, realtime owner se rut ra va publish that su.
 struct AckOutboxItem {
   bool used = false;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
@@ -234,14 +184,14 @@ inline void enqueueAckLocked(const char *requestId, const char *result,
 
 // -------------------------- Hop thu nhat ky (event log) -------------------------
 // mayapWebPushEventLog() chay tren controlTask; chi sao chep snapshot vao day,
-// mqttTask moi thuc su lap va publish tung muc (co I/O mang).
+// realtime owner moi thuc su lap va publish tung muc (co I/O mang).
 static HmiEventSnapshot pendingEventSnapshot{};
 static bool eventSnapshotDirty = false;
 static uint32_t lastPublishedEventSequence = 0U;
 
 // --------------------- Lich su nhiet do AT24C32 -> Web ----------------------
-// Chi doc EEPROM khi web yeu cau; moi vong mqttTask chi phat toi da 12
-// bucket de khong chiem I2C/MQTT lau. Request duoc HMAC giong command/config.
+// Chi doc EEPROM khi web yeu cau; moi vong realtime owner chi phat toi da 12
+// bucket de khong chiem I2C/realtime lau. Request duoc HMAC giong command/config.
 static bool historyResponsePending = false;
 static uint16_t historyWindowMinutes = 30U;
 static uint16_t historyCursor = 0U;
@@ -254,26 +204,12 @@ static bool historyReadError = false;
 static uint16_t historySampleCount = 0U;
 
 // -------------------------------- Publish -------------------------------------
-// Tat ca ham publishXxx() ben duoi chi duoc goi tu mqttTask.
-inline bool publishJson(const char *suffix, const JsonDocument &doc,
-                        bool retain) {
-  if (!mqtt.connected() || doc.overflowed()) return false;
-  // Budget applies to the whole MQTT packet (topic + headers + payload).
-  char buffer[MayapProtocol::MQTT_NORMAL_CAP];
+// Tat ca ham publishXxx() ben duoi chi duoc goi tu realtime owner.
+inline bool publishJson(const char *channel, const JsonDocument &doc, bool /* cacheHint */) {
+  if (!socketTransport.connected() || doc.overflowed()) return false;
+  char buffer[MayapProtocol::FRAME_NORMAL_CAP];
   const size_t length = serializeJson(doc, buffer, sizeof(buffer));
-  const char *topic = topicOf(suffix);
-  if (length == 0U || length >= sizeof(buffer) ||
-      length + strlen(topic) + MayapProtocol::MQTT_OVERHEAD > MayapProtocol::MQTT_NORMAL_CAP) {
-    mayapSerialPrintf(false, "[WEBLINK] packet vuot budget: %s (%u B)\n",
-                      suffix, static_cast<unsigned>(length));
-    return false;
-  }
-  if (!mqtt.publish(topic, reinterpret_cast<const uint8_t *>(buffer),
-                    static_cast<unsigned int>(length), retain)) {
-    mayapSerialPrintf(false, "[WEBLINK] publish loi: %s\n", suffix);
-    return false;
-  }
-  return true;
+  return length > 0U && length < sizeof(buffer) && socketTransport.send(channel, buffer, length);
 }
 
 inline void handleHistoryRequestMessage(const JsonDocument &doc) {
@@ -306,7 +242,7 @@ inline void handleHistoryRequestMessage(const JsonDocument &doc) {
 }
 
 inline void serviceHistoryResponse() {
-  if (!historyResponsePending || !mqtt.connected()) return;
+  if (!historyResponsePending || !socketTransport.connected()) return;
 
   JsonDocument doc;
   doc["v"] = 1;
@@ -366,7 +302,7 @@ inline void publishPresence(bool online) {
   doc["fw"] = MAYAP_FIRMWARE_VERSION;
   doc["firmware"] = MAYAP_FIRMWARE_VERSION;
   doc["proto"] = 2;
-  doc["maxPacket"] = MayapProtocol::MQTT_HARD_CAP;
+  doc["maxPacket"] = MayapProtocol::FRAME_NORMAL_CAP;
   JsonArray caps = doc["caps"].to<JsonArray>();
   caps.add("transactions"); caps.add("config.patch");
   caps.add("control.session"); caps.add("history.chunk");
@@ -565,8 +501,8 @@ inline bool publishBootstrap(const MachineRuntime &rt, uint32_t revision) {
   doc["faultCode"] = rt.primaryFaultCode;
   doc["faultCount"] = rt.activeFaultCount;
   doc["faultSeverity"] = rt.activeFaultDisplayCount ? rt.activeFaults[0].severity : 0U;
-  // Count the MQTT topic + framing as well as JSON, not just the payload.
-  if (measureJson(doc) + strlen(topicOf("bootstrap")) + 7U >
+  // Include the channel envelope and RFC6455 framing in the small-packet budget.
+  if (measureJson(doc) + 64U >
       MayapWebRealtime::BOOTSTRAP_PACKET_BUDGET) return false;
   return publishJson("bootstrap", doc, true);
 }
@@ -744,7 +680,7 @@ inline bool publishLogEntry(const HmiEventItem &item) {
   return publishJson("log", doc, false);
 }
 
-// --------------------------- Xu ly ban tin den (mqttTask) --------------------
+// --------------------------- Xu ly ban tin den (realtime owner) --------------------
 inline HmiCommandType mapCommandAction(const char *action) {
   if (!action) return HmiCommandType::None;
   if (!strcmp(action, "batch_start")) return HmiCommandType::BatchStart;
@@ -777,92 +713,26 @@ inline HmiCommandType mapCommandAction(const char *action) {
 static uint32_t lastCommandSequence = 0U;
 static char lastCommandRequestId[WEB_REQUEST_ID_CAPACITY] = "";
 
-// F-01 (audit truoc phat hanh v3.7.1): MQTT_USERNAME/MQTT_PASSWORD mac dinh
-// la chuoi rong (xem config.h) - nghia la firmware ket noi AN DANH toi
-// broker CONG KHAI mac dinh (broker.emqx.io) neu khong ai doi lai qua
-// build_flags. O tinh huong do BAT KY AI tren internet biet duoc deviceId
-// (in san tren tem QR may) deu gui duoc lenh dieu khien that (dung me, huy
-// resume, tat coi khan cap, doi cau hinh...) ma khong can xac thuc gi -
-// day la loi CRITICAL cua audit, vi ban build phat hanh chinh thuc (workflow
-// CI) khong truyen build-flag nao de doi cac macro nay ca.
-//
-// Ham nay la hang rao an toan MAC DINH: false bat cu khi nao broker chua
-// duoc cau hinh usernam/password rieng (tuc van dung cap mac dinh nguy hiem
-// o tren). handleCommandMessage/handleConfigSetMessage/handleReminderSetMessage
-// deu TU CHOI xu ly khi false - chi con luong publish MOT CHIEU (snapshot/
-// presence/log, khong ai doi duoc gi tu xa) la con hoat dong. Publish/telemetry
-// khong bi khoa vi rieng no khong the thay doi hanh vi may.
-//
-// De bat lai dieu khien tu xa qua MQTT: dinh nghia MAYAP_MQTT_HOST/USERNAME/
-// PASSWORD (ly tuong them MAYAP_MQTT_USE_TLS=1) tro toi MOT BROKER RIENG
-// truoc khi include config.h - vi du qua build_flags trong platformio.ini
-// hoac --build-property khi goi arduino-cli trong workflow CI. KHONG sua
-// truc tiep gia tri mac dinh trong config.h.
-inline bool mqttCommandChannelTrusted() {
-  const char *commandKey = mayapCommandKey();
-  return MQTT_USERNAME[0] != '\0' && MQTT_PASSWORD[0] != '\0' &&
-         commandKey && commandKey[0] != '\0';
+inline bool realtimeCommandChannelTrusted() {
+  return socketTransport.connected() && mayapCommandKey() && strlen(mayapCommandKey()) == 64U;
 }
 
-inline int mqttHexNibble(char c) {
+inline int realtimeHexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
   if (c >= 'a' && c <= 'f') return c - 'a' + 10;
   if (c >= 'A' && c <= 'F') return c - 'A' + 10;
   return -1;
 }
 
-inline bool mqttDecodeHex32(const char *text, uint8_t out[32]) {
+inline bool realtimeDecodeHex32(const char *text, uint8_t out[32]) {
   if (!text || strlen(text) != 64U) return false;
   for (size_t i = 0; i < 32U; ++i) {
-    const int hi = mqttHexNibble(text[i * 2U]);
-    const int lo = mqttHexNibble(text[i * 2U + 1U]);
+    const int hi = realtimeHexNibble(text[i * 2U]);
+    const int lo = realtimeHexNibble(text[i * 2U + 1U]);
     if (hi < 0 || lo < 0) return false;
     out[i] = static_cast<uint8_t>((hi << 4) | lo);
   }
   return true;
-}
-
-inline bool mqttVerifySignedWrite(const char *channel, const JsonDocument &envelope,
-                        JsonDocument &bodyDoc) {
-  if (!channel || !channel[0]) return false;
-  const char *body = envelope["body"] | "";
-  const char *signatureHex = envelope["sig"] | "";
-  const char *commandKeyHex = mayapCommandKey();
-  if (!body[0] || strlen(body) >= MayapProtocol::MQTT_NORMAL_CAP || !commandKeyHex || !commandKeyHex[0]) return false;
-
-  uint8_t key[32] = {0};
-  uint8_t provided[32] = {0};
-  if (!mqttDecodeHex32(commandKeyHex, key) || !mqttDecodeHex32(signatureHex, provided)) return false;
-
-  const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
-  if (!info) return false;
-  mbedtls_md_context_t ctx;
-  mbedtls_md_init(&ctx);
-  bool ok = mbedtls_md_setup(&ctx, info, 1) == 0 &&
-  mbedtls_md_hmac_starts(&ctx, key, sizeof(key)) == 0;
-  static const char PREFIX[] = "mayap-mqtt-write:v1\n";
-  static const char NL[] = "\n";
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(PREFIX), strlen(PREFIX)) == 0;
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(deviceId), strlen(deviceId)) == 0;
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(channel), strlen(channel)) == 0;
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(NL), 1U) == 0;
-  if (ok) ok = mbedtls_md_hmac_update(&ctx,
-      reinterpret_cast<const unsigned char *>(body), strlen(body)) == 0;
-  uint8_t expected[32] = {0};
-  if (ok) ok = mbedtls_md_hmac_finish(&ctx, expected) == 0;
-  mbedtls_md_free(&ctx);
-  if (!ok) return false;
-
-  uint8_t diff = 0U;
-  for (size_t i = 0; i < sizeof(expected); ++i) diff |= expected[i] ^ provided[i];
-  if (diff != 0U) return false;
-  return deserializeJson(bodyDoc, body) == DeserializationError::Ok;
 }
 
 struct ClientReplayLease {
@@ -872,14 +742,14 @@ struct ClientReplayLease {
 };
 static ClientReplayLease replayLeases[8];
 
-inline bool mqttVerifyV2(const char *channel, const JsonDocument &wire,
+inline bool realtimeVerifyV2(const char *channel, const JsonDocument &wire,
                          JsonDocument &bodyDoc, bool &expired) {
   expired = false;
   const char *grant = wire["grant"] | "";
   const char *grantSig = wire["grantSig"] | "";
   const char *body = wire["body"] | "";
   const char *signature = wire["sig"] | "";
-  if (!channel || strlen(grant) > 96U || strlen(body) >= MayapProtocol::MQTT_SIGNED_BODY_CAP ||
+  if (!channel || strlen(grant) > 96U || strlen(body) >= MayapProtocol::FRAME_SIGNED_BODY_CAP ||
       !grant[0] || !body[0]) return false;
   char clientId[40] = "";
   unsigned long expiry = 0;
@@ -891,9 +761,9 @@ inline bool mqttVerifyV2(const char *channel, const JsonDocument &wire,
       strlen(clientId) < 8U || strlen(grantNonce) != 24U) return false;
   const time_t now = time(nullptr);
   uint8_t key[32], suppliedGrant[32], suppliedBody[32], actual[32], sessionKey[32];
-  if (!mqttDecodeHex32(mayapCommandKey(), key) ||
-      !mqttDecodeHex32(grantSig, suppliedGrant) ||
-      !mqttDecodeHex32(signature, suppliedBody)) return false;
+  if (!realtimeDecodeHex32(mayapCommandKey(), key) ||
+      !realtimeDecodeHex32(grantSig, suppliedGrant) ||
+      !realtimeDecodeHex32(signature, suppliedBody)) return false;
   const mbedtls_md_info_t *info = mbedtls_md_info_from_type(MBEDTLS_MD_SHA256);
   if (!info) return false;
   char header[220];
@@ -961,8 +831,8 @@ inline bool checkReplaySequence(const JsonDocument &doc) {
 
 inline void handleCommandMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
-  if (!mqttCommandChannelTrusted()) {
-    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+  if (!realtimeCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "REALTIME CHUA XAC THUC");
     return;
   }
   const uint32_t sequence = doc["sequence"] | 0UL;
@@ -1001,7 +871,7 @@ inline void handleCommandMessage(const JsonDocument &doc) {
     return;
   }
 
-  // Rollback thay doi firmware dang boot. Kenh MQTT hien dung credential
+  // Rollback thay doi firmware dang boot. Kenh realtime hien dung credential
   // chung, nen rollback tu xa bi khoa. Rollback van dung duoc tren HMI
   // voi man xac nhan CO/HUY da co san.
   if (type == HmiCommandType::FirmwareRollback) {
@@ -1024,7 +894,7 @@ inline void handleCommandMessage(const JsonDocument &doc) {
   uint32_t commandId = 0U;
   const uint16_t validForMs = type == HmiCommandType::AutoTuneStart
       ? COMMAND_AUTOTUNE_VALID_MS : COMMAND_DEFAULT_VALID_MS;
-  // F-09: danh dau lenh nay den tu MQTT (tu xa) - AlarmAck se tu choi rieng
+  // F-09: danh dau lenh nay den tu realtime (tu xa) - AlarmAck se tu choi rieng
   // 2 hanh dong can xac nhan vat ly (xoa loi dao/tat coi khan cap) neu nguon
   // la Remote, xem case HmiCommandType::AlarmAck trong processHmiTransactions().
   const bool queued = queueCommand(type, validForMs, 0U, alarmMaskParam, &commandId,
@@ -1055,8 +925,8 @@ inline void handleCommandMessage(const JsonDocument &doc) {
 
 inline void handleConfigSetMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
-  if (!mqttCommandChannelTrusted()) {
-    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+  if (!realtimeCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "REALTIME CHUA XAC THUC");
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
@@ -1247,8 +1117,8 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
 // giong het huong tiep can cua "config/set" o tren.
 inline void handleReminderSetMessage(const JsonDocument &doc) {
   const char *requestId = doc["requestId"] | "";
-  if (!mqttCommandChannelTrusted()) {
-    publishAck(requestId, "unauthorized", "BROKER CONG KHAI - LENH TU XA BI KHOA");
+  if (!realtimeCommandChannelTrusted()) {
+    publishAck(requestId, "unauthorized", "REALTIME CHUA XAC THUC");
     return;
   }
   const uint32_t revision = doc["revision"] | 0UL;
@@ -1337,7 +1207,7 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     const bool haveConfig = knownConfigValid;
     const bool haveReminders = knownRemindersValid;
     portEXIT_CRITICAL(&webMux);
-    // Mailboxes are drained outside the MQTT callback, not a burst of JSON/
+    // Mailboxes are drained outside the realtime callback, not a burst of JSON/
     // TLS writes on top of the incoming envelope and signature documents.
     portENTER_CRITICAL(&webMux);
     // Older clients omit scope and retain the original full-sync behavior.
@@ -1349,7 +1219,7 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
     forceSnapshotPublish = true;
     // Trinh duyet MOI mo/vua ket noi lai chi nhan duoc cac su kien XAY RA TU
-    // LUC DO VE SAU qua topic "log" (MQTT khong co lich su, chi phat tuc
+    // LUC DO VE SAU qua topic "log" (realtime khong co lich su, chi phat tuc
     // thoi) - "Nhat ky me ap" tren web vi vay trong/thieu neu bo lo su kien
     // xay ra TRUOC do (vd bat/tat me tu HMI, hoac tu 1 trinh duyet khac dang
     // mo). Phat lai toan bo backlog dang giu (toi da HMI_EVENT_DISPLAY_CAPACITY
@@ -1362,24 +1232,19 @@ inline void handleSessionMessage(const JsonDocument &doc) {
   }
 }
 
-inline void mqttMessageCallback(char *topic, uint8_t *payload,
-                      unsigned int length) {
-  // Incoming envelope is bounded independently of the transport hard cap.
-  if (length >= MayapProtocol::MQTT_NORMAL_CAP) return;
-  char buffer[MayapProtocol::MQTT_NORMAL_CAP];
-  memcpy(buffer, payload, length);
-  buffer[length] = '\0';
-
-  JsonDocument wireDoc;
-  if (deserializeJson(wireDoc, buffer, length) != DeserializationError::Ok) return;
+inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
+  if (length > MayapProtocol::FRAME_NORMAL_CAP) return;
+  JsonDocument frame;
+  if (deserializeJson(frame, payload, length) != DeserializationError::Ok || frame["v"].as<int>() != 1) return;
+  const char *channel = frame["channel"] | "";
+  JsonDocument wireDoc; wireDoc.set(frame["payload"]);
 
   auto verifyAndDispatch = [&](const char *channel, auto handler) {
     activeAckKeyValid = false;
     JsonDocument bodyDoc;
     const bool v2 = wireDoc["v"].as<int>() == 2;
     bool expired = false;
-    if (!(v2 ? mqttVerifyV2(channel, wireDoc, bodyDoc, expired)
-             : mqttVerifySignedWrite(channel, wireDoc, bodyDoc))) {
+    if (!v2 || !realtimeVerifyV2(channel, wireDoc, bodyDoc, expired)) {
       if (expired) {
         const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
             : !strcmp(channel, "config/set") ? "config.save"
@@ -1425,24 +1290,21 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
     activeAckKeyValid = false;
   };
 
-  if (strstr(topic, "/config/set")) {
+  if (!strcmp(channel, "config/set")) {
     verifyAndDispatch("config/set", [](const JsonDocument &doc) { handleConfigSetMessage(doc); });
     return;
   }
-  if (strstr(topic, "/reminders/set")) {
+  if (!strcmp(channel, "reminders/set")) {
     verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
     return;
   }
-  if (strstr(topic, "/history/request")) {
+  if (!strcmp(channel, "history/request")) {
     verifyAndDispatch("history/request", [](const JsonDocument &doc) { handleHistoryRequestMessage(doc); });
     return;
   }
-  const char *suffix = strrchr(topic, '/');
-  if (!suffix) return;
-  ++suffix;
-  if (!strcmp(suffix, "command")) {
+  if (!strcmp(channel, "command")) {
     verifyAndDispatch("command", [](const JsonDocument &doc) { handleCommandMessage(doc); });
-  } else if (!strcmp(suffix, "session")) {
+  } else if (!strcmp(channel, "session")) {
     // Session chi dieu chinh tan suat snapshot/Wi-Fi power, khong thay doi
     // control setpoint/actuator nen de unsigned de giu web nhe va tu phuc hoi.
     handleSessionMessage(wireDoc);
@@ -1450,71 +1312,19 @@ inline void mqttMessageCallback(char *topic, uint8_t *payload,
 }
 
 // ------------------------------ Vong doi ket noi -------------------------------
-inline bool subscribeAll() {
-  // Every new clean session must start at QoS1. The task's legacy promotion
-  // flag can still belong to the previous socket when reconnect succeeds in
-  // one cycle; relying on it leaves these subscriptions at QoS0.
-  bool ok = mqtt.subscribe(topicOf("config/set"), 1);
-  ok = mqtt.subscribe(topicOf("reminders/set"), 1) && ok;
-  ok = mqtt.subscribe(topicOf("command"), 1) && ok;
-  ok = mqtt.subscribe(topicOf("history/request"), 1) && ok;
-  ok = mqtt.subscribe(topicOf("session")) && ok;
-  return ok;
-}
-
-inline void attemptConnect(uint32_t now) {
-  if (!mqttTlsReady || !mqttBufferReady || !MQTT_BROKER_HOST[0]) return;
-  if (!mqttBackoff.ready(now)) return;
-
-  MayapTlsOperation tlsOperation;
-  if (!tlsOperation) return; // do not consume reconnect backoff while HTTPS is busy
-
-  char clientId[32];
-  snprintf(clientId, sizeof(clientId), "esp-%s", deviceId);
-  char willTopic[80];
-  snprintf(willTopic, sizeof(willTopic), "%s/%s/presence", MQTT_TOPIC_ROOT,
-           deviceId);
-  const char *willMessage = "{\"online\":false}";
-
-  const char *user = MQTT_USERNAME[0] ? MQTT_USERNAME : nullptr;
-  const char *pass = MQTT_PASSWORD[0] ? MQTT_PASSWORD : nullptr;
-  const bool ok = mqtt.connect(clientId, user, pass, willTopic, 0, true,
-                               willMessage, true);
-  if (!ok) {
-    netClient.stop(); // Release a failed TCP/TLS session before the existing backoff retry.
-    const uint32_t failedAt = millis();
-    mqttBackoff.onFailure(failedAt);
-    mayapSerialPrintf(false, "[WEBLINK] MQTT connect that bai state=%d, thu lai sau %lums\n",
-                      mqtt.state(),
-                      static_cast<unsigned long>(mqttBackoff.nextAttemptAt - failedAt));
-    return;
-  }
-  mqttBackoff.onSuccess();
-  if (!subscribeAll()) {
-    mqtt.disconnect();
-    netClient.stop();
-    mqttBackoff.onFailure(millis());
-    mayapSerialPrintf(false, "[WEBLINK] MQTT subscribe send failed; retry clean session\n");
-    return;
-  }
+inline void announceConnection() {
+  connectionAnnounced = true; linkBackoff.onSuccess();
   publishPresence(true);
   portENTER_CRITICAL(&webMux);
-  const bool haveConfig = knownConfigValid;
-  if (haveConfig) configDirty = true;
+  if (knownConfigValid) configDirty = true;
   portEXIT_CRITICAL(&webMux);
-  lastSnapshotPublishAt = 0U;
-  forceSnapshotPublish = true;
-  bootstrapCadence.reset();
-  mayapSerialPrintf(false, "[WEBLINK] MQTT da ket noi %s\n", deviceId);
-  // F-01: canh bao ro moi lan ket noi neu dang dung broker/tai khoan mac
-  // dinh - lenh dieu khien tu xa dang bi khoa (xem mqttCommandChannelTrusted()).
-  if (!mqttCommandChannelTrusted()) {
-    mayapSerialPrintf(false,
-        "[WEBLINK] CANH BAO: broker CONG KHAI khong xac thuc - LENH DIEU "
-        "KHIEN TU XA (start/stop/ACK/config/nhac nho) DA BI KHOA de an toan. "
-        "Dinh nghia MAYAP_MQTT_HOST/USERNAME/PASSWORD tro toi broker rieng "
-        "de bat lai.\n");
-  }
+  lastSnapshotPublishAt = 0U; forceSnapshotPublish = true; bootstrapCadence.reset();
+  mayapSerialPrintf(false, "[WEBLINK] authenticated WebSocket connected %s\n", deviceId);
+}
+inline void attemptConnect(uint32_t now) {
+  if (!linkBackoff.ready(now) || !mayapCommandKey()[0]) return;
+  // The transport holds shared TLS admission throughout the async handshake.
+  socketTransport.begin(CLOUD_API_HOST, deviceId, mayapDeviceSecret(), bootId, TLS_ROOT_CA, now);
 }
 
 inline void expirePendingCommands(uint32_t now) {
@@ -1531,7 +1341,7 @@ inline void expirePendingCommands(uint32_t now) {
   portENTER_CRITICAL(&webMux);
   for (PendingCommand &slot : pendingCommands) {
     if (!slot.used) continue;
-    // mqtt.loop() can create a slot after the caller captured `now`. Without
+    // socketTransport.loop() can create a slot after the caller captured `now`. Without
     // this ordering guard, now - queuedAt underflows and a fresh request looks
     // roughly 49 days old, so it is expired immediately.
     if (!timeReached(now, slot.queuedAt)) continue;
@@ -1609,7 +1419,7 @@ inline void serviceSessionTimeout(uint32_t now) {
   webSessionActive = active;
 }
 
-// MQTT owner is the sole writer of modem-sleep policy. Reapply after any
+// realtime owner is the sole writer of modem-sleep policy. Reapply after any
 // radio recovery; session churn is absorbed by the nonblocking 25-second grace.
 inline void serviceWifiPowerMode() {
   // Radio/portal recovery stays awake. Only an established STA may sleep.
@@ -1647,22 +1457,30 @@ inline void serviceReminderPublish() {
 }
 
 inline void serviceSnapshotPublish(uint32_t now) {
-  const uint32_t interval = webSessionActive ? WEB_SNAPSHOT_ACTIVE_INTERVAL_MS
-                                             : WEB_SNAPSHOT_IDLE_INTERVAL_MS;
-  if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + interval)) return;
+  static MayapWebRealtime::BootstrapState idleState{};
+  static bool idleKnown = false;
+  static uint32_t lastActiveBootstrapAt = 0U;
   portENTER_CRITICAL(&webMux);
-  const bool valid = knownRuntimeValid;
-  const MachineRuntime rt = knownRuntime;
+  const bool valid = knownRuntimeValid; const MachineRuntime rt = knownRuntime;
   const uint32_t revision = webConfigRevision;
   portEXIT_CRITICAL(&webMux);
-  if (valid) {
-    const auto hint = MayapWebRealtime::bootstrapState(rt, revision);
-    if (bootstrapCadence.due(now, hint))
-      bootstrapCadence.attempted(now, hint, publishBootstrap(rt, revision));
-  }
-  if (valid && publishSnapshot(rt, revision)) {
-    forceSnapshotPublish = false;
-    lastSnapshotPublishAt = millis();
+  if (!valid) return;
+  if (webSessionActive) {
+    if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + WEB_SNAPSHOT_ACTIVE_INTERVAL_MS)) return;
+    if (publishSnapshot(rt, revision)) { forceSnapshotPublish = false; lastSnapshotPublishAt = millis(); }
+    // Keep the bounded cold-start hint fresh while another browser watches.
+    if (elapsedMs(now, lastActiveBootstrapAt) >= WEB_SNAPSHOT_IDLE_INTERVAL_MS && publishBootstrap(rt, revision))
+      lastActiveBootstrapAt = millis();
+  } else {
+    auto hint = MayapWebRealtime::bootstrapState(rt, revision);
+    hint.temperature = hint.humidity = 0;
+    hint.outputs &= 65U; // batch/siren are events; heater PWM is not cloud traffic.
+    const bool changed = !idleKnown || !(hint == idleState);
+    const uint32_t age = elapsedMs(now, lastSnapshotPublishAt);
+    if (!forceSnapshotPublish && !(changed && age >= 2000U) && age < WEB_SNAPSHOT_IDLE_INTERVAL_MS) return;
+    if (publishBootstrap(rt, revision)) {
+      idleKnown = true; idleState = hint; forceSnapshotPublish = false; lastSnapshotPublishAt = millis();
+    }
   }
 }
 
@@ -1695,80 +1513,43 @@ inline void serviceEventLogPublish() {
 
 inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
-  ensureIdentity();
-  mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
-  if (!mqttBufferReady) mayapSerialPrintf(false, "[WEBLINK] khong cap duoc MQTT buffer %u B\n",
-                                      static_cast<unsigned>(MayapProtocol::MQTT_HARD_CAP));
-  mqtt.setServer(MQTT_BROKER_HOST, MQTT_BROKER_PORT);
-  mqtt.setCallback(mqttMessageCallback);
-#if MQTT_USE_TLS
-  mqttTlsReady = TLS_ROOT_CA[0] != '\0';
-  if (mqttTlsReady) {
-    netClient.setCACert(TLS_ROOT_CA);
-  } else {
-    mayapSerialPrintf(false,
-        "[WEBLINK] TLS bi khoa: chua nhung MAYAP_TLS_ROOT_CA - KHONG ha cap insecure\n");
-  }
-#endif
-  wifiPowerModeValid = false;
-  applyWifiPowerMode(true);
+  ensureIdentity(); socketTransport.setCallback(realtimeMessageCallback);
+  wifiPowerModeValid = false; applyWifiPowerMode(true);
 }
-
-// Owner mqttTask only. Preserve all mailboxes, transactions, ACK outboxes,
-// boot identity and subscriptions; normal reconnect resubscribes as before.
+// Historical API name maps the existing recovery enum slot onto WebSocket.
 inline void mayapMqttRecover(uint32_t now) {
   using namespace MayapRealtimeInternal;
-  netClient.stop();
-  mqtt.disconnect();
-  if (!mqttBufferReady) mqttBufferReady = mqtt.setBufferSize(MayapProtocol::MQTT_HARD_CAP);
-  mqttBackoff.onFailure(now);
+  socketTransport.disconnect(); connectionAnnounced = false; linkBackoff.onFailure(now);
 }
-
-// Chi duoc goi tu mqttTask (vong lap khong blocking, giong het
-// mayapNetworkUpdate ma no chay canh).
 inline void mayapWebLinkUpdate(uint32_t now) {
   using namespace MayapRealtimeInternal;
-  serviceSessionTimeout(now);
-  // Phai chay TRUOC moi nhanh return ben duoi: cong doi Wi-Fi co the dang mo
-  // ngay ca khi STA (va vi vay MQTT) dang tat han, nhung AP van can duoc giu
-  // WIFI_PS_NONE de phat song on dinh trong luc do.
-  serviceWifiPowerMode();
-
+  serviceSessionTimeout(now); serviceWifiPowerMode();
   const NetworkStatus status = mayapGetNetworkStatus();
-  const bool staOnline = status.requestedMode == ConnectivityMode::Online &&
-                         status.connected;
-  if (!staOnline) {
-    if (mqtt.connected()) mqtt.disconnect();
-    // STA vua mat/chua co: cho phep lan ket noi MQTT tiep theo (khi STA co
-    // lai) thu ngay, khong ke thua buoc backoff cua lan mat mang truoc do.
-    mqttBackoff.reset(now);
-    return;
+  if (status.requestedMode != ConnectivityMode::Online || !status.connected) {
+    if (socketTransport.busy()) socketTransport.disconnect();
+    connectionAnnounced = false; linkBackoff.reset(now); return;
   }
-  if (!mqtt.connected()) {
-    attemptConnect(now);
-    return;
+  if (!socketTransport.busy()) { connectionAnnounced = false; attemptConnect(now); }
+  if (!socketTransport.busy()) return; // Provisioning or shared TLS admission is not ready.
+  socketTransport.loop(now);
+  if (!socketTransport.busy()) {
+    connectionAnnounced = false; linkBackoff.onFailure(millis());
+    mayapSerialPrintf(false, "[WEBLINK] socket reset reason=%d retry=%lums\n", socketTransport.state(),
+      static_cast<unsigned long>(linkBackoff.nextAttemptAt - millis())); return;
   }
-  mqtt.loop();
-  // mqtt.loop() dispatches incoming callbacks synchronously. Those callbacks
-  // can stamp queuedAt with a value newer than the `now` supplied by mqttTask,
-  // so all post-callback deadline work must use a refreshed clock sample.
+  if (!socketTransport.connected()) return;
+  if (!connectionAnnounced) announceConnection();
   const uint32_t postLoopNow = millis();
-  expirePendingCommands(postLoopNow);
-  drainAckOutbox();
-  // Keep the MQTT pump and command ACKs alive during another TLS operation,
-  // but defer bulk reports/history until its transient working set is freed.
+  expirePendingCommands(postLoopNow); drainAckOutbox();
   MayapNetworkBatchOperation batchOperation;
   if (!batchOperation) return;
-  serviceSnapshotPublish(postLoopNow);
-  serviceConfigPublish();
-  serviceReminderPublish();
-  serviceEventLogPublish();
-  serviceHistoryResponse();
+  serviceSnapshotPublish(postLoopNow); serviceConfigPublish(); serviceReminderPublish();
+  serviceEventLogPublish(); serviceHistoryResponse();
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------
 // Tat ca cac ham duoi day CHI ghi vao hop thu webMux-protected, khong bao gio
-// goi vao PubSubClient/WiFiClient (I/O mang phai o lai mqttTask).
+// goi vao WebSocketTransport/WiFiClient (I/O mang phai o lai realtime owner).
 
 inline void mayapWebSetRuntime(const MachineRuntime &runtime) {
   using namespace MayapRealtimeInternal;
@@ -1880,14 +1661,14 @@ inline void mayapWebPushEventLog(const HmiEventSnapshot &snapshot) {
   portEXIT_CRITICAL(&webMux);
 }
 
-// Trang thai SONG cua kenh MQTT/Web (bo sung cho [NET] cua printStatus() vi
-// do chi bao WiFi/STA, khong bao rieng MQTT da connect() hay chua) - dung cho
+// Trang thai SONG cua kenh realtime/Web (bo sung cho [NET] cua printStatus() vi
+// do chi bao WiFi/STA, khong bao rieng realtime da connect() hay chua) - dung cho
 // lenh Serial CONFIG.
 inline void mayapPrintWebStatus() {
   using namespace MayapRealtimeInternal;
   mayapSerialPrintf(false,
-      "[WEB] mqtt_connected=%u web_session_active=%u mqtt_backoff_step=%u/%u\n",
-      mqtt.connected(), webSessionActive,
-      static_cast<unsigned>(mqttBackoff.step),
+      "[WEB] websocket_connected=%u web_session_active=%u backoff_step=%u/%u\n",
+      socketTransport.connected(), webSessionActive,
+      static_cast<unsigned>(linkBackoff.step),
       static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
 }

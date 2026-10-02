@@ -1,13 +1,14 @@
 {
   "name": "mayap-push-worker",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "dev": "python3 ../tools/build_web_assets.py && wrangler dev",
+    "deploy": "python3 ../tools/build_web_assets.py && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply mayap_push --local",
-    "db:migrate:remote": "wrangler d1 migrations apply mayap_push --remote"
+    "db:migrate:remote": "wrangler d1 migrations apply mayap_push --remote",
+    "assets": "python3 ../tools/build_web_assets.py"
   },
   "dependencies": {
     "@block65/webcrypto-web-push": "1.0.2",
@@ -15,6 +16,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20260930.1",
+    "playwright": "1.58.2",
     "wrangler": "4.144.0"
   }
 }

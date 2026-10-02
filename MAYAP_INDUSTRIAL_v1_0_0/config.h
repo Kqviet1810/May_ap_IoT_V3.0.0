@@ -35,7 +35,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "1.0.0";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.0";
 #ifndef MAYAP_BUILD_REVISION
 #define MAYAP_BUILD_REVISION local
 #endif
@@ -88,50 +88,8 @@ static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
 constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
 static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 
-// ------------------------- Web realtime (MQTT) --------------------------------
-// Host/port/CA cong khai nam trong build_public.h. Username/password MQTT la
-// BUILD SECRET: local build dien build_secrets.h co san; CI branch/tag tao file
-// nay tu GitHub Secrets. Tuyet doi khong commit credential that vao repo.
-//
-// Fail-fast la chu dich: firmware co realtime Web nen mot binary deploy ma
-// username/password rong la binary loi. Truoc day code im lang fallback thanh
-// chuoi rong, van compile/boot va broker chi tra state=5 UNAUTHORIZED.
-// Cac static_assert ben duoi chan loi ngay luc compile de khong lap lai su co.
-#ifndef MAYAP_MQTT_HOST
-#define MAYAP_MQTT_HOST ""
-#endif
-#ifndef MAYAP_MQTT_PORT
-#define MAYAP_MQTT_PORT 8883
-#endif
-#ifndef MAYAP_MQTT_USE_TLS
-#define MAYAP_MQTT_USE_TLS 1
-#endif
-#ifndef MAYAP_MQTT_USERNAME
-#define MAYAP_MQTT_USERNAME ""
-#endif
-#ifndef MAYAP_MQTT_PASSWORD
-#define MAYAP_MQTT_PASSWORD ""
-#endif
-#ifndef MAYAP_MQTT_TOPIC_ROOT
-#define MAYAP_MQTT_TOPIC_ROOT "mayap/v1"
-#endif
-constexpr char MQTT_BROKER_HOST[] = MAYAP_MQTT_HOST;
-constexpr uint16_t MQTT_BROKER_PORT = MAYAP_MQTT_PORT;
-constexpr bool MQTT_USE_TLS = (MAYAP_MQTT_USE_TLS) != 0;
-constexpr char MQTT_USERNAME[] = MAYAP_MQTT_USERNAME;
-constexpr char MQTT_PASSWORD[] = MAYAP_MQTT_PASSWORD;
-constexpr char MQTT_TOPIC_ROOT[] = MAYAP_MQTT_TOPIC_ROOT;
-
-// Deploy invariant: khong cho tao .bin neu realtime MQTT khong co host/account.
-static_assert(sizeof(MQTT_BROKER_HOST) > 1U,
-              "THIEU MAYAP_MQTT_HOST trong build_public.h");
-static_assert(MQTT_BROKER_PORT != 0U,
-              "MAYAP_MQTT_PORT khong hop le");
-static_assert(sizeof(MQTT_USERNAME) > 1U,
-              "THIEU MAYAP_MQTT_USERNAME: dien build_secrets.h");
-static_assert(sizeof(MQTT_PASSWORD) > 1U,
-              "THIEU MAYAP_MQTT_PASSWORD: dien build_secrets.h");
-
+// ------------------------- Cloudflare WebSocket realtime ----------------------
+// Each device authenticates with its own NVS device key; no fleet broker secret.
 // Reconnect MQTT dung BackoffTimer dung chung (xem phia duoi file) thay vi
 // chu ky co dinh - khong con hang so rieng o day.
 // Web bao "active" (tab dang mo) qua topic session voi ttlMs rieng; day la
@@ -140,8 +98,8 @@ static_assert(sizeof(MQTT_PASSWORD) > 1U,
 constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000UL;
 // Toc do phat snapshot: nhanh khi co web dang mo (foreground), cham lai khi
 // khong ai theo doi de tiet kiem song/nang luong nhung van giu "con song".
-constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 400UL;
-constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 6000UL;
+constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 1000UL;
+constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 120000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
 // Dung chung thoi han cho voi "config/set" - luu danh sach nhac nho tuy
@@ -221,7 +179,7 @@ constexpr uint32_t FIRMWARE_CHECK_INTERVAL_MS = 6UL * 60UL * 60UL * 1000UL;  // 
 // nhan duoc su kien LWT khi khong co request nao toi). Cron kiem tra phia
 // Worker toi da 1 phut/lan (san co, gioi han cua nen tang) nen day la do
 // tre nhanh nhat dat duoc cho kenh bao qua dien thoai voi kien truc hien tai.
-constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 15000UL;
+constexpr uint32_t CLOUD_HEARTBEAT_INTERVAL_MS = 60000UL;
 // Chu ky nhac lai khi loi con ton tai (tuy muc do - CRITICAL nhac nhanh hon
 // WARNING nhu yeu cau). "Info" gan nhu khong dung cho loi that (chi day phong).
 constexpr uint32_t CLOUD_REPEAT_WARNING_MS = 600000UL;    // 10 phut

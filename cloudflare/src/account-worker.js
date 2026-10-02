@@ -2,7 +2,9 @@ import physicalWorker from './reliability-wrapper.js';
 import legacy from './index.js';
 import { randomToken, verifyDeviceKey, timingSafeEqual } from './auth.js';
 import { hash, json, session,
-  deviceList, permission, createSession, verifyGoogle, mqttCredentials, controlGrant } from './account-auth.js';
+  deviceList, permission, createSession, verifyGoogle, controlGrant } from './account-auth.js';
+import { DEVICE_ID, CLIENT_ID, issueTicket, verifyTicket, livePermission } from './realtime-auth.js';
+export { DeviceHub } from './device-hub.js';
 
 const idRe = /^MAP-[A-F0-9]{12}$/;
 const physical = new Set(['/api/device/register','/api/device/heartbeat','/api/device/reset-pin',
@@ -91,11 +93,47 @@ async function claim(request, env, auth, data) {
   if (owner?.user_sub!==auth.user_sub) return json({success:false,error:'Thiết bị đã thuộc một tài khoản khác.'},409);
   return json({success:true,device_id:id,device_name:device.device_name || id});
 }
+async function openRealtime(request, env) {
+  const url=new URL(request.url), parts=url.pathname.split('/');
+  const kind=parts[2], id=parts[3];
+  if (request.method!=='GET' || request.headers.get('Upgrade')?.toLowerCase()!=='websocket' ||
+      parts.length!==4 || !DEVICE_ID.test(id) || !env.DEVICE_HUB) return deny();
+  let claims;
+  if(kind==='device') {
+    if(request.headers.has('Origin') || !env.DEVICE_KEY_PEPPER) return deny();
+    const key=(request.headers.get('Authorization') || '').replace(/^Bearer /,'');
+    const bootId=Number(request.headers.get('X-Mayap-Boot'));
+    if(!/^[A-Fa-f0-9]{64}$/.test(key) || !Number.isInteger(bootId) || bootId<=0 || bootId>0xffffffff) return deny(401);
+    const device=await env.DB.prepare(`SELECT d.device_key_hash FROM devices d LEFT JOIN device_inventory i
+      ON i.device_id=d.device_id WHERE d.device_id=? AND COALESCE(i.enabled,1)=1`).bind(id).first();
+    if(!device || !await verifyDeviceKey(key,env.DEVICE_KEY_PEPPER,device.device_key_hash)) return deny(401);
+    claims={kind:'device',deviceId:id,bootId,keyHash:device.device_key_hash};
+  } else if(kind==='browser') {
+    if(request.headers.get('Origin')!==allowedOrigin(env)) return deny();
+    const protocols=(request.headers.get('Sec-WebSocket-Protocol') || '').split(',').map(v=>v.trim());
+    if(protocols.length!==2 || protocols[0]!=='mayap.v1' || !protocols[1].startsWith('ticket.')) return deny(401);
+    const ticket=await verifyTicket(env,protocols[1].slice(7));
+    if(!ticket || ticket.deviceId!==id || !await livePermission(env,ticket)) return deny();
+    claims={...ticket,kind:'browser'};
+  } else return deny();
+  const headers=new Headers({Upgrade:'websocket','X-Mayap-Admission':JSON.stringify(claims)});
+  const stub=env.DEVICE_HUB.get(env.DEVICE_HUB.idFromName(id));
+  return stub.fetch(new Request('https://device-hub/connect',{headers}));
+}
 async function fetchAccount(request, env, ctx) {
   const url=new URL(request.url), path=url.pathname, method=request.method;
+  if (path.startsWith('/realtime/')) return openRealtime(request, env);
   // Existing physical-device authentication and task architecture stay unchanged.
-  if ((method==='POST' && physical.has(path)) || (method==='GET' && /^\/api\/firmware\/download\//.test(path)))
-    return physicalWorker.fetch(request,env,ctx);
+  if ((method==='POST' && physical.has(path)) || (method==='GET' && /^\/api\/firmware\/download\//.test(path))) {
+    const copy = path === '/api/device/rotate-key' && env.DEVICE_HUB ? request.clone() : null;
+    const response = await physicalWorker.fetch(request,env,ctx);
+    if (copy && response.ok) {
+      const data = await body(copy);
+      await env.DEVICE_HUB.get(env.DEVICE_HUB.idFromName(String(data.device_id).trim()))
+        .fetch(new Request('https://device-hub/invalidate-device', {method:'POST'}));
+    }
+    return response;
+  }
   if(request.headers.get('Origin')!==allowedOrigin(env))return deny();
   if(method==='OPTIONS') {
     if(!['GET','POST','DELETE'].includes(request.headers.get('Access-Control-Request-Method')))return deny();
@@ -135,7 +173,7 @@ async function fetchAccount(request, env, ctx) {
   if (match && method==='GET') {
     const device=await permission(env,auth.user_sub,id);
     if (!device) return deny();
-    if (match[2]==='config') return json({success:false,error:'LOAD_CONFIG_OVER_AUTHORIZED_MQTT'},409);
+    if (match[2]==='config') return json({success:false,error:'LOAD_CONFIG_OVER_AUTHORIZED_REALTIME'},409);
     if (match[2]==='history') {
       const {results}=await env.DB.prepare('SELECT recorded_at,temperature,humidity,batch_running FROM telemetry_history WHERE device_id=? ORDER BY recorded_at DESC LIMIT 500').bind(id).all();
       return json({success:true,points:results});
@@ -144,13 +182,15 @@ async function fetchAccount(request, env, ctx) {
     return json({success:true,exists:true,device_id:id,device_name:device.device_name,status:device.status,last_seen:device.last_seen,
       batch_running:!!device.batch_running,subscription_count:subs.n});
   }
-  if (path==='/api/device/mqtt-session' && method==='POST') {
+  if (path==='/api/device/realtime-session' && method==='POST') {
     const device=await permission(env,auth.user_sub,id), cid=String(data.control_client_id || '');
     if (!device) return deny();
-    if (!/^[A-Za-z0-9_-]{8,40}$/.test(cid)) return json({success:false,error:'INVALID_CLIENT'},400);
-    try { return json({success:true,mqtt:mqttCredentials(env),
-      control:device.role==='viewer' ? null : await controlGrant(env,id,cid)}); }
-    catch { return json({success:false,error:'MQTT_NOT_CONFIGURED'},503); }
+    if (!CLIENT_ID.test(cid)) return json({success:false,error:'INVALID_CLIENT'},400);
+    if (!env.DEVICE_HUB) return json({success:false,error:'REALTIME_NOT_CONFIGURED'},503);
+    const ticket=await issueTicket(env,{aud:'browser',deviceId:id,clientId:cid,
+      sessionId:auth.id,userSub:auth.user_sub,role:device.role,sessionExpiresAt:auth.expires_at});
+    return json({success:true,realtime:{url:`${url.origin.replace(/^http/, 'ws')}/realtime/browser/${id}`,ticket},
+      control:device.role==='viewer' ? null : await controlGrant(env,id,cid)});
   }
   if (path==='/api/device/rename' && method==='POST') {
     const device=await permission(env,auth.user_sub,id,true);
@@ -195,12 +235,16 @@ async function fetchAccount(request, env, ctx) {
 }
 export default {
   async fetch(request,env,ctx) {
+    if (!new URL(request.url).pathname.startsWith('/api/') &&
+        !new URL(request.url).pathname.startsWith('/realtime/') && env.ASSETS)
+      return env.ASSETS.fetch(request);
     let response;
     try {response=await fetchAccount(request,env,ctx);} catch(error) {
       const bad=['INVALID_BODY','BODY_TOO_LARGE'].includes(error.message) || error instanceof SyntaxError;
       response=json({success:false,error:bad?'INVALID_REQUEST':'SERVICE_UNAVAILABLE'},bad?400:503);
     }
     // Account APIs use exact-origin CORS + explicit bearer authorization; no third-party cookies.
+    if(response.status===101) return response;
     if(request.headers.get('Origin')===env.ALLOWED_ORIGIN) {
       const headers=new Headers(response.headers);headers.set('Access-Control-Allow-Origin',env.ALLOWED_ORIGIN);
       headers.set('Vary','Origin');return new Response(response.body,{status:response.status,headers});

@@ -1,6 +1,10 @@
 name: Deploy Cloudflare Worker
 
 on:
+  workflow_run:
+    workflows: ["Build & release firmware"]
+    types: [completed]
+    branches: [main]
   workflow_dispatch:
     inputs:
       source_ref:
@@ -10,18 +14,29 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+concurrency:
+  group: cloudflare-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (vars.CLOUDFLARE_REALTIME_AUTODEPLOY == '1' &&
+       github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ma nguon can deploy
         uses: actions/checkout@v7
         with:
-          ref: ${{ inputs.source_ref }}
+          ref: ${{ github.event.workflow_run.head_sha || inputs.source_ref }}
 
       - name: Cai Node.js
         uses: actions/setup-node@v7
@@ -46,6 +61,9 @@ jobs:
           node --check cloudflare/src/db.js
           node --check cloudflare/src/push.js
           node --check config.js
+          node --check realtime_transport.js
+          node --check cloudflare/src/device-hub.js
+          node --check cloudflare/src/realtime-auth.js
 
       - name: Kiem tra dong bo release
         run: python3 tools/check_release_sync.py
@@ -60,6 +78,15 @@ jobs:
           set -euo pipefail
           npx --yes pnpm@11.19.0 install --frozen-lockfile
           node --check src/account-worker.js
+
+      - name: Account, transaction, reconnect and hibernation regression
+        run: node --test tests/*.test.cjs
+
+      - name: Real local workerd integration before remote mutation
+        run: python3 tools/test_realtime_workerd.py
+
+      - name: Stage reviewed public assets only
+        run: python3 tools/build_web_assets.py
 
       - name: Cap nhat D1 schema
         working-directory: cloudflare

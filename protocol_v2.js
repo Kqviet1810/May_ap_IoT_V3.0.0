@@ -2,7 +2,7 @@
 (function (root) {
   'use strict';
   const PacketPolicy = Object.freeze({ HARD_CAP: 4096, NORMAL_CAP: 2048,
-    SMALL_TARGET: 512, CHUNK_TARGET: 1024, MQTT_OVERHEAD: 5,
+    SMALL_TARGET: 512, CHUNK_TARGET: 1024, FRAME_OVERHEAD: 80,
     UNCERTAIN_TTL_MS: 120000 });
   class TransactionLedger {
     constructor(clock = () => performance.now()) {
