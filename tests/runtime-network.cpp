@@ -1,7 +1,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
-#include "../MAYAP_INDUSTRIAL_v4_0_0/runtime_recovery_policy.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/runtime_recovery_policy.h"
 static uint32_t clockMs=1;
 uint32_t millis() { return clockMs; }
 void mayapSerialPrintf(bool, const char *, ...) {}
