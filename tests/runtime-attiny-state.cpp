@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <climits>
 #include "actual-attiny-config.inc"
-#include "../MAYAP_INDUSTRIAL_v4_0_0/attiny_state_sync.h"
+#include "../MAYAP_INDUSTRIAL_v1_0_0/attiny_state_sync.h"
 
 static uint32_t clockMs = 1000U;
 static uint32_t millis() { return clockMs; }
