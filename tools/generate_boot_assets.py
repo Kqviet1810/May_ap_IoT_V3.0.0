@@ -40,7 +40,7 @@ def main():
               f"constexpr uint8_t BOOT_LOGO_HEIGHT = {logo.height}U;",
               "constexpr uint8_t BOOT_LOGO_TOP = 16U;",
               "static const uint8_t bootLogoBits[] PROGMEM = {\n  " + xbm(logo) + "\n};"]
-    (ROOT / "MAYAP_INDUSTRIAL_v4_0_0/boot_assets.h").write_text("\n".join(result) + "\n", encoding="utf-8")
+    (ROOT / "MAYAP_INDUSTRIAL_v1_0_0/boot_assets.h").write_text("\n".join(result) + "\n", encoding="utf-8")
     if args.preview:
         frame = Image.new("1", (128, 64), 1)
         frame.paste(0, ((128 - logo.width) // 2, 16), logo)
