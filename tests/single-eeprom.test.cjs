@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const read = name => fs.readFileSync(path.join(__dirname, '..', 'MAYAP_INDUSTRIAL_v4_0_0', name), 'utf8');
+const read = name => fs.readFileSync(path.join(__dirname, '..', 'MAYAP_INDUSTRIAL_v1_0_0', name), 'utf8');
 test('notes bridge applies only EEPROM readback and reports the final revision', () => {
   const control = read('machine_control.h');
   const start = control.indexOf('if (hmiTakeSavedReminders(');
