@@ -80,6 +80,11 @@ async function main() {
       const docked = await b.boundingBox(); await page.mouse.move(docked.x+26,docked.y+26); await page.mouse.down(); await page.mouse.move(-100,-100,{steps:6});
       const bounded = await b.boundingBox(); assert.ok(bounded.x>=0 && bounded.y>=0,'Drag cannot leave viewport'); await page.mouse.up();
       await page.reload(); await b.waitFor(); assert.equal(Math.round((await b.boundingBox()).x),12);
+      // A restored shell/cache is not a live authenticated device connection.
+      await page.waitForFunction(() => {
+        const h=window.__qa,d=h?.state.devices[0];
+        return d?.presence?.notesVersion===1 && h.controlReady(d);
+      });
       await b.click(); await page.locator('.noteCard').first().waitFor();
       assert.equal(await page.locator('.notesBadge').innerText(),'4','Device notes survive browser reload');
       await page.evaluate(()=>{const d=window.__qa.state.devices[0];d.snapshot.runtime.batchRunning=false;window.__qa.renderDevice();});

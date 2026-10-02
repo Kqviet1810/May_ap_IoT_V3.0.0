@@ -34,6 +34,11 @@ async function setupNotes(browser,options={}) {
     if(save)next.push({...body.note,version});device.rows.set(deviceId,next);
     return {ok:true,code:'NOTES_STORED',version};
   });
+  // Reload restores cached UI before its live control grant/socket is ready.
+  await h.context.route('**/realtime-session',async route=>{
+    await new Promise(resolve=>setTimeout(resolve,150));
+    await route.fallback();
+  });
   return {...h,device};
 }
 module.exports={setupNotes};

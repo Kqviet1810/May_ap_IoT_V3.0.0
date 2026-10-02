@@ -9,7 +9,7 @@ const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
 const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
   window.__qa = { state, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
-    handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus };
+    handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus, controlReady };
   init();`);
 const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config.h'), 'utf8');
 const defaults = {};
