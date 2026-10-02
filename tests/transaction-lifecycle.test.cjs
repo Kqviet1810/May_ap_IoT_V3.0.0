@@ -239,7 +239,7 @@ test('session HMAC binds channel/body; expired session requires refresh; firmwar
   session.expiresAt = Math.floor(Date.now() / 1000) - 1;
   await assert.rejects(h.signMqttWrite(h.device, 'command',
     { v: 2, requestId: 'cmd-expired-local' }), { code: 'AUTH_ERROR' });
-  const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v4_0_0/realtime_link.h'), 'utf8');
+  const firmware = readFileSync(require.resolve('../MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h'), 'utf8');
   assert.match(firmware, /expiry < static_cast<unsigned long>\(now\)/);
   assert.match(firmware, /if \(expired\)[\s\S]*?SESSION_EXPIRED/);
   assert.match(firmware, /if \(replayTerminal\(id\)\)/);
