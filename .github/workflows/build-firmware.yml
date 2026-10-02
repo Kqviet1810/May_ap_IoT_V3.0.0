@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-      - feature/web-esp-transaction-v2
-      - feat/adaptive-staged-boot
-      - feat/google-account-multitenant
-      - 'hardening/**'
     tags:
       - 'v*.*.*'
   pull_request:
@@ -86,17 +82,17 @@ jobs:
 
       - name: Kiem tra version va ma nguon an toan
         run: |
-          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v4_0_0/config.h)
+          VERSION=$(sed -n 's/.*MAYAP_FIRMWARE_VERSION\[\].*"\([^"]*\)".*/\1/p' MAYAP_INDUSTRIAL_v1_0_0/config.h)
           test -n "$VERSION"
           if [[ "$GITHUB_REF" == refs/tags/* ]] && [[ "${GITHUB_REF_NAME#v}" != "$VERSION" ]]; then
             echo "::error::Tag $GITHUB_REF_NAME khong khop firmware $VERSION"
             exit 1
           fi
-          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+          if grep -R "setInsecure()" MAYAP_INDUSTRIAL_v1_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Khong duoc bo qua xac thuc TLS"
             exit 1
           fi
-          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v4_0_0 --include='*.h' --include='*.ino'; then
+          if grep -R "BEGIN.*PRIVATE KEY" MAYAP_INDUSTRIAL_v1_0_0 --include='*.h' --include='*.ino'; then
             echo "::error::Private key khong duoc nam trong firmware"
             exit 1
           fi
@@ -108,7 +104,7 @@ jobs:
         run: python3 tools/check_release_sync.py
 
       - name: Kiem tra reliability truoc build/release
-        run: python3 tools/check_v381_reliability.py
+        run: python3 tools/check_reliability.py
 
       - name: Protocol V2 transaction and packet regression
         run: node --test tests/*.test.cjs
@@ -140,12 +136,15 @@ jobs:
           import json, os
           from pathlib import Path
 
-          if os.getenv("GITHUB_EVENT_NAME") == "pull_request":
-              # PR khong duoc doc repository secrets. Placeholder chi de compile;
-              # PR workflow khong phat hanh binary deploy.
-              username = "__ci_pr_mqtt_user__"
-              password = "__ci_pr_mqtt_password__"
-              ota_password = "__ci_pr_ota_password__"
+          is_release_build = (
+              os.getenv("GITHUB_REF", "").startswith("refs/tags/")
+              or os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
+          )
+          if not is_release_build:
+              # Push/PR chi xac minh compile; khong tao binary deploy voi credential that.
+              username = "__ci_mqtt_user__"
+              password = "__ci_mqtt_password__"
+              ota_password = "__ci_ota_password__"
           else:
               username = os.getenv("MAYAP_MQTT_USERNAME", "").strip()
               password = os.getenv("MAYAP_MQTT_PASSWORD", "")
@@ -153,7 +152,7 @@ jobs:
               if not username or not password:
                   raise SystemExit("Thieu GitHub Secrets: MAYAP_MQTT_USERNAME/MAYAP_MQTT_PASSWORD")
 
-          Path("MAYAP_INDUSTRIAL_v4_0_0/build_secrets.h").write_text(
+          Path("MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h").write_text(
               "#pragma once\n"
               + "#define MAYAP_MQTT_USERNAME " + json.dumps(username) + "\n"
               + "#define MAYAP_MQTT_PASSWORD " + json.dumps(password) + "\n"
@@ -225,14 +224,14 @@ jobs:
             --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS} -DMAYAP_BUILD_REVISION=${GITHUB_SHA:0:12}" \
             --output-dir ./build \
             --verbose \
-            MAYAP_INDUSTRIAL_v4_0_0
+            MAYAP_INDUSTRIAL_v1_0_0
 
       - name: Verify linked GPIO ISR cache safety
         shell: bash
         run: |
           OBJDUMP=$(find "$HOME/.arduino15/packages/esp32/tools/esp-x32" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)
           test -n "$OBJDUMP"
-          python3 tools/check_bus_iram.py --objdump "$OBJDUMP" --elf build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
+          python3 tools/check_bus_iram.py --objdump "$OBJDUMP" --elf build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf
 
       - name: Bao cao kich thuoc
         run: |
@@ -240,14 +239,14 @@ jobs:
           ls -la ./build-attiny/*.hex
 
       - name: Luu firmware test
-        if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/hardening/') || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/feature/web-esp-transaction-v2' || github.ref == 'refs/heads/feat/adaptive-staged-boot'
+        if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v6
         with:
           name: firmware-test-${{ github.sha }}
           path: |
-            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin
-            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf
-            ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.map
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.bin
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.map
             ./build-attiny/ATTINY13A_POWER_ALARM.hex
           retention-days: 7
 
@@ -255,8 +254,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
-          cp ./build/MAYAP_INDUSTRIAL_v4_0_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
+          cp ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
           cp ./build-attiny/ATTINY13A_POWER_ALARM.hex "./MAYAP-ATtiny13A-LINKFIX-${VERSION}.hex"
 
       - name: Ky so firmware
