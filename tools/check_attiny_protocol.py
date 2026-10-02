@@ -4,8 +4,8 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 tiny = (root / 'ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino').read_text(encoding='utf-8')
-cfg = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
-bus = (root / 'MAYAP_INDUSTRIAL_v4_0_0/attiny_bus.h').read_text(encoding='utf-8')
+cfg = (root / 'MAYAP_INDUSTRIAL_v1_0_0/config.h').read_text(encoding='utf-8')
+bus = (root / 'MAYAP_INDUSTRIAL_v1_0_0/attiny_bus.h').read_text(encoding='utf-8')
 
 assert 'PROTOCOL_VERSION = 4U' in tiny and 'ATTINY_PROTOCOL_VERSION = 4U' in cfg
 table = re.search(r'ATTINY_COMMAND_WIDTH_MS\[8\]\s*=\s*\{([^}]+)\}', cfg)[1]
