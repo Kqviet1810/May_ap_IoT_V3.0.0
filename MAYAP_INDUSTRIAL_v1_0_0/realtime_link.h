@@ -1518,14 +1518,21 @@ inline void serviceSnapshotPublish(uint32_t now) {
   static MayapWebRealtime::BootstrapState idleState{};
   static bool idleKnown = false;
   static uint32_t lastActiveBootstrapAt = 0U;
+  static bool lastLightKnown = false, lastLightOn = false;
   portENTER_CRITICAL(&webMux);
   const bool valid = knownRuntimeValid; const MachineRuntime rt = knownRuntime;
   const uint32_t revision = webConfigRevision;
   portEXIT_CRITICAL(&webMux);
   if (!valid) return;
   if (webSessionActive) {
-    if (!forceSnapshotPublish && !timeReached(now, lastSnapshotPublishAt + WEB_SNAPSHOT_ACTIVE_INTERVAL_MS)) return;
-    if (publishSnapshot(rt, revision)) { forceSnapshotPublish = false; lastSnapshotPublishAt = millis(); }
+    // The terminal ACK may precede the controller's 200 ms runtime refresh.
+    // Send the real lamp edge when it arrives, even if the forced sample was old.
+    const bool lightChanged = !lastLightKnown || rt.lightOn != lastLightOn;
+    if (!forceSnapshotPublish && !lightChanged && !timeReached(now, lastSnapshotPublishAt + WEB_SNAPSHOT_ACTIVE_INTERVAL_MS)) return;
+    if (publishSnapshot(rt, revision)) {
+      forceSnapshotPublish = false; lastSnapshotPublishAt = millis();
+      lastLightKnown = true; lastLightOn = rt.lightOn;
+    }
     // Keep the bounded cold-start hint fresh while another browser watches.
     if (elapsedMs(now, lastActiveBootstrapAt) >= WEB_SNAPSHOT_IDLE_INTERVAL_MS && publishBootstrap(rt, revision))
       lastActiveBootstrapAt = millis();

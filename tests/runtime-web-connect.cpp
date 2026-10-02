@@ -6,10 +6,13 @@
 #include <cstdint>
 #include <ctime>
 #include <string>
+#include <vector>
 #include "../MAYAP_INDUSTRIAL_v1_0_0/web_realtime_policy.h"
 static uint32_t clockMs = 100, bootId = UINT32_MAX;
 uint32_t millis() { return clockMs; }
 bool timeReached(uint32_t now, uint32_t target) { return static_cast<int32_t>(now - target) >= 0; }
+uint32_t elapsedMs(uint32_t now, uint32_t then) { return now - then; }
+#include "actual-web-cadence-config.inc"
 constexpr char MAYAP_FIRMWARE_VERSION[] = "1.0.0";
 constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000;
 #define portENTER_CRITICAL(x) ((void)(x))
@@ -32,6 +35,16 @@ struct MachineRuntime {
   uint8_t activeFaultCount = 255, activeFaultDisplayCount = 1;
   Fault activeFaults[1];
 };
+static MachineRuntime knownRuntime;
+static bool knownRuntimeValid = false, failSnapshot = false;
+static uint32_t webConfigRevision = 1;
+struct Snapshot { uint32_t at; bool light; };
+static std::vector<Snapshot> snapshots;
+bool publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
+  assert(revision == webConfigRevision);
+  if (failSnapshot) return false;
+  snapshots.push_back({clockMs, rt.lightOn}); return true;
+}
 static std::string wire, topic;
 static bool retained = false;
 const char *topicOf(const char *suffix) {
@@ -143,5 +156,41 @@ int main() {
   PerformanceGrace rollover;
   assert(rollover.update(UINT32_MAX - 1000, false));
   assert(rollover.update(500, false)); assert(!rollover.update(25000, false));
+  // Controller completion/ACK can precede its 200 ms runtime mailbox update.
+  // The forced sample still says OFF; the next real ON sample must not wait
+  // for the usual one-second telemetry cadence before reaching the browser.
+  clockMs = 1000; webSessionActive = true; forceSnapshotPublish = true;
+  serviceSnapshotPublish(clockMs); assert(snapshots.empty());
+  knownRuntimeValid = true; knownRuntime.lightOn = false;
+  serviceSnapshotPublish(clockMs); assert(snapshots.size() == 1 && !snapshots.back().light);
+  clockMs = 1050; forceSnapshotPublish = true; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 2 && !snapshots.back().light && !forceSnapshotPublish);
+  clockMs = 1200; knownRuntime.lightOn = true; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 3 && snapshots.back().light && snapshots.back().at == 1200);
+  // Temperature/PWM traffic keeps its original cadence; only lamp edges bypass it.
+  for (uint32_t dt = 1; dt < WEB_SNAPSHOT_ACTIVE_INTERVAL_MS; ++dt) {
+    clockMs = 1200 + dt; knownRuntime.temperature += .01f;
+    knownRuntime.heaterOn = !knownRuntime.heaterOn; serviceSnapshotPublish(clockMs);
+    assert(snapshots.size() == 3);
+  }
+  clockMs = 1200 + WEB_SNAPSHOT_ACTIVE_INTERVAL_MS; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 4);
+  // A full transport queue must not consume the edge; retry the actual state.
+  clockMs += 20; knownRuntime.lightOn = false; failSnapshot = true;
+  serviceSnapshotPublish(clockMs); assert(snapshots.size() == 4);
+  failSnapshot = false; ++clockMs; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 5 && !snapshots.back().light);
+  // Edges work through millis wrap; a hidden browser still emits no live snapshots.
+  clockMs = UINT32_MAX - 50; forceSnapshotPublish = true; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 6);
+  ++clockMs; knownRuntime.lightOn = true; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 7 && snapshots.back().light);
+  clockMs = 20; knownRuntime.lightOn = false; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 8 && !snapshots.back().light);
+  webSessionActive = false; ++clockMs; knownRuntime.lightOn = true; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 8);
+  webSessionActive = true; ++clockMs; serviceSnapshotPublish(clockMs);
+  assert(snapshots.size() == 9 && snapshots.back().light);
+  std::puts("Actual snapshot: ACK before runtime, immediate real lamp edges, unchanged temperature/PWM cadence, queue retry, hidden lease and rollover PASS");
   std::printf("Actual Web bootstrap/session: %zu-byte packet, retained, bounded cadence/retry, lazy sync, 8 leases, 300s warm renewals, independent visible browser, TTL, 25s grace and clock rollover OK\n", packetSize);
 }

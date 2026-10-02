@@ -65,7 +65,8 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),
-                       ('inline void serviceSessionTimeout(', '// realtime owner is')):
+                       ('inline void serviceSessionTimeout(', '// realtime owner is'),
+                       ('inline void serviceSnapshotPublish(', 'inline void serviceEventLogPublish(')):
         start = realtime.index(begin)
         stop = realtime.index(end, start)
         # The session callback is followed by other message helpers; extract its
@@ -113,6 +114,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     if json_include is None:
         raise SystemExit('ArduinoJson 7 required for actual retained bootstrap/session tests')
     cfg = (root / 'MAYAP_INDUSTRIAL_v1_0_0/config.h').read_text(encoding='utf-8')
+    cadence_names = ('WEB_SNAPSHOT_ACTIVE_INTERVAL_MS', 'WEB_SNAPSHOT_IDLE_INTERVAL_MS')
+    (out / 'actual-web-cadence-config.inc').write_text('\n'.join(
+        re.search(r'constexpr [^;]*\b' + name + r'\b[^;]*;', cfg)[0]
+        for name in cadence_names), encoding='utf-8')
     names = ('PIN_ATTINY_BUS', 'ATTINY_COMMAND_WIDTH_MS', 'ATTINY_BUS_MAX_RETRY',
              'ATTINY_MSG_MAX_COMMAND', 'ATTINY_MSG_STATUS_BASE', 'ATTINY_MSG_STATUS_MAX',
              'ATTINY_MSG_BATCH_START', 'ATTINY_MSG_BATCH_END', 'ATTINY_MSG_SIREN_ON',
@@ -172,6 +177,19 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         poll_header.write_text(original_poll, encoding='utf-8')
         assert result.returncode != 0, 'Missing TCP readiness re-arm was not detected'
         print('Regression proof: actual IDF TCP polling stalls without write fd_set re-arm, as expected')
+        snapshot_header = out / 'actual-web-connect.inc'
+        original_snapshot = snapshot_header.read_text(encoding='utf-8')
+        edge_gate = '!forceSnapshotPublish && !lightChanged &&'
+        assert edge_gate in original_snapshot
+        snapshot_header.write_text(original_snapshot.replace(edge_gate,
+            '!forceSnapshotPublish && (!lightChanged || true) &&'), encoding='utf-8')
+        executable = out / 'runtime-web-connect-regression'
+        subprocess.run([args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                        '-I', str(json_include), str(root / 'tests/runtime-web-connect.cpp'), '-o', str(executable)], check=True)
+        result = subprocess.run([str(executable)], capture_output=True, text=True)
+        snapshot_header.write_text(original_snapshot, encoding='utf-8')
+        assert result.returncode != 0 and 'snapshots.size() == 3' in result.stderr, 'Missing lamp edge publication was not detected'
+        print('Regression proof: stale forced sample delays actual lamp state without edge publication, as expected')
         # Each targeted mutation restores one of the review's actual failure
         # windows. Compilation must pass and the runtime assertions must fail.
         for name, replacement, label in (
