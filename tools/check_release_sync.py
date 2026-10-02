@@ -25,7 +25,7 @@ def capture(text: str, pattern: str, label: str) -> str:
 
 
 manifest = json.loads(read("release-manifest.json"))
-config = read("MAYAP_INDUSTRIAL_v4_0_0/config.h")
+config = read("MAYAP_INDUSTRIAL_v1_0_0/config.h")
 tiny = read("ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino")
 sw = read("sw.js")
 build = read(".github/workflows/build-firmware.yml")
@@ -61,15 +61,13 @@ for label, workflow in (("deploy", deploy), ("reliability", reliability)):
     require("actions/setup-node@v7" in workflow, f"{label} chua dung setup-node@v7")
     require("node-version: '24'" in workflow, f"{label} chua pin Node 24")
 
-require("check_v381_reliability.py" in build, "release path co the bo qua reliability gate")
+require("check_reliability.py" in build, "release path co the bo qua reliability gate")
 require("check_release_sync.py" in build, "build path co the bo qua release sync gate")
 require("check_release_sync.py" in deploy, "deploy path co the bo qua release sync gate")
 
-# v3.8.3: release/build/deploy cannot bypass EEPROM history invariants.
-# Run the dedicated checker from this existing gate so every current CI path
-# inherits it without duplicating workflow plumbing.
-if manifest["firmware"] >= "3.8.3":
-    runpy.run_path(str(ROOT / "tools/check_eeprom_history.py"), run_name="__main__")
+# Storage invariants are a permanent release gate. Do not tie them to the
+# display version because this repository intentionally restarted at V1.0.0.
+runpy.run_path(str(ROOT / "tools/check_eeprom_history.py"), run_name="__main__")
 
 print(
     "Release sync OK: "
