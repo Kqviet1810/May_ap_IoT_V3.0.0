@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const read = (name) => fs.readFileSync(path.resolve(__dirname, '..', name), 'utf8');
-const dir = 'MAYAP_INDUSTRIAL_v4_0_0/';
-const ino = read(dir + 'MAYAP_INDUSTRIAL_v4_0_0.ino');
+const dir = 'MAYAP_INDUSTRIAL_v1_0_0/';
+const ino = read(dir + 'MAYAP_INDUSTRIAL_v1_0_0.ino');
 const diagnostic = read(dir + 'boot_diagnostic.h');
 const hmi = read(dir + 'hmi.h');
 
