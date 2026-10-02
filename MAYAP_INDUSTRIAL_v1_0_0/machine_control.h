@@ -1898,6 +1898,9 @@ inline ReminderSet unpackReminders(const PackedReminderSetV1 &p) {
 
 class ExternalEeprom24xx {
  public:
+  // Per-instance diagnostic snapshot; never prints or changes retry/I2C policy.
+  struct WriteTrace { uint16_t address=0; uint8_t reason=0, requested=0, written=0, error=0; };
+  WriteTrace lastWriteTrace() const { return writeTrace_; }
   bool begin() const {
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
       if (probe()) {
@@ -1924,6 +1927,7 @@ class ExternalEeprom24xx {
   }
 
   bool writeBytes(uint16_t address, const void *source, size_t length) const {
+    writeTrace_=WriteTrace{};
     if (!source || !rangeValid(address, length)) return false;
     // Neu mot lan ghi bi ngat giua chung, ghi lai toan bo record vao cung slot.
     // Slot A/B con lai van nguyen ven; CRC se loai slot dang ghi do dang.
@@ -1951,6 +1955,7 @@ class ExternalEeprom24xx {
 
  private:
   mutable uint32_t softRetryEvents_ = 0U;
+  mutable WriteTrace writeTrace_{};
   static void finiteRetryPause() {
     if (EEPROM_RETRY_GAP_MS != 0U) {
       vTaskDelay(pdMS_TO_TICKS(EEPROM_RETRY_GAP_MS));
@@ -2016,7 +2021,7 @@ class ExternalEeprom24xx {
           EEPROM_PAGE_SIZE - (address % EEPROM_PAGE_SIZE));
       const uint8_t chunk = static_cast<uint8_t>(
           std::min<size_t>(length, std::min<size_t>(pageRemain, EEPROM_MAX_WRITE_CHUNK)));
-      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
+      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { writeTrace_.address=address;writeTrace_.reason=1;writeTrace_.requested=chunk; ok = false; break; }
       Wire.beginTransmission(EEPROM_I2C_ADDRESS);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
@@ -2026,6 +2031,8 @@ class ExternalEeprom24xx {
           waitWriteCompleteLocked() : false;
       mayapI2cUnlock();
       if (written != chunk || err != 0U || !complete) {
+        writeTrace_.address=address;writeTrace_.requested=chunk;writeTrace_.written=static_cast<uint8_t>(written);writeTrace_.error=err;
+        writeTrace_.reason=written!=chunk?2:err!=0U?3:4;
         ok = false;
         break;
       }

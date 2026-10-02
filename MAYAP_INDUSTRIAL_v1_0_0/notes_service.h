@@ -12,6 +12,11 @@ static QueueHandle_t requests=nullptr,responses=nullptr;
 static StaticTask_t taskBuffer;
 static StackType_t stack[8192/sizeof(StackType_t)];
 static TaskHandle_t task=nullptr;
+inline void captureWriteTrace(MayapNotes::Response &result) {
+  if(result.ioStage!=MayapNotes::IoStage::Write)return;
+  const auto trace=eeprom.lastWriteTrace();result.failedAddress=trace.address;result.writeReason=trace.reason;
+  result.requested=trace.requested;result.written=trace.written;result.wireError=trace.error;
+}
 inline void run(void *) {
   // Only this owner touches the store. Fixed mailboxes; never touches actuators.
   static MayapNotes::Request request;
@@ -19,8 +24,8 @@ inline void run(void *) {
   bool ready=false,retry=false; uint32_t retryAt=0;
   for(;;) {
     if(ready) { if(xQueueSend(responses,&response,0)==pdTRUE){ready=false;retry=response.ambiguous;retryAt=millis();request.reconcile=retry;} }
-    else if(retry) { if(static_cast<uint32_t>(millis()-retryAt)>=2000U){response=store.process(request);ready=true;} }
-    else if(xQueueReceive(requests,&request,0)==pdTRUE){response=store.process(request);ready=true;}
+    else if(retry) { if(static_cast<uint32_t>(millis()-retryAt)>=2000U){response=store.process(request);captureWriteTrace(response);ready=true;} }
+    else if(xQueueReceive(requests,&request,0)==pdTRUE){response=store.process(request);captureWriteTrace(response);ready=true;}
     vTaskDelay(pdMS_TO_TICKS(10));
   }
 }

@@ -11,7 +11,8 @@ uint32_t millis() { return clockMs; }
 uint32_t elapsedMs(uint32_t now, uint32_t before) { return now - before; }
 uint32_t pdMS_TO_TICKS(uint32_t ms) { return ms; }
 void vTaskDelay(uint32_t ms) { clockMs += ms; }
-bool mayapI2cLock(uint32_t) { return true; }
+static bool lockAvailable=true;
+bool mayapI2cLock(uint32_t) { return lockAvailable; }
 void mayapI2cUnlock() {}
 void mayapI2cReport(uint8_t, bool) {}
 int constrain(int value, int minimum, int maximum) {
@@ -24,11 +25,11 @@ struct FakeWire {
   uint16_t word = 0;
   uint8_t chip = 0;
   int cutAfter = -1;
-  bool off = false, wp = false; bool failReadAfterWrite = false;
+  bool off = false, wp = false; bool failReadAfterWrite = false, busyProbe=false; size_t txLimit=128;
   FakeWire() { memory.fill(0xFF); }
   void beginTransmission(uint8_t address) { chip = address; tx.clear(); }
   size_t write(uint8_t byte) {
-    if (tx.size() >= 128) return 0;
+    if (tx.size() >= txLimit) return 0;
     tx.push_back(byte); return 1;
   }
   size_t write(const uint8_t *data, size_t length) {
@@ -37,7 +38,7 @@ struct FakeWire {
     return n;
   }
   uint8_t endTransmission(bool) {
-    if (off || chip != 0x50) return 2;
+    if (off || chip != 0x50 || (busyProbe&&writes&&tx.empty())) return 2;
     if (tx.size() >= 2) word = static_cast<uint16_t>((tx[0] << 8) | tx[1]);
     if (tx.size() > 2) {
       ++writes;
@@ -122,10 +123,16 @@ int main() {
   assert(wpResult.code==Code::Eeprom&&wpResult.ioStage==IoStage::Verify&&wpResult.blank&&wpResult.mismatch==0&&!wpResult.validReadback);Wire.wp=false;
   Wire.memory=committed;Wire.cutAfter=0;Store<ExternalEeprom24xx> writeFailure(io);
   const auto writeResult=writeFailure.process(save(100));assert(writeResult.ioStage==IoStage::Write&&writeResult.ambiguous);
+  assert(io.lastWriteTrace().reason==3&&io.lastWriteTrace().error==2&&io.lastWriteTrace().requested==126);
   Wire.off=false;Wire.cutAfter=-1;
   // CRC fallback to the older bank, and explicit error if both copies corrupt.
   Wire.memory=beforeEdit;Wire.memory[BASE+SLOT_BYTES+offsetof(Record,note)+100]^=1;
   Store<ExternalEeprom24xx> fallback(io);assert(list(fallback).note.version==1);
   Wire.memory[BASE+offsetof(Record,note)+100]^=1;Store<ExternalEeprom24xx> corrupt(io);assert(list(corrupt).code==Code::Corrupt);
+  uint8_t payload[126]{};
+  lockAvailable=false;assert(!io.writeBytes(BASE,payload,sizeof(payload)));assert(io.lastWriteTrace().reason==1);lockAvailable=true;
+  Wire.txLimit=32;assert(!io.writeBytes(BASE,payload,sizeof(payload)));assert(io.lastWriteTrace().reason==2&&io.lastWriteTrace().written==30);Wire.txLimit=128;
+  Wire.writes=0;Wire.busyProbe=true;assert(!io.writeBytes(BASE,payload,sizeof(payload)));assert(io.lastWriteTrace().reason==4&&io.lastWriteTrace().error==0);Wire.busyProbe=false;
+  assert(io.writeBytes(BASE,payload,sizeof(payload)));assert(io.lastWriteTrace().reason==0);
   printf("Notes AT24C512: CRUD/reboot/version/conflict/full/UTF-8/WP/CRC; %zu power-cut byte positions; isolated memory and uncertain reconciliation PASS\n",sizeof(Record)+1);
 }

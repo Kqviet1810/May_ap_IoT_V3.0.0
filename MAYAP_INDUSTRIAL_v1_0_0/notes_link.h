@@ -55,9 +55,9 @@ inline void serviceNotes() {
   if(result.ambiguous) {
     if(!notesPending.uncertainSent && !publishAck(notesPending.requestId,"expired","NOTES_UNCERTAIN",notesPending.operation,notesPending.receivedAt,millis(),notesPending.signedAck?notesPending.key:nullptr))return;
     if(!notesPending.uncertainSent)mayapSerialPrintf(false,
-      "[NOTES] uncertain token=%lu op=%s stage=%s addr=0x%04X mismatch=%d blank=%u valid=%u code=%s\n",
+      "[NOTES] uncertain token=%lu op=%s stage=%s addr=0x%04X mismatch=%d blank=%u valid=%u code=%s write_reason=%u failed_addr=0x%04X requested=%u written=%u wire_error=%u\n",
       static_cast<unsigned long>(notesPending.token),notesPending.operation,stageText(result.ioStage),
-      static_cast<unsigned>(result.ioAddress),static_cast<int>(result.mismatch),result.blank?1U:0U,result.validReadback?1U:0U,codeText(result.code));
+      static_cast<unsigned>(result.ioAddress),static_cast<int>(result.mismatch),result.blank?1U:0U,result.validReadback?1U:0U,codeText(result.code),result.writeReason,static_cast<unsigned>(result.failedAddress),result.requested,result.written,result.wireError);
     notesPending.uncertainSent=true;notesPending.ready=false;notesPending.waiting=true;return;
   }
   if(result.code==Code::Ok && notesPending.job.operation==Operation::List) {
