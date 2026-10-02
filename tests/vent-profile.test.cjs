@@ -4,8 +4,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.resolve(__dirname, '..');
-const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0', 'config.h'), 'utf8');
-const control = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v4_0_0', 'machine_control.h'), 'utf8');
+const config = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0', 'config.h'), 'utf8');
+const control = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0', 'machine_control.h'), 'utf8');
 
 test('ventilation defaults cover all incubation stages and preserve GPIO13', () => {
   for (const [field, duty] of [
