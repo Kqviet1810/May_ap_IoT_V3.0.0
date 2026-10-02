@@ -10,8 +10,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--cxx', default='g++')
 parser.add_argument('--sanitize', action='store_true')
 args = parser.parse_args()
-config = (root / 'MAYAP_INDUSTRIAL_v4_0_0/config.h').read_text(encoding='utf-8')
-machine = (root / 'MAYAP_INDUSTRIAL_v4_0_0/machine_control.h').read_text(encoding='utf-8')
+config = (root / 'MAYAP_INDUSTRIAL_v1_0_0/config.h').read_text(encoding='utf-8')
+machine = (root / 'MAYAP_INDUSTRIAL_v1_0_0/machine_control.h').read_text(encoding='utf-8')
 
 def body(source, signature):
     start = source.index(signature)
