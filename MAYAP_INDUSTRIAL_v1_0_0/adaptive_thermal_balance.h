@@ -24,18 +24,33 @@ class AdaptiveThermalSupervisor {
   void sample(uint32_t now,const Observation &o){observer_.sample(now,o);}
   Decision update(uint32_t now,bool enabled,float configured,const Observation &o){
     changedEnabled_=enabled!=enabled_;const uint32_t dt=seen_?since(now,at_):0;seen_=true;at_=now;
-    if(changedEnabled_){observer_.reset();ready_=false;enabled_=enabled;}
+    if(changedEnabled_){observer_.reset();ready_=false;enabled_=enabled;self_=confirm_=false;cool_=false;coolAt_=now;}
     if(!enabled){d_=Decision{};d_.effective=configured;return d_;}
     if(!std::isfinite(configured)||configured<0||configured>100||!o.sensor||
        !std::isfinite(o.pv)||!std::isfinite(o.raw)||o.safety||o.tune||o.test||o.maintenance||o.recovery){
       d_=Decision{};d_.state=State::FaultBypass;d_.reason=Reason::SensorSafety;
-      d_.effective=std::isfinite(configured)?bound(configured,0,100):0;ready_=false;return d_;
+      d_.effective=std::isfinite(configured)?bound(configured,0,100):0;ready_=false;
+      self_=confirm_=cool_=false;coolAt_=now;return d_;
     }
     const auto &e=observer_.estimates();
+    const bool positive=o.fanStable&&!o.vent&&observer_.offMs(now)>=Policy::CoastMs&&
+      o.pv>o.sp+0.12f&&e.rate>Policy::SelfRateCPerSec;
+    if(positive&&!confirm_){confirm_=true;confirmAt_=now;}
+    if(!positive)confirm_=false;
+    if(confirm_&&since(now,confirmAt_)>=Policy::SelfConfirmMs)self_=true;
+    if(self_&&o.pv<=o.sp+0.04f)self_=false;
+    const bool wantCool=self_&&o.pv>o.sp+0.12f;
+    if(wantCool!=cool_&&since(now,coolAt_)>=Policy::CoolingMinMs){cool_=wantCool;coolAt_=now;}
+    if(self_||cool_){
+      d_.state=State::SelfHeating;d_.reason=Reason::SelfHeating;d_.selfHeating=self_;
+      d_.cooling=cool_;d_.coolingDemand=cool_?100:0;d_.effective=0;ready_=true;return d_;
+    }
     if(!e.learningValid || e.confidence<Policy::MediumConfidence || e.validMs<Policy::LearnMinMs || e.windows<5){
+      const float before=d_.effective;
       d_=Decision{};d_.state=e.windows?State::Degraded:State::Learning;
       d_.reason=e.learningValid?Reason::Learning:Reason::InvalidWindow;
-      d_.effective=configured;ready_=false;return d_;
+      d_.effective=ready_?std::min(configured,before+Policy::RisePctPerMin*std::min<uint32_t>(dt,1000)*.001f/60):configured;
+      return d_;
     }
     const bool high=e.confidence>=Policy::HighConfidence && e.coastWindows>=2;
     const float floor=std::min(configured,std::max(Policy::MinAuthorityPct,e.hold*1.5f+10));
@@ -56,6 +71,7 @@ class AdaptiveThermalSupervisor {
   }
  private:
   ThermalObserver observer_;Decision d_{};uint32_t at_=0;
+  uint32_t confirmAt_=0,coolAt_=0;bool self_=false,confirm_=false,cool_=false;
   bool enabled_=false,seen_=false,ready_=false,changedEnabled_=false;
 };
 }
