@@ -1,20 +1,12 @@
-const test = require('node:test');
-const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const read = name => fs.readFileSync(path.join(__dirname, '..', 'MAYAP_INDUSTRIAL_v1_0_0', name), 'utf8');
-test('reminder bridge applies only EEPROM readback and reports the final revision', () => {
-  const control = read('machine_control.h');
-  const start = control.indexOf('if (hmiTakeSavedReminders(');
-  const flow = control.slice(start, control.indexOf('mayapSerialPrintf(false, "[REMIND]', start));
-  assert.match(flow, /store_\.saveReminders\(requestedReminders, readbackReminders\)/);
-  assert.match(flow, /if \(remindersOk\) \{\s*reminders_ = readbackReminders;/);
-  assert.match(flow, /mayapWebConfirmReminderSave\(reminderTransactionId, remindersOk,/);
-  assert.match(control, /store_\.loadReminders\(reminders_\)/);
-  const realtime = read('realtime_link.h');
-  const confirm = realtime.slice(realtime.indexOf('inline void mayapWebConfirmReminderSave('),
-                                realtime.indexOf('inline void mayapWebPushEventLog('));
-  assert.match(confirm, /if \(ok && stored\) \{[\s\S]*knownReminders = \*stored;[\s\S]*webRemindersRevision[\s\S]*remindersDirty = true;/);
-  assert.match(confirm, /pendingReminderSave.completionOk = ok/);
-  assert.match(realtime, /slot->completionOk \? "applied" : "rejected"/);
+const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs');
+test('notes and reminders share journal; old save route removed; runtime uses verified mailbox only',()=>{
+ const control=fs.readFileSync('MAYAP_INDUSTRIAL_v1_0_0/machine_control.h','utf8');
+ const realtime=fs.readFileSync('MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h','utf8');
+ assert.doesNotMatch(control,/store_\.(saveReminders|loadReminders)/);
+ assert.doesNotMatch(realtime,/handleReminderSetMessage|pendingReminderSave|mayapNotesStart/);
+ assert.match(control,/MayapNoteMailbox::takeReminders\(verifiedReminders,journalRevision\)/);
+ assert.match(control,/reminders_=verifiedReminders;[\s\S]*MayapNoteMailbox::applied\(journalRevision\)/);
+ const link=fs.readFileSync('MAYAP_INDUSTRIAL_v1_0_0/note_realtime.h','utf8');
+ assert.match(link,/appliedRevision\(\)!=noteResult.generation/);
+ assert.match(link,/publishAck\(notePending.id,ok\?"applied":"rejected"/);
 });

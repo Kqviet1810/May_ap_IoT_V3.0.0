@@ -1744,30 +1744,10 @@ struct BatchRecordLegacyV2 {
   uint32_t crc;
 };
 
-// Nhac nho tuy chinh (v3.7.0) - ban ghi RIENG, KHONG chung schema voi
-// PackedMachineConfigV1 (xem ghi chu EEPROM_ADDR_REMINDERS_* trong config.h).
-// day == 0 la O TRONG, khong can truong "count" rieng.
-struct PackedReminderEntryV1 {
-  uint8_t day;
-  char label[CUSTOM_REMINDER_LABEL_LEN];
-};
-struct PackedReminderSetV1 {
-  PackedReminderEntryV1 items[MAX_CUSTOM_REMINDERS];
-};
-struct ReminderRecordV1 {
-  uint32_t magic;
-  uint16_t schema;
-  uint16_t size;
-  uint32_t sequence;
-  PackedReminderSetV1 payload;
-  uint32_t crc;
-};
 #pragma pack(pop)
 
 constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
-constexpr uint32_t REMINDER_MAGIC = 0x4D415952UL; // MAYR
-constexpr uint16_t REMINDER_SCHEMA = 1;
 constexpr uint16_t CONFIG_SCHEMA = 13;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V12 = 12;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
@@ -1919,24 +1899,6 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.ventDutyDay19To21 = p.ventDutyDay19To21;
   sanitizeMachineConfig(c);
   return c;
-}
-
-inline PackedReminderSetV1 packReminders(const ReminderSet &r) {
-  PackedReminderSetV1 p{};
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    p.items[i].day = r.items[i].day;
-    snprintf(p.items[i].label, sizeof(p.items[i].label), "%s", r.items[i].label);
-  }
-  return p;
-}
-inline ReminderSet unpackReminders(const PackedReminderSetV1 &p) {
-  ReminderSet r{};
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    r.items[i].day = p.items[i].day;
-    snprintf(r.items[i].label, sizeof(r.items[i].label), "%s", p.items[i].label);
-  }
-  sanitizeReminderSet(r);
-  return r;
 }
 
 class ExternalEeprom24xx {
@@ -2136,15 +2098,12 @@ static_assert(sizeof(BatchRecordV1) <= EEPROM_BATCH_SLOT_BYTES,
               "Batch record khong vua slot AT24C32");
 static_assert(sizeof(BatchRecordLegacyV2) <= EEPROM_BATCH_SLOT_BYTES,
               "Legacy batch record khong vua slot AT24C32");
-static_assert(sizeof(ReminderRecordV1) <= EEPROM_REMINDERS_SLOT_BYTES,
-              "Reminder record khong vua slot AT24C32");
 
 class PersistentStore {
  public:
   bool begin() {
     configCacheValid_ = false;
     batchCacheValid_ = false;
-    reminderCacheValid_ = false;
     ready_ = !EXTERNAL_EEPROM_ENABLED || eeprom_.begin();
     return ready_ || !EXTERNAL_EEPROM_REQUIRED;
   }
@@ -2171,7 +2130,6 @@ class PersistentStore {
     ready_ = true;
     configCacheValid_ = false;
     batchCacheValid_ = false;
-    reminderCacheValid_ = false;
     return true;
   }
 
@@ -2179,7 +2137,6 @@ class PersistentStore {
     ready_ = false;
     configCacheValid_ = false;
     batchCacheValid_ = false;
-    reminderCacheValid_ = false;
   }
 
   bool loadConfig(MachineConfig &out) {
@@ -2269,61 +2226,6 @@ class PersistentStore {
     batchCurrentIsA_ = targetIsA;
     batchSequence_ = verify.sequence;
     batchPayload_ = verify.payload;
-    return true;
-  }
-
-  // "khong tim thay ban ghi hop le" (chua tung luu, EEPROM moi/da xoa) KHONG
-  // phai loi - tra ve danh sach RONG (an toan, giong het mac dinh cua
-  // ReminderSet{}), khac voi Config/Batch la du lieu BAT BUOC phai co.
-  bool loadReminders(ReminderSet &out) {
-    if (!ready_) return false;
-    if (!refreshReminderCache()) {
-      out = ReminderSet{};
-      return true;
-    }
-    out = unpackReminders(reminderPayload_);
-    return true;
-  }
-
-  bool saveReminders(const ReminderSet &input, ReminderSet &readback) {
-    if (!ready_) return false;
-    ReminderSet clean = input;
-    sanitizeReminderSet(clean);
-    const PackedReminderSetV1 payload = packReminders(clean);
-
-    if (!reminderCacheValid_) (void)refreshReminderCache();
-    if (reminderCacheValid_ &&
-        memcmp(&reminderPayload_, &payload, sizeof(payload)) == 0) {
-      readback = clean;
-      return true;
-    }
-
-    ReminderRecordV1 record{};
-    record.magic = REMINDER_MAGIC;
-    record.schema = REMINDER_SCHEMA;
-    record.size = sizeof(record);
-    record.sequence = reminderCacheValid_ ? reminderSequence_ + 1U : 1U;
-    record.payload = payload;
-    record.crc = mcCrc32(reinterpret_cast<const uint8_t *>(&record),
-                         offsetof(ReminderRecordV1, crc));
-
-    const bool targetIsA = !reminderCacheValid_ || !reminderCurrentIsA_;
-    const uint16_t target = targetIsA ? EEPROM_ADDR_REMINDERS_A
-                                      : EEPROM_ADDR_REMINDERS_B;
-    if (!writeRecord(target, record)) return false;
-
-    ReminderRecordV1 verify{};
-    if (!readRecord(target, verify) || !validReminders(verify) ||
-        verify.sequence != record.sequence ||
-        memcmp(&verify.payload, &payload, sizeof(payload)) != 0) {
-      return false;
-    }
-
-    reminderCacheValid_ = true;
-    reminderCurrentIsA_ = targetIsA;
-    reminderSequence_ = verify.sequence;
-    reminderPayload_ = verify.payload;
-    readback = unpackReminders(verify.payload);
     return true;
   }
 
@@ -2417,12 +2319,7 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(BatchRecordLegacyV2, crc));
   }
-  static bool validReminders(const ReminderRecordV1 &r) {
-    return r.magic == REMINDER_MAGIC && r.schema == REMINDER_SCHEMA &&
-           r.size == sizeof(r) &&
-           r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
-                            offsetof(ReminderRecordV1, crc));
-  }
+
 
   bool refreshConfigCache() {
     ConfigRecordV1 a{}, b{};
@@ -2708,22 +2605,7 @@ class PersistentStore {
   // thay ban ghi hop le" don gian nghia la CHUA TUNG luu (thiet bi cu nang
   // cap len, hoac EEPROM moi), tra ve false la du, ham loadReminders() da tu
   // dien danh sach rong trong truong hop nay.
-  bool refreshReminderCache() {
-    ReminderRecordV1 a{}, b{};
-    const bool va = readRecord(EEPROM_ADDR_REMINDERS_A, a) && validReminders(a);
-    const bool vb = readRecord(EEPROM_ADDR_REMINDERS_B, b) && validReminders(b);
-    if (!va && !vb) {
-      reminderCacheValid_ = false;
-      return false;
-    }
-    const bool useA = !vb || (va && newer(a.sequence, b.sequence));
-    const ReminderRecordV1 &best = useA ? a : b;
-    reminderCacheValid_ = true;
-    reminderCurrentIsA_ = useA;
-    reminderSequence_ = best.sequence;
-    reminderPayload_ = best.payload;
-    return true;
-  }
+
 
   ExternalEeprom24xx eeprom_{};
   bool ready_ = false;
@@ -2738,10 +2620,6 @@ class PersistentStore {
   uint32_t batchSequence_ = 0U;
   PackedBatchV1 batchPayload_{};
 
-  bool reminderCacheValid_ = false;
-  bool reminderCurrentIsA_ = false;
-  uint32_t reminderSequence_ = 0U;
-  PackedReminderSetV1 reminderPayload_{};
 };
 
 // ============================================================================
@@ -3798,7 +3676,8 @@ class MachineController {
     // Nhac nho tuy chinh (v3.7.0) - KHONG bat buoc nhu Config (khong co ban
     // ghi hop le don gian nghia la "chua tung tao", mac dinh danh sach rong
     // an toan), nen khong anh huong storageFaultLatched_/faults_ o tren.
-    if (storeReady) store_.loadReminders(reminders_);
+    // New journal restores reminders asynchronously; legacy A/B slots are untouched.
+    reminders_=ReminderSet{};
     mayapWebSetReminders(reminders_);
     mayapCloudSetReminders(reminders_);
 
@@ -4593,24 +4472,12 @@ class MachineController {
                        requested.turnIntervalMin);
     }
 
-    // Nhac nho tuy chinh (v3.7.0) - giao dich RIENG voi luu cau hinh o tren:
-    // khong dan xen dieu khien/an toan (khong co "protectedBatchChange"/
-    // "saveAllowed" o day), khong co man hinh HMI nen khong goi hmiSetConfig-
-    // kieu ham nao ca, chi can ghi EEPROM + bao lai web.
-    ReminderSet requestedReminders{};
-    uint32_t reminderTransactionId = 0;
-    if (hmiTakeSavedReminders(requestedReminders, reminderTransactionId)) {
-      ReminderSet readbackReminders{};
-      const bool remindersOk = store_.saveReminders(requestedReminders, readbackReminders);
-      if (remindersOk) {
-        reminders_ = readbackReminders;
-        mayapWebSetReminders(reminders_);
-        mayapCloudSetReminders(reminders_);
-      }
-      hmiConfirmReminderSave(reminderTransactionId);
-      mayapWebConfirmReminderSave(reminderTransactionId, remindersOk,
-                                  remindersOk ? &readbackReminders : nullptr);
-      mayapSerialPrintf(false, "[REMIND] save=%s\n", remindersOk ? "OK" : "FAIL");
+    // Apply read-verified journal data only; no EEPROM/network I/O on controlTask.
+    ReminderSet verifiedReminders{};uint32_t journalRevision=0;
+    if(MayapNoteMailbox::takeReminders(verifiedReminders,journalRevision)){
+      reminders_=verifiedReminders;
+      mayapWebSetReminders(reminders_);mayapCloudSetReminders(reminders_);
+      MayapNoteMailbox::applied(journalRevision);
     }
 
     HmiCommand command{};

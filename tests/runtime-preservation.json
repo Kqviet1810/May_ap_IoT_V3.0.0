@@ -62,7 +62,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "f2745d7b9a235126ef2774fe38a71c24e4428f73eeefd116239d4b666f565214",
+      "sha256": "1e55271036143c7ceed67539092bbdcdc4b985cf352f8e1c58dd90af48dc6382",
       "signature": "class MachineController {"
     },
     {
@@ -176,7 +176,7 @@
     {
       "file": "app.js",
       "signature": "function clearPending(",
-      "sha256": "7189b83b486c9ddf0341cb83082fec4a29f0ef2b9cfa9c22c630e0bd9d38f72d"
+      "sha256": "bc33f08fa1d579464a6a75a7df7e9d59671820bef41d907d5fd1b52d5a22396f"
     },
     {
       "file": "app.js",
@@ -196,7 +196,7 @@
     {
       "file": "app.js",
       "signature": "function startTransaction(id, pending, timeoutMs) {",
-      "sha256": "9e332214a56382226a79df657167403371819419a9879373e8576a3eb58cfc23",
+      "sha256": "6aaa6cdb0e27d7cd03799fd588f42d69d40b0610cd198eb2b4decdb5732c49b7",
       "copyReplacements": [
         [
           "'Chưa nhận xác nhận cuối từ máy · đang đồng bộ trạng thái'",
@@ -215,7 +215,7 @@
     {
       "file": "app.js",
       "signature": "function sweepUncertain() {",
-      "sha256": "6f9f1ce45d5c9c6df39270ea0c56f9fb1ab5cdf509a7bae5d307e7cab18558aa",
+      "sha256": "3766f4c15743c19f6489d81205c82b1dae09e415c79a391955f02320f1216e70",
       "copyReplacements": [
         [
           "'Đã nhận lịch sử trong bộ nhớ máy; không nhận được ACK cuối'",
@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "e8ec40834a397795e4d49edca5041c2345829f1dd6c58f5b6192c1b8e3fb0c9d",
+      "sha256": "fbe643b4120898cd79eff5257dd90cd797c41899f674d84f4513a449db931b71",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -348,7 +348,7 @@
     {
       "file": "app.js",
       "signature": "function handleReminderReport(device, report) {",
-      "sha256": "2c32caf2934d26b8e822f3204e9399fe84b89a88995e4119704ce365c8fbe486"
+      "sha256": "32eb493f794afe60878d5aebd2f7e84978691033c2cd38f530f6cd367593f3b8"
     },
     {
       "file": "app.js",
@@ -448,5 +448,7 @@
   "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged.",
   "notesUiOnlyResetReviewNote": "2026-10-03: removed the complete legacy Ghi chú persistence path (ESP32 EEPROM store/service/retry, realtime notes channels and persistence tests). notes.js/notes.css remain as UI only. Controller/safety/config/reminder/history storage semantics are unchanged.",
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
-  "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly."
+  "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
+  "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
+  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged."
 }

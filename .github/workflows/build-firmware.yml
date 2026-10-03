@@ -124,6 +124,9 @@ jobs:
           node tools/test_web_connection.cjs /tmp/mayap-connection-qa
           node tools/test_web_experience.cjs /tmp/mayap-web-qa
 
+      - name: Shared AT24C512 journal power-cut tests
+        run: python3 tools/test_note_journal.py
+
       - name: Actual PID and autotune host tests
         run: python3 tools/test_thermal_control.py --sanitize
 

@@ -175,6 +175,15 @@ INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES('fixture-own
                 # Application ACK remains a device message with its original signature.
                 d.send({'v':1,'channel':'ack','payload':{'v':2,'bootId':123,'requestId':'cmd-real','sig':'device-signature-fixture'}})
                 assert b.until(lambda m: m.get('channel') == 'ack')['payload']['sig'] == 'device-signature-fixture'
+                # Journal replies remain deliverable with telemetry explicitly OFF.
+                b.send({'v':1,'channel':'session','payload':{'clientId':'w-integration123','active':False,'ttlMs':1000}})
+                assert d.until(lambda m: m.get('channel') == 'session')['payload']['active'] is False
+                journal_body=json.dumps({'generation':0,'next':24,'done':True},separators=(',',':'))
+                text=f'mayap-note-journal:v2\n{DEVICE}\n123\njnl-real\nnotes.list\n{journal_body}'
+                journal={'v':2,'bootId':123,'requestId':'jnl-real','operation':'notes.list','body':journal_body,
+                         'sig':hmac.new(bytes.fromhex(control['sessionKey']),text.encode(),hashlib.sha256).hexdigest()}
+                d.send({'v':1,'channel':'notes/reported','payload':journal})
+                assert b.until(lambda m:m.get('channel')=='notes/reported')['payload']==journal
                 b.send(command)
                 assert d.until(lambda m: m.get('channel') == 'command')['payload'] == wire
                 # Same tab reconnect: DO SQLite keeps the exact-retry fingerprint.

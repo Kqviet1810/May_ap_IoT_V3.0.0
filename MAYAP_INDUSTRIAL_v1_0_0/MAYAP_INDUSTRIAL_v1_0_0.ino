@@ -40,6 +40,7 @@ void mayapI2cUnlock() {
 #include "cloud_alert_link.h"
 #include "attiny_bus.h"
 #include "machine_control.h"
+#include "note_storage.h"
 
 using namespace Mayap;
 
@@ -714,6 +715,8 @@ void loop() {
   stagedStartupUpdate(millis());
   if(mayapBootStage() >= MayapBoot::Stage::LocalSettle && !mayapFirmwareMaintenanceActive())
     MayapAdaptive::modelStorage.service(millis());
+  if(mayapBootStage() >= MayapBoot::Stage::LocalSettle && !mayapFirmwareMaintenanceActive())
+    MayapNoteStorage::update();
   if (mayapBootStage() >= MayapBoot::Stage::LocalSettle) mayapI2cSupervisorUpdate(millis());
   vTaskDelay(pdMS_TO_TICKS(10));
 }

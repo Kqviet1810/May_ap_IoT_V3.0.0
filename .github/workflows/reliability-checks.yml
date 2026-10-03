@@ -99,6 +99,9 @@ jobs:
       - name: AT24C512 driver and reminder persistence regression
         run: python3 tools/test_single_eeprom.py --sanitize --check-regression
 
+      - name: Shared AT24C512 journal power-cut tests
+        run: python3 tools/test_note_journal.py
+
       - name: Actual PID and autotune host tests
         run: python3 tools/test_thermal_control.py --sanitize --report-dir /tmp/mayap-thermal-report
 

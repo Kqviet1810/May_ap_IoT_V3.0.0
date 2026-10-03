@@ -238,3 +238,27 @@ test('device freshness is rechecked after a slow external write validation',asyn
  try{gate.release();await write;assert.equal(events(d.ws,'config/set').length,0);assert.equal(lastError(b.ws),'CONNECTION_CHANGED');}
  finally{Date.now=real;}
 });
+
+test('shared journal notes/reminders route retains auth, replay and boot fencing; legacy save is rejected',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:45000}});
+ const msg=await h.command(1,'journal-one',123,'notes/request',{action:'notes.reminders.save',generation:0,version:0,reminders:[{day:7,label:'Soi trứng'}]});
+ await h.message(b.ws,msg);assert.equal(events(d.ws,'notes/request').length,1);
+ await h.message(b.ws,msg);assert.equal(events(d.ws,'notes/request').length,2); // Same authenticated envelope retry.
+ const bad=await h.command(2,'journal-bad',123,'notes/request',{action:'notes.save'});bad.payload.sig='00'.repeat(32);
+ await h.message(b.ws,bad);assert.equal(events(d.ws,'notes/request').length,2);
+ const legacy=await h.command(2,'old-reminder',123,'reminders/set');await h.message(b.ws,legacy);
+ assert.equal(events(d.ws,'reminders/set').length,0);
+ await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:122,requestId:'journal-one'}});assert.equal(events(b.ws,'notes/reported').length,0);
+ await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-one',body:'{}',sig:'07'.repeat(32)}});
+ assert.equal(events(b.ws,'notes/reported').length,1);
+});
+
+test('journal DATA is a transaction reply delivered even without a telemetry watch lease',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ assert.equal(b.ws.deserializeAttachment().watchUntil,0);
+ await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-response',operation:'notes.list',body:'{"generation":0,"next":24,"done":true}',sig:'07'.repeat(32)}});
+ assert.equal(events(b.ws,'notes/reported').length,1);
+ await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,runtime:{temperature:37.5}}});
+ assert.equal(events(b.ws,'snapshot').length,0,'Telemetry still needs a watch lease');
+});

@@ -64,6 +64,7 @@ struct FakeWire {
   int read() { return available() ? rx[cursor++] : -1; }
 } Wire;
 #include "actual-single-eeprom.inc"
+#include "note_journal.h"
 
 int main() {
   ExternalEeprom24xx driver;
@@ -78,54 +79,23 @@ int main() {
   assert(driver.readBytes(0xFFFF, &result, 1) && result == byte);
   assert(!driver.writeBytes(0xFFFF, pattern.data(), 2));
   assert(driver.writeBytes(0xFFFF, &byte, 0));
-  ReminderSet original{}, updated{}, loaded{};
-  original.items[0].day = 4;
-  std::snprintf(original.items[0].label, CUSTOM_REMINDER_LABEL_LEN, "Kiem tra khay");
-  updated = original;
-  updated.items[1].day = 10;
-  std::snprintf(updated.items[1].label, CUSTOM_REMINDER_LABEL_LEN, "Ghi chu ngay 10");
-  ReminderStore store;
-  assert(store.saveReminders(original, loaded));
-  const auto baseline = Wire.memory;
-  const size_t initialWrites = Wire.writes;
-  assert(store.saveReminders(original, loaded));
-  assert(Wire.writes == initialWrites); // Unchanged notes don't wear EEPROM.
-  for (int cut = 0; cut <= static_cast<int>(sizeof(ReminderRecordV1)); ++cut) {
-    Wire.memory = baseline; Wire.off = false; Wire.cutAfter = cut;
-    ReminderStore before;
-    assert(before.loadReminders(loaded));
-    const bool ok = before.saveReminders(updated, loaded);
-    Wire.off = false; Wire.cutAfter = -1;
-    ReminderStore reboot;
-    assert(reboot.loadReminders(loaded));
-    assert(loaded.items[0].day == 4);
-    assert(loaded.items[1].day == (ok ? 10 : 0));
-  }
-  Wire.memory = baseline; Wire.wp = true;
-  ReminderStore protectedStore;
-  assert(!protectedStore.saveReminders(updated, loaded));
-  Wire.wp = false;
-  ReminderStore afterFailure;
-  assert(afterFailure.loadReminders(loaded) && loaded.items[1].day == 0);
-  assert(afterFailure.saveReminders(updated, loaded));
-  ReminderStore afterReboot;
-  assert(afterReboot.loadReminders(loaded) && loaded.items[1].day == 10);
-  Wire.memory[EEPROM_ADDR_REMINDERS_B + 20] ^= 1;
-  ReminderStore corrupted;
-  assert(corrupted.loadReminders(loaded) && loaded.items[1].day == 0);
-  ReminderSet empty{};
-  assert(corrupted.saveReminders(empty, loaded));
-  ReminderStore cleared;
-  assert(cleared.loadReminders(loaded) && loaded.items[0].day == 0);
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    updated.items[i].day = i + 1;
-    std::snprintf(updated.items[i].label, CUSTOM_REMINDER_LABEL_LEN,
-                  "Ngày %u: kiểm tra nhiệt độ và độ ẩm", i + 1);
-  }
-  assert(cleared.saveReminders(updated, loaded));
-  ReminderStore vietnamese;
-  assert(vietnamese.loadReminders(loaded));
-  assert(std::memcmp(&loaded, &updated, sizeof(loaded)) == 0);
+  // The shared production journal uses the actual C512/Wire driver, not a
+  // second persistence implementation. Notes and reminders occupy distinct IDs.
+  using namespace MayapNoteJournal;
+  Journal<ExternalEeprom24xx> journal(driver);
+  auto run=[&](const Request &request){assert(journal.begin(request));for(int i=0;i<10000&&!journal.ready();++i)journal.step();assert(journal.ready());return journal.result();};
+  Request note;note.operation=Operation::Save;note.note.createdAt=1750000000000ULL;
+  strcpy(note.note.id,"11111111-1111-4111-8111-111111111111");strcpy(note.note.content,"Lưu trên driver C512 thực");
+  assert(run(note).code==Code::Ok);
+  Request reminders;reminders.operation=Operation::SaveReminders;reminders.generation=1;
+  strcpy(reminders.note.id,ReminderId);reminders.note.createdAt=1;
+  ReminderPayload payload;payload.items[0].day=7;strcpy(payload.items[0].label,"Soi trứng ngày 7");
+  memcpy(reminders.note.content,&payload,sizeof(payload));assert(run(reminders).code==Code::Ok);
+  Journal<ExternalEeprom24xx> reboot(driver);Request read;read.operation=Operation::ReadReminders;strcpy(read.note.id,ReminderId);
+  assert(reboot.begin(read));for(int i=0;i<10000&&!reboot.ready();++i)reboot.step();assert(reboot.ready()&&reboot.result().hasNote);
+  assert(!memcmp(reboot.document().content,&payload,sizeof(payload)));
+  Wire.wp=true;reminders.generation=2;reminders.note.version=2;payload.items[1].day=10;strcpy(payload.items[1].label,"Kiểm tra khay");
+  memcpy(reminders.note.content,&payload,sizeof(payload));assert(run(reminders).code==Code::Io);Wire.wp=false;
   // ACK polling regression is a driver property, independent of any feature.
   // A delayed task resume must probe the chip once more before declaring timeout.
   uint8_t timingPayload[64]{}, timingReadback[64]{};
@@ -147,5 +117,5 @@ int main() {
   assert(Wire.probes<=22);
   pollPauseMs=0;Wire.writeCycleMs=0;
   std::puts("C512 ACK polling: generic driver, 5ms write cycle, delayed task wake-up and millis wrap PASS");
-  std::puts("C512: page/Wire boundary, 0xFFFF/range, reminders reboot/clear/no-op, WP and CRC fallback PASS");
+  std::puts("C512: page/Wire boundary, 0xFFFF/range, shared journal notes/reminders reboot/readback and WP PASS");
 }

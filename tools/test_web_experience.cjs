@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
 const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
-  window.__qa = { state, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
+  window.__qa = { state, notesUiStorage, sendReminders, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
     handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus, controlReady };
   init();`);
 const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config.h'), 'utf8');
@@ -25,7 +25,33 @@ window.MayapRealtime = { Client: function(options) {
     unsubscribe() {}, reconnect() { client.emit('connect'); },
     end() { client.disconnecting = true; client.emit('close'); },
     send(route, msg, cb) {
-      cb?.(); if (route.channel!=='session') return; window.__transport.sessions.push({ at: performance.now(), ...msg });
+      cb?.();
+      if(route.channel==='notes/request'){
+        (async()=>{
+          const request=JSON.parse(msg.body), mock=window.__journalMock ||= { generation:0,reminderVersion:0,notes:new Map(),reminders:[] };
+          let data={generation:mock.generation,next:24,done:true},code='NOTE_JOURNAL_OK',ok=true;
+          if(window.__journalFailure&&request.action.endsWith('.save')){ok=false;code='NOTE_JOURNAL_IO';}
+          else if(request.action==='notes.list'){
+            const records=[...mock.notes.values()],index=request.cursor||0;
+            data={generation:mock.generation,next:index+1,done:index+1>=records.length};if(records[index])data.note=records[index];
+          }else if(request.action==='notes.reminders.read')data={...data,version:mock.reminderVersion,reminders:mock.reminders};
+          else if(request.generation!==mock.generation){ok=false;code='NOTE_JOURNAL_CONFLICT';}
+          else if(request.action==='notes.save'){
+            mock.generation++;const note={...request.note,version:mock.generation};mock.notes.set(note.id,note);data={...data,generation:mock.generation,note};
+          }else if(request.action==='notes.delete'){mock.notes.delete(request.note.id);data.generation=++mock.generation;}
+          else if(request.action==='notes.reminders.save'){mock.reminders=request.reminders;mock.reminderVersion=++mock.generation;data={...data,generation:mock.generation,version:mock.reminderVersion,reminders:mock.reminders};}
+          const key=await crypto.subtle.importKey('raw',new Uint8Array(32).fill(7),{name:'HMAC',hash:'SHA-256'},false,['sign']);
+          const sign=async text=>[...new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(text)))].map(b=>b.toString(16).padStart(2,'0')).join('');
+          if(ok&&!(window.__journalDropData>0&&(window.__journalDropData--))){const body=JSON.stringify(data),frame={v:2,bootId:123,requestId:request.requestId,operation:request.action,body};
+            frame.sig=await sign(['mayap-note-journal:v2',options.deviceId,123,request.requestId,request.action,body].join('\\n'));
+            client.emit('message',{deviceId:options.deviceId,channel:'notes/reported'},frame);
+          }
+          const ack={v:2,bootId:123,requestId:request.requestId,operation:request.action,phase:'completed',ok,code,revision:mock.generation,message:code};
+          ack.sig=await sign(['mayap-mqtt-ack:v2',options.deviceId,request.requestId,request.action,'completed',ok?'1':'0',code,123,mock.generation,code].join('\\n'));
+          setTimeout(()=>client.emit('message',{deviceId:options.deviceId,channel:'ack'},ack),20);
+        })();return;
+      }
+      if (route.channel!=='session') return; window.__transport.sessions.push({ at: performance.now(), ...msg });
       if (!msg.active || !msg.sync) return;
       if (window.__transport.dropFirst) { window.__transport.dropFirst = false; return; }
       setTimeout(() => window.__deliver?.(), 25);
@@ -53,7 +79,7 @@ async function setup(browser, options = {}) {
       const config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(key => [key, defaults[key] ?? 0]));
       config.ventAutoEnabled = true;
       config.adaptiveThermalBalanceEnabled = false;
-      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, ssid: 'Wi-Fi gia đình' });
+      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, notesJournal:2, ssid: 'Wi-Fi gia đình' });
       h.handleConfigReport(d, { revision: 1, bootId: 123, config });
       h.handleSnapshot(d, { revision: 1, bootId: 123, runtime: { temperature: 37.5, humidity: 58,
         heaterPower: 25, circulationFanOn: true, ventFanOn: false, turningEnabled: true,
@@ -559,6 +585,34 @@ async function main() {
     assert.equal(await landscape.page.locator('.main').evaluate(el=>el.scrollTop),0,'Tab change restores the start of the operating page');
     await landscape.context.close();
     results.push('Safe areas 24px top / 34px bottom: matching root/footer color, protected controls, stable padding when browser chin hides; landscape swipe and scroll restoration pass. Native OS bars require device verification.');
+    for(const viewport of [{width:1366,height:768},{width:390,height:844},{width:390,height:360}]){
+      const journal=await setup(browser,{...viewport,mobile:viewport.width===390});const page=journal.page;
+      await page.evaluate(()=>window.__journalDropData=1);
+      await page.locator('#notesBubble').click();await page.locator('#notesPanel').getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click();
+      await page.locator('#notesPanel select').selectOption('machine');
+      await page.locator('#notesPanel input[name=title]').fill('<img src=x onerror=alert(1)>');
+      await page.locator('#notesPanel textarea').fill('Tiếng Việt: ghi chú ngày 7, ư và đ.');
+      await page.locator('#notesPanel').getByRole('button',{name:'Lưu',exact:true}).click();
+      await page.waitForFunction(()=>document.querySelectorAll('#notesPanel .noteCard').length===1);
+      assert.equal(await page.locator('#notesPanel .noteCard img').count(),0);
+      await page.evaluate(async()=>{const h=window.__qa;await h.sendReminders(h.state.devices[0],[{day:7,label:'Soi trứng ngày 7'}]);});
+      assert.ok(await page.locator('#reminderList').textContent().then(t=>t.includes('Soi trứng ngày 7')));
+      await page.locator('#notesPanel').getByRole('button',{name:'Sửa',exact:true}).click();
+      await page.locator('#notesPanel textarea').fill('Đã sửa sau khi lưu Nhắc nhở.');
+      await page.locator('#notesPanel').getByRole('button',{name:'Lưu thay đổi'}).click();
+      await page.waitForFunction(()=>document.querySelector('#notesPanel .noteContent')?.textContent==='Đã sửa sau khi lưu Nhắc nhở.');
+      await page.locator('#notesPanel').getByRole('button',{name:'Sửa',exact:true}).click();
+      await page.locator('#notesPanel textarea').fill('Bản nháp phải còn khi EEPROM lỗi.');
+      await page.evaluate(()=>window.__journalFailure=true);
+      await page.locator('#notesPanel').getByRole('button',{name:'Lưu thay đổi'}).click();
+      await page.waitForFunction(()=>document.querySelector('#notesPanel')?.textContent.includes('AT24C512'));
+      assert.equal(await page.locator('#notesPanel textarea').inputValue(),'Bản nháp phải còn khi EEPROM lỗi.');
+      const reminders=await page.evaluate(async()=>{const h=window.__qa,d=h.state.devices[0];const ok=await h.sendReminders(d,[{day:8,label:'Phải bị từ chối'}]);return {ok,stored:d.reminders};});
+      assert.equal(reminders.ok,false);assert.deepEqual(reminders.stored,[{day:7,label:'Soi trứng ngày 7'}]);
+      assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
+      await journal.context.close();
+    }
+    results.push('Shared journal browser: signed DATA + ACK save/edit notes and reminders, shared revision, Vietnamese text, XSS and desktop/mobile/low-height layout PASS (transport fixture; physical EEPROM tested separately).');
     fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers, layouts, safeAreas },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }

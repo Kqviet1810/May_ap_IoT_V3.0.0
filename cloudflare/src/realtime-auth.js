@@ -6,9 +6,9 @@ export const CLIENT_ID = /^[A-Za-z0-9_-]{8,39}$/;
 export const TICKET_TTL_SEC = 60;
 export const CONNECTION_LEASE_MS = 300000;
 export const FRAME_CAP = 2048;
-export const WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request']);
+export const WRITE_CHANNELS = new Set(['command', 'config/set', 'history/request', 'notes/request']);
 export const DEVICE_CHANNELS = new Set(['presence', 'bootstrap', 'snapshot', 'config/reported',
-  'reminders/reported', 'ack', 'log', 'history/reported']);
+  'reminders/reported', 'ack', 'log', 'history/reported', 'notes/reported']);
 const encoder = new TextEncoder();
 
 export async function issueTicket(env, claims, now = Date.now()) {
@@ -67,7 +67,7 @@ export async function verifyWrite(env, id, clientId, channel, wire, bootId, now 
     if (body.v !== 2 || body.clientId !== clientId || body.bootId !== bootId ||
         typeof body.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,39}$/.test(body.requestId) ||
         !Number.isSafeInteger(body.seq) || body.seq <= 0 || !/^[a-f0-9]{16,64}$/.test(body.nonce || '')) return null;
-    if (channel === 'command' && (!Number.isSafeInteger(body.expiresAt) || body.expiresAt < sec || body.expiresAt > sec + 30)) return null;
+    if ((channel === 'command' || channel === 'notes/request') && (!Number.isSafeInteger(body.expiresAt) || body.expiresAt < sec || body.expiresAt > sec + 30)) return null;
     return body;
   } catch { return null; }
 }
