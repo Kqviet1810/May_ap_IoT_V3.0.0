@@ -1,8 +1,8 @@
 {
-  "release": "1.1.1",
-  "firmware": "1.1.1",
+  "release": "1.1.2",
+  "firmware": "1.1.2",
   "hmi": "1.0.0",
-  "web": "1.1.0",
+  "web": "1.1.1",
   "web_storage_schema": 10,
   "attiny_protocol": 4,
   "esp32_core": "3.3.11",
@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Legacy Ghi chú persistence removed completely from ESP32/EEPROM/realtime/DeviceHub; notes.js and notes.css remain UI-only pending a new backend design. No OTA rollout is implied."
+  "notes": "Thermal final hardening: fixed Test Mode High/Emergency protection, fail-safe calibration/freshness policy, running-batch thermal envelope invariants, zero-authority PID rejection, E114 diagnostics and narrow stale-default envelope repair. Web cache bumped for the matching safety UI. No merge, OTA, Cloudflare deploy or physical rollout is implied."
 }
