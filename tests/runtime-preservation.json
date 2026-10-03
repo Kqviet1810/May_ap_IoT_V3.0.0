@@ -62,7 +62,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "eb0eaba7ab08d5de4367f2b9bcb180df67c4df46c1220159863f67d4f99c48a3",
+      "sha256": "7d81582a89cee2374b69500b91f25bf8c4a8cf517758377072f33eb579ae8097",
       "signature": "class MachineController {"
     },
     {
@@ -444,5 +444,6 @@
   "thermalFinalReviewNote": "2026-10-03: explicit provisional 300ms production quantum and bounded SENSOR humidity diagnostic and CONFIG labels distinguishing legacy cycle from candidate burst only inside protected config/MachineController. PID, AutoTune, output arbitration, config serializers/schema and safety bodies unchanged. Legacy pidCycleSec hidden from Web/HMI with EEPROM schema3..12 and production cadence regressions.",
   "autotuneQualificationReviewNote": "2026-10-03: reviewed AutoTune-only preheat 30% commissioning candidate with 15min preheat/phase,45min total deadlines; explicit phases/reasons/locked actual relay swing, upward one-ULP uniform gain scaling, bounded diagnostics, fail/reset before next GPIO cycle and outside-batch AutoTune EventLog exception. Actual PID/PDM/filter/safety threshold/alarm bodies, OutputArbiter, EEPROM schema and atomic save implementation unchanged. Plant-in-loop includes honest cold and near-SP qualification; performance/BAD candidates are experimental reports, not physical validation.",
   "adaptiveThermalReviewNote": "2026-10-03: explicit review of new opt-in schema13/runtime diagnostics in config.h and MachineController adaptive orchestration only. Actual requested PID limit comes from a transient config view; PID gains/filter/PDM/AutoTune/safety alarm/OutputArbiter/E115/Frozen bodies unchanged. Background loop owns versioned CRC NVS seeds with fixed mailbox, no control-task flash writes. Schema12 prefix/CRC migration defaults OFF. Frozen b537786 heating-body oracle proves OFF actual GPIO/request/vent equivalence. No blanket fingerprint refresh. Final qualification adds actual-fan validity, 126s robust observer rate after X10 evidence, independent confirmed self-heating confidence, bounded transition events outside batch, and background-only invalid-model diagnostics. Old thermal/safety/AutoTune function hashes remain unchanged. Integration also retains remote 013d931/f9fe684 config-save setpoint correction; its ThermalController hash and dedicated regressions are preserved.",
+  "adaptivePostAuditReviewNote": "2026-10-03: reviewed post-audit hardening only. MachineController now offers learned NVS models only from supervisor Qualified/Adaptive states and compile-time locks smart-cooling timing to the existing vent relay minimums. Self-heating recovery/diagnostic changes live in the adaptive module; PID/filter/PDM/safety/OutputArbiter/E115 bodies remain unchanged.",
   "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged."
 }
