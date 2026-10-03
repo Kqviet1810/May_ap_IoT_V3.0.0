@@ -21,6 +21,21 @@ static void eventOutsideBatch(){
   diagnosticLines.clear();serialEnabled=false;h.cycle(clockMs+5);assert(diagnosticLines.empty());
   h.eventLog_.push(clockMs,EventType::Boot,1);assert(h.eventLog_.sequence()==before+3);
 }
+static void cancelOutsideBatch(){
+  TuneHarness h;assert(!h.eventLog_.loggingEnabled());begin(h,37.4f);
+  const uint32_t before=h.eventLog_.sequence();
+  const char *message=nullptr;
+  assert(h.cancelAutoTune(clockMs+25,message));
+  assert(std::strcmp(message,"DA HUY AUTO TUNE")==0);
+  assert(h.autotune_.state()==AutoTuneState::Idle && h.store_.saves==0);
+  assertOld(h);
+  HmiEventSnapshot events;h.eventLog_.snapshotRecent(clockMs+25,events);
+  assert(events.count==2);
+  assert(events.items[0].code==static_cast<uint16_t>(EventCode::AutoTuneCancelled));
+  assert(events.items[1].code==static_cast<uint16_t>(EventCode::AutoTuneStarted));
+  assert(h.eventLog_.sequence()==before+1);
+  assert(!h.cancelAutoTune(clockMs+30,message));
+}
 static void preheatAndTimeouts(){
   for(uint8_t cap:{20U,30U,50U,100U}){
     TuneHarness h;h.config_.maxHeaterPower=cap;begin(h,25);
@@ -103,5 +118,5 @@ static void savesAndRejections(){
   cfg.autotuneRelayPowerPercent=0;tune.start(1000,37.4f);
   assert(!tune.update(1000,37.4f,cfg,result) && tune.reason()==AutoTuneReason::InvalidKu);
 }
-int main(){eventOutsideBatch();preheatAndTimeouts();safetyAndReset();savesAndRejections();
-  std::puts("Actual AutoTune: preheat/capped actual swing, rolling quality, 34 immediate cuts, bounded deadlines, atomic save/power-cut/reset, outside-batch events and bounded diagnostics PASS");}
+int main(){eventOutsideBatch();cancelOutsideBatch();preheatAndTimeouts();safetyAndReset();savesAndRejections();
+  std::puts("Actual AutoTune: preheat/capped actual swing, rolling quality, 34 immediate cuts, bounded deadlines, atomic save/power-cut/reset/cancel, outside-batch terminal events and bounded diagnostics PASS");}

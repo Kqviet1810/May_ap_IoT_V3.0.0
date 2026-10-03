@@ -185,6 +185,9 @@ enum class EventCode : uint16_t {
   StorageReconnected,
   // value (int16_t) mang so GIO da mat dien, xem adjustResumeElapsedFromRtc().
   PowerOutageDuration,
+  // 56-59 du phong truoc nhom Turning=60; huy AutoTune la terminal event
+  // rieng, khong danh dong voi failure vi PID cu van duoc giu nguyen.
+  AutoTuneCancelled = 56,
   TurnStartLeft = 60, TurnStartRight, TurnHomeLeft, TurnHomeRight,
   TurnCompleteLeft, TurnCompleteRight,
   NetworkModeOffline = 70, NetworkConnecting, NetworkConnected,
@@ -5040,6 +5043,8 @@ class MachineController {
     // Auto Tune path. Stored/current PID gains are not modified on cancel.
     postCoolUntil_ = now + POST_COOL_MS;
     heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
+    eventLog_.push(now, EventType::AutoTuneEnd,
+                   static_cast<uint16_t>(EventCode::AutoTuneCancelled));
     message = "DA HUY AUTO TUNE";
     mayapSerialPrintf(false, "[TUNE] CANCEL operator\n");
     return true;

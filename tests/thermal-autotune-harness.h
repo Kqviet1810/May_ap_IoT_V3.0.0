@@ -101,6 +101,7 @@ struct TuneHarness {
   void updateTestModeOutputs(uint32_t now){outputs_.forceSafe(now);}
   void latchStorageFault(const char *){storageFaultLatched_=true;}
 #include "actual-tune-start.inc"
+#include "actual-tune-cancel.inc"
 #include "actual-tune-update.inc"
 #ifdef MAYAP_TEST_ADAPTIVE
   MayapAdaptive::AdaptiveThermalSupervisor adaptiveThermal_;

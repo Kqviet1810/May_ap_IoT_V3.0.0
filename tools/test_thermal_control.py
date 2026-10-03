@@ -137,7 +137,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     start=machine.index('enum class EventType :')
     end=body_end(machine,machine.index('class EventLog {',start))+1
     (out / 'actual-event.inc').write_text(event_types+machine[start:end])
-    for name, signature in [('start','  bool startAutoTune('),('update','  void updateAutoTune(')]:
+    for name, signature in [('start','  bool startAutoTune('),
+                            ('cancel','  bool cancelAutoTune('),
+                            ('update','  void updateAutoTune(')]:
         (out / ('actual-tune-'+name+'.inc')).write_text(method(signature))
     (out / 'actual-safety-thresholds.inc').write_text('\n'.join(
         'constexpr double MODEL_'+name.upper()+' = '+re.search(r'float '+name+r'\s*=\s*([\d.]+)f;',config)[1]+';'
