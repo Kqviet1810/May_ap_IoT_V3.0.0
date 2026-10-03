@@ -1150,6 +1150,9 @@ struct MachineConfig {
 
   float tempOffset = 0.0f;
   float humidityOffset = 0.0f;
+  // Legacy EEPROM/protocol compatibility field. Runtime control intentionally
+  // uses the fixed fail-safe RS485 freshness/offline policy; every load/save
+  // normalizes this reserved value to 10 so old clients cannot weaken it.
   uint16_t sensorTimeoutSec = 10;
   bool alarmEnabled = true;
   ConnectivityMode connectivityMode = ConnectivityMode::Offline;
@@ -1181,6 +1184,13 @@ struct MachineConfig {
   // that nao dang hoat dong.
   bool sirenSelfTestEnabled = false;
 };
+
+// PID la che do dieu khien san pham: it nhat mot he so phai co authority.
+// Kp-only / Ki-only / Kd-only van duoc phep cho commissioning; ca ba bang 0
+// thi bo dieu khien khong the tao cong suat ben vung va phai bi tu choi.
+inline bool mayapPidHasAuthority(const MachineConfig &cfg) {
+  return cfg.kp > 0.0f || cfg.ki > 0.0f || cfg.kd > 0.0f;
+}
 
 // Nhac nho tuy chinh theo ngay (v3.7.0) - nguoi dung tao tren web, tinh tu
 // luc bat dau me (day = 1 la ngay dau tien). day == 0 nghia la O TRONG (chua

@@ -15,7 +15,8 @@ function browser(overrides = {}, initialStorage = {}) {
     runtimeRealtime = { deviceId:'MAP-1234567890AB', url:'wss://test.invalid/realtime/browser/MAP-1234567890AB', ticket:'test-ticket' };
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectRealtime, supportsVentProfile,
-      swipeDestination, buildConfig, validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
+      swipeDestination, buildConfig, validateTemperatureForm, validateSensorForm,
+      validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
       refreshRealtimeSession, requestRealtimeSession, postCloudJson, isDeviceOnline, sendCommand,
       handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
@@ -567,4 +568,54 @@ test('landing has no duplicated top nav and Auto Tune exposes cancel while runni
   assert.match(css, /grid-template-rows:minmax\(0,1fr\) auto 30px/);
   assert.match(app, /textContent = 'Hủy tự dò PID'/);
   assert.match(app, /sendCommand\('autotune_cancel'\)/);
+});
+
+
+test('thermal final bounds match firmware and zero-authority PID is rejected', () => {
+  const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  assert.doesNotMatch(html, /id="sensorTimeout"/);
+  assert.match(html, /id="tempOffset" max="5" min="-5"/);
+  assert.match(html, /id="highAlarm" max="42"/);
+  assert.match(html, /id="emergencyTemp" max="45"/);
+  assert.match(html, /Mức tăng nhiệt tối thiểu/);
+
+  const h = browser();
+  for (const [id, value] of Object.entries({
+    targetTemp:37.5, lowAlarm:36.5, highAlarm:38.2, emergencyTemp:39,
+    tempOffset:0, humidityOffset:0,
+    advKp:0, advKi:0, advKd:0, advMaxHeaterPower:100,
+    advTempRateLimitC:1, advTempRateWindowSec:120,
+    advTempOscillationCrossLimit:6, advTempOscillationWindowSec:600,
+    advHeaterStuckMinRiseC:0.3, advHeaterStuckDurationSec:900,
+    advAutotuneRelayPowerPercent:30, advAutotuneBandC:0.2
+  })) h.elements.set(id, { value });
+  assert.equal(h.validateTemperatureForm(), true);
+  assert.equal(h.validateSensorForm(), true);
+  assert.equal(h.validateAdvancedForm(), false);
+  assert.equal(h.window.invalidField, 'advKp');
+
+  h.elements.get('advKp').value = 18;
+  assert.equal(h.validateAdvancedForm(), true);
+  h.elements.get('tempOffset').value = -5.1;
+  assert.equal(h.validateSensorForm(), false);
+  assert.equal(h.window.invalidField, 'tempOffset');
+});
+
+test('running-batch target edit re-anchors safety and ventilation envelope instead of editing locked thresholds', () => {
+  const h = browser();
+  h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+  Object.assign(h.device.config, {
+    targetTemp:37.5, lowTempAlarm:36.5, highTempAlarm:38.2, emergencyTemp:39.0,
+    ventOnTemp:38.0, ventOffTemp:37.6, highTempAlarmWithoutBatch:true
+  });
+  h.device.snapshot = { runtime:{ batchRunning:true, resumeConfirmationRequired:false } };
+  h.elements.set('targetTemp', { value:30 });
+  const cfg = h.buildConfig('temperature');
+  assert.equal(cfg.targetTemp, 30);
+  assert.equal(cfg.lowTempAlarm, 29.0);
+  assert.equal(cfg.highTempAlarm, 30.7);
+  assert.equal(cfg.emergencyTemp, 31.5);
+  assert.equal(cfg.ventOnTemp, 30.5);
+  assert.equal(cfg.ventOffTemp, 30.1);
+  assert.equal(cfg.highTempAlarmWithoutBatch, true);
 });

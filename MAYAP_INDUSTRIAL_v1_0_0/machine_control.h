@@ -1421,8 +1421,9 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
       static_cast<int>(cfg.powerRestoreDelaySec), 0, 600));
   cfg.tempOffset = clampFloat(cfg.tempOffset, -5.0f, 5.0f);
   cfg.humidityOffset = clampFloat(cfg.humidityOffset, -20.0f, 20.0f);
-  cfg.sensorTimeoutSec = static_cast<uint16_t>(constrain(
-      static_cast<int>(cfg.sensorTimeoutSec), 5, 30));
+  // sensorTimeoutSec la slot legacy: khong cho cau hinh ben ngoai lam dai
+  // thoi gian may tiep tuc cap nhiet bang mau cam bien cu.
+  cfg.sensorTimeoutSec = defaults.sensorTimeoutSec;
   if (static_cast<uint8_t>(cfg.connectivityMode) >
       static_cast<uint8_t>(ConnectivityMode::Online)) {
     cfg.connectivityMode = defaults.connectivityMode;
@@ -4348,9 +4349,14 @@ class MachineController {
       const float candidateTemp = sensor_.temperatureC() + config_.tempOffset;
       const float candidateHum = clampFloat(
           sensor_.humidityRH() + config_.humidityOffset, 0.0f, 100.0f);
-      const float candidateRaw = sensor_.rawTemperatureC() + config_.tempOffset;
+      const float rawSensorTemp = sensor_.rawTemperatureC();
+      // Bu am co the can cho calibration/PID nhung KHONG duoc ha nguong bao
+      // ve qua nhiet. Bu duong van duoc ap dung theo huong fail-safe.
+      const float candidateRawCorrected = rawSensorTemp + config_.tempOffset;
+      const float candidateRaw = std::max(rawSensorTemp, candidateRawCorrected);
       const bool frameValid = sensor_.dataValid() && isfinite(candidateTemp) &&
-                              isfinite(candidateHum) && isfinite(candidateRaw);
+                              isfinite(candidateHum) && isfinite(rawSensorTemp) &&
+                              isfinite(candidateRaw);
       latestFrameValid_ = frameValid;
 
       // Gia tri raw duoc cap nhat ngay de nhanh bao ve qua nhiet khong bi bo qua.
@@ -4414,11 +4420,9 @@ class MachineController {
       }
     }
 
-    const uint32_t configuredTimeout = std::min<uint32_t>(15000UL,
-        std::max<uint32_t>(5000UL,
-          static_cast<uint32_t>(config_.sensorTimeoutSec) * 1000UL));
-    const bool transportValid = sensor_.dataValid() && sensor_.online() &&
-                                sensor_.dataAgeMs() <= configuredTimeout &&
+    // Fail-safe freshness is owned by SHT485Industrial::dataValid()/online
+    // policy. sensorTimeoutSec is retained only for EEPROM/protocol compatibility.
+    const bool transportValid = sensor_.dataValid() &&
                                 latestFrameValid_ && isfinite(rawTemperature_) &&
                                 isfinite(humidity_);
     safetySampleValid_ = transportValid;
@@ -4473,12 +4477,32 @@ class MachineController {
       // OFFLINE. Calibration, nguong safety, PID/tuning, timeout co khi,
       // sensor/recovery va OFFLINE->ONLINE deu bi khoa o lop luu that su nay
       // de web/Serial/HMI khong the di vong qua khoa giao dien.
+      const float targetDelta = requested.targetTemp - config_.targetTemp;
+      const bool targetChanged = fabsf(targetDelta) > 0.0005f;
+      const auto shiftedWithTarget = [targetDelta](float before, float after) {
+        return fabsf((after - before) - targetDelta) <= 0.0015f;
+      };
+      const bool thermalEnvelopeFollowsTarget = targetChanged &&
+          shiftedWithTarget(config_.lowTempAlarm, requested.lowTempAlarm) &&
+          shiftedWithTarget(config_.highTempAlarm, requested.highTempAlarm) &&
+          shiftedWithTarget(config_.emergencyTemp, requested.emergencyTemp) &&
+          shiftedWithTarget(config_.ventOnTemp, requested.ventOnTemp) &&
+          shiftedWithTarget(config_.ventOffTemp, requested.ventOffTemp);
+      const bool directSafetyThresholdChange =
+          requested.lowTempAlarm != config_.lowTempAlarm ||
+          requested.highTempAlarm != config_.highTempAlarm ||
+          requested.emergencyTemp != config_.emergencyTemp;
+      // Trong me, SV duoc phep doi. Neu SV doi, chi cho phep ba nguong safety
+      // va hai nguong quat hut di chuyen CUNG delta de giu nguyen khoang cach;
+      // moi kieu sua safety truc tiep khac van bi khoa.
+      const bool thermalEnvelopeViolation = targetChanged
+          ? !thermalEnvelopeFollowsTarget
+          : directSafetyThresholdChange;
+      const bool pidAuthorityValid = mayapPidHasAuthority(requested);
       const bool protectedBatchChange = (batchRunning_ || resumePending_) && (
           requested.autoResumeOnPowerLoss != config_.autoResumeOnPowerLoss ||
           requested.totalIncubationDays != config_.totalIncubationDays ||
-          requested.lowTempAlarm != config_.lowTempAlarm ||
-          requested.highTempAlarm != config_.highTempAlarm ||
-          requested.emergencyTemp != config_.emergencyTemp ||
+          thermalEnvelopeViolation ||
           requested.tempOffset != config_.tempOffset ||
           requested.humidityOffset != config_.humidityOffset ||
           requested.highTempAlarmWithoutBatch != config_.highTempAlarmWithoutBatch ||
@@ -4503,8 +4527,9 @@ class MachineController {
            config_.connectivityMode != ConnectivityMode::Online));
       const MachineConfig previousConfig = config_;
       MachineConfig readback{};
-      const bool saveAllowed = !batchClearPending_ &&
-          !safetyJournalFaultLatched_ && !protectedBatchChange;
+      const bool safetySaveBlocked = batchClearPending_ || safetyJournalFaultLatched_;
+      const bool saveAllowed = !safetySaveBlocked &&
+          !protectedBatchChange && pidAuthorityValid;
       const bool ok = saveAllowed && store_.saveConfig(requested, readback);
       if (ok) {
         config_ = readback;
@@ -4531,12 +4556,18 @@ class MachineController {
       }
       if (ok) clearStorageDegraded(now);
       hmiConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr);
+      const char *configFailureReason = !pidAuthorityValid ? "INVALID_PID_GAINS"
+          : protectedBatchChange ? "CONFIG_BATCH_LOCKED"
+          : safetySaveBlocked ? "CONFIG_SAFETY_BLOCK"
+          : "CONFIG_EEPROM_ERROR";
       mayapWebConfirmConfigSave(transactionId, ok, ok ? &readback : nullptr,
-          !saveAllowed ? (protectedBatchChange ? "CONFIG_BATCH_LOCKED" : "CONFIG_SAFETY_BLOCK")
-                       : "CONFIG_EEPROM_ERROR");
+                                configFailureReason);
+      const char *configFailureTag = ok ? ""
+          : !pidAuthorityValid ? "(INVALID_PID)"
+          : protectedBatchChange ? "(BATCH_LOCK)"
+          : safetySaveBlocked ? "(SAFETY_BLOCK)" : "(EEPROM)";
       mayapSerialPrintf(false, "[CFG] save=%s%s SV=%.1f HIGH=%.1f EMG=%.1f turn=%umin\n",
-                       ok ? "OK" : "FAIL",
-                       saveAllowed ? "" : (protectedBatchChange ? "(BATCH_LOCK)" : "(SAFETY_BLOCK)"), requested.targetTemp,
+                       ok ? "OK" : "FAIL", configFailureTag, requested.targetTemp,
                        requested.highTempAlarm, requested.emergencyTemp,
                        requested.turnIntervalMin);
     }
@@ -5223,7 +5254,7 @@ class MachineController {
     // (relay mode). Tuy chinh nay chi de giam bao gia (hop nong), khong nham
     // tat bao ve trong luc thuc su dang gia nhiet.
     const bool tempAlarmEligible = config_.highTempAlarmWithoutBatch || batchRunning_ ||
-                                    autotune_.running();
+                                    autotune_.running() || testModeActive_;
 
     // Cap 3 vao ngay bang mau hop le dau tien, sau do giu qua mat cam bien.
     if (tempAlarmEligible && validSafety && safetyTemp >= config_.emergencyTemp) {
@@ -5274,8 +5305,9 @@ class MachineController {
       pid_.reset();
       postCoolUntil_ = now + POST_COOL_MS;
     }
-    // Thoat muc High chi khoi dong lai PID sau khi quat hut da ha den Hut OFF;
-    // khong nha contactor tong nhiet va khong tao chu ky dong/ngat contactor.
+    // High la STOP fault: SSR + contactor tong deu da bi cat. Khi High clear,
+    // reset PID; OutputArbiter chi duoc dong lai master sau minimum-OFF/pickup.
+    // Emergency con co them HEAT_RESTART_LOCKOUT_MS o nhanh duoi.
     if (wasHigh && !highTemperatureActive_) {
       pid_.reset();
     }
@@ -5332,8 +5364,9 @@ class MachineController {
     // dai hysteresis) trong 1 khung gio co dinh TEMP_OSCILLATION_WINDOW_MS.
     if (elapsedMs(now, tempOscillationWindowStart_) >=
         config_.tempOscillationWindowSec * 1000UL) {
+      tempOscillationLastWindowCrossCount_ = tempOscillationCrossCount_;
       temperatureUnstableActive_ = batchRunning_ && sensorUsable_ &&
-          tempOscillationCrossCount_ >= config_.tempOscillationCrossLimit;
+          tempOscillationLastWindowCrossCount_ >= config_.tempOscillationCrossLimit;
       tempOscillationCrossCount_ = 0U;
       tempOscillationWindowStart_ = now;
       tempOscillationLastSign_ = 0;
@@ -5420,7 +5453,7 @@ class MachineController {
     faults_.set(FaultCode::TemperatureRateExceeded, temperatureRateActive_, now,
                 isfinite(temperature_) ? static_cast<int16_t>(lroundf(temperature_ * 10.0f)) : 0);
     faults_.set(FaultCode::TemperatureUnstable, temperatureUnstableActive_, now,
-                static_cast<int16_t>(tempOscillationCrossCount_));
+                static_cast<int16_t>(tempOscillationLastWindowCrossCount_));
     faults_.set(FaultCode::HeaterNotHeating, heaterNotHeatingActive_, now,
                 (isfinite(heaterStuckStartTemp_) && isfinite(temperature_))
                     ? static_cast<int16_t>(lroundf((temperature_ - heaterStuckStartTemp_) * 10.0f)) : 0);
@@ -6202,18 +6235,11 @@ class MachineController {
                                    !safetyJournalFaultLatched_ &&
         !storageFaultLatched_ && (!storageDegraded_ || batchRunning_);
 
-    // RELAY NHIET TONG (contactor) theo dung yeu cau nguoi lap dat: KHI DANG
-    // CO NHU CAU NHIET (co me dang ap HOAC dang Auto Tune), cong tac nhiet
-    // vat ly (in.heaterEnable) la quyen dieu khien CAO NHAT cho relay nay -
-    // BAT cong tac la relay BAT ngay, khong con cho cam bien/quat/thoi gian
-    // nghi nua (cac dieu kien "thuong quy" nay CHI con duoc phep canh bao qua
-    // fault code, khong con duoc phep ngat relay trong luc dang ap). NGOAI ME
-    // (khong ap, khong Auto Tune) thi phan mem tu dong TAT relay bat ke vi tri
-    // cong tac - de nguyen cong tac BAT khi khong dung cung khong giu dien
-    // relay treo vo ich. CHI GIU LAI 1 ngoai le duy nhat trong luc dang ap:
-    // qua nhiet KHAN CAP (emergencyActive_) - lop du phong an toan doc lap
-    // cho truong hop chinh SSR D1 bi ket/chay o trang thai BAT (loi phan cung
-    // SSR thuc te hay gap), khong lien quan cong tac.
+    // RELAY NHIET TONG (contactor): cong tac HEATER vat ly la dieu kien cho
+    // phep, KHONG phai quyen vuot qua bao ve. Trong moi nhu cau nhiet, bat ky
+    // fault co dropHeatMaster=true (gom High/Emergency, sensor STOP...) deu
+    // nha contactor tong. Day la lop du phong doc lap neu SSR D1 bi ket/chay
+    // ON; ngoai me/AutoTune thi contactor cung khong duoc treo vo ich.
     const bool heatDemandContext = batchRunning_ || autotune_.running();
     // v3.8.0: cong tac vat ly la yeu cau BAT, khong phai quyen vuot qua
     // bao ve. Mat/loi cam bien hoac fault yeu cau cat tong phai nha contactor.
@@ -7826,6 +7852,7 @@ class MachineController {
   bool temperatureRateActive_ = false;
   int8_t tempOscillationLastSign_ = 0;
   uint8_t tempOscillationCrossCount_ = 0U;
+  uint8_t tempOscillationLastWindowCrossCount_ = 0U;
   uint32_t tempOscillationWindowStart_ = 0U;
   bool temperatureUnstableActive_ = false;
   bool heaterStuckTracking_ = false;
