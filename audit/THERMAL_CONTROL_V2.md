@@ -86,6 +86,8 @@ Hard tests exercise max heater 20/30/50/100%, actual capped relay swing, invalid
 
 At that AutoTune milestone, outside-batch EventLog retained **Boot, AutoTuneStart and AutoTuneEnd only**; the later Adaptive milestone adds bounded adaptive transitions. Normal network/input/output events remain suppressed. This is the existing bounded RAM event log; no new persistent sink or high-rate EEPROM logging was added.
 
+Final polish also records an operator cancellation as a distinct bounded `AutoTuneEnd/AutoTuneCancelled` terminal event (code 56), while retaining the previous PID gains, clearing heater credit and applying the existing post-cool/restart lockout. The Web success text explicitly says that saved gains still require a no-load physical confirmation; this is a UX/safety clarification, not a claim that the simulator certifies the chamber.
+
 ### SIMULATION VERIFIED — qualification, not physical performance
 
 [autotune-plant.csv](thermal-v2/autotune-plant.csv) contains **864 actual plant-in-loop runs**; [autotune-cycles.csv](thermal-v2/autotune-cycles.csv) records each measured cycle. The plant capacities/losses are extracted from the existing model, with its same 8 s actuator lag: actual AutoTune → PDM/arbiter → 0/16 kW → plant → 5/15/30/60 s dead time → 2 s sensor poll → 0.1/0.01°C quantization → actual median-3 and IIR-3/8. No alternating PV was supplied to these plant tests.

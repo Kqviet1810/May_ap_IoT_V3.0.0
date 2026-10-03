@@ -1,17 +1,17 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> **Baseline release candidate hiện tại: 1.1.2.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
+> **Baseline release candidate hiện tại: 1.1.3.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
 >
-> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.2` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
+> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.3` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
 
 ## Phiên bản hiện hành trên `main`
 
 | Thành phần | Phiên bản |
 |---|---:|
-| Release / baseline mã nguồn | 1.1.2 |
-| ESP32 firmware | 1.1.2 |
+| Release / baseline mã nguồn | 1.1.3 |
+| ESP32 firmware | 1.1.3 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.1 |
+| Web PWA | 1.1.2 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
@@ -131,7 +131,7 @@ Web không được tự flash máy. Operator phải xác nhận trực tiếp t
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.2
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.3
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A protocol v4
 cloudflare/                Worker + D1 + DeviceHub + Static Assets config
 .github/workflows/         build / test / release / deploy

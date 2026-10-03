@@ -1268,8 +1268,8 @@
       $('startTune').classList.remove('dangerButton');
       $('startTune').classList.add('primary');
       if (autoTuneState === 2) {
-        $('tuneText').textContent = 'Hoàn tất · thông số đã được máy lưu';
-        $('pidSummary').textContent = 'Đã hoàn tất và tự lưu';
+        $('tuneText').textContent = 'Đã tính và lưu PID · cần chạy thử xác nhận';
+        $('pidSummary').textContent = 'Đã lưu PID · cần xác nhận thực tế';
       } else if (autoTuneState === 3) {
         $('tuneText').textContent = 'Tự dò không hoàn tất';
         $('pidSummary').textContent = 'Tự dò thất bại';
