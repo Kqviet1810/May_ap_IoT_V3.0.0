@@ -176,7 +176,7 @@
     {
       "file": "app.js",
       "signature": "function clearPending(",
-      "sha256": "7189b83b486c9ddf0341cb83082fec4a29f0ef2b9cfa9c22c630e0bd9d38f72d"
+      "sha256": "bc33f08fa1d579464a6a75a7df7e9d59671820bef41d907d5fd1b52d5a22396f"
     },
     {
       "file": "app.js",
@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "f7d619c8b592787f4e88caa8c6dc39abbeb049422547630a7bac06ab6c62703d",
+      "sha256": "fbe643b4120898cd79eff5257dd90cd797c41899f674d84f4513a449db931b71",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -449,5 +449,6 @@
   "notesUiOnlyResetReviewNote": "2026-10-03: removed the complete legacy Ghi chú persistence path (ESP32 EEPROM store/service/retry, realtime notes channels and persistence tests). notes.js/notes.css remain as UI only. Controller/safety/config/reminder/history storage semantics are unchanged.",
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
-  "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged."
+  "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
+  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged."
 }

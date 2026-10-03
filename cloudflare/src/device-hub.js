@@ -48,7 +48,7 @@ export class DeviceHub {
   broadcast(channel, payload, cached = false) {
     for (const ws of this.sockets('browser')) {
       const a = attachment(ws);
-      if (a.until > Date.now() && (a.watchUntil > Date.now() || ['presence', 'ack'].includes(channel)))
+      if (a.until > Date.now() && (a.watchUntil > Date.now() || ['presence', 'ack', 'notes/reported'].includes(channel)))
         this.event(ws, channel, payload, cached);
     }
   }

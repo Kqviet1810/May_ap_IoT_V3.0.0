@@ -253,3 +253,12 @@ test('shared journal notes/reminders route retains auth, replay and boot fencing
  await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-one',body:'{}',sig:'07'.repeat(32)}});
  assert.equal(events(b.ws,'notes/reported').length,1);
 });
+
+test('journal DATA is a transaction reply delivered even without a telemetry watch lease',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ assert.equal(b.ws.deserializeAttachment().watchUntil,0);
+ await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-response',operation:'notes.list',body:'{"generation":0,"next":24,"done":true}',sig:'07'.repeat(32)}});
+ assert.equal(events(b.ws,'notes/reported').length,1);
+ await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,runtime:{temperature:37.5}}});
+ assert.equal(events(b.ws,'snapshot').length,0,'Telemetry still needs a watch lease');
+});

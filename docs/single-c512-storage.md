@@ -69,7 +69,10 @@ The key is the transaction's existing ACK-session key. A terminal Protocol V2
 ACK uses `NOTE_JOURNAL_*` codes and the same journal generation in `revision`.
 The Web requires both authenticated DATA and terminal ACK with matching generation;
 a Hub receipt or unsigned report cannot confirm persistence. DATA/ACK can arrive
-in either order. An incomplete response times out visibly and leaves the editor
+in either order. Journal DATA is a transaction reply and remains deliverable to
+an authenticated, unexpired browser socket even when its telemetry watch lease
+has expired. If a successful signed read ACK arrives without DATA, the Web tries
+one fresh READ fenced to that ACK generation; this never re-signs a mutation. An incomplete response times out visibly and leaves the editor
 draft; it never claims successful storage. Existing retries retain the exact
 signed envelope and request ID. A retry after reconnect/reload rereads storage;
 no-op writes are verified without wearing the chip again.

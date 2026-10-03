@@ -42,7 +42,7 @@ window.MayapRealtime = { Client: function(options) {
           else if(request.action==='notes.reminders.save'){mock.reminders=request.reminders;mock.reminderVersion=++mock.generation;data={...data,generation:mock.generation,version:mock.reminderVersion,reminders:mock.reminders};}
           const key=await crypto.subtle.importKey('raw',new Uint8Array(32).fill(7),{name:'HMAC',hash:'SHA-256'},false,['sign']);
           const sign=async text=>[...new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(text)))].map(b=>b.toString(16).padStart(2,'0')).join('');
-          if(ok){const body=JSON.stringify(data),frame={v:2,bootId:123,requestId:request.requestId,operation:request.action,body};
+          if(ok&&!(window.__journalDropData>0&&(window.__journalDropData--))){const body=JSON.stringify(data),frame={v:2,bootId:123,requestId:request.requestId,operation:request.action,body};
             frame.sig=await sign(['mayap-note-journal:v2',options.deviceId,123,request.requestId,request.action,body].join('\\n'));
             client.emit('message',{deviceId:options.deviceId,channel:'notes/reported'},frame);
           }
@@ -587,6 +587,7 @@ async function main() {
     results.push('Safe areas 24px top / 34px bottom: matching root/footer color, protected controls, stable padding when browser chin hides; landscape swipe and scroll restoration pass. Native OS bars require device verification.');
     for(const viewport of [{width:1366,height:768},{width:390,height:844},{width:390,height:360}]){
       const journal=await setup(browser,{...viewport,mobile:viewport.width===390});const page=journal.page;
+      await page.evaluate(()=>window.__journalDropData=1);
       await page.locator('#notesBubble').click();await page.locator('#notesPanel').getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click();
       await page.locator('#notesPanel select').selectOption('machine');
       await page.locator('#notesPanel input[name=title]').fill('<img src=x onerror=alert(1)>');

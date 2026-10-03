@@ -1942,15 +1942,21 @@
     NOTE_JOURNAL_CORRUPT:'Journal không hợp lệ. Không ghi đè dữ liệu máy.',NOTE_JOURNAL_FULL:'Máy đã đủ 16 ghi chú.',
     NOTE_JOURNAL_CONFLICT:'Dữ liệu máy vừa thay đổi. Bấm Làm mới trước khi lưu.',NOTE_JOURNAL_INVALID:'Nội dung hoặc Nhắc nhở không hợp lệ.',
     NOTE_JOURNAL_BUSY:'Máy đang xử lý journal. Thử lại sau.'};
-  async function exchangeJournal(deviceId,action,body){
+  async function exchangeJournal(deviceId,action,body,recovery=false){
     const device=state.devices.find(d=>d.id===deviceId);
     if(!device||deviceId!==state.selectedId||device.notesJournal!==2)throw new Error('Cần nạp firmware journal mới cho máy đang chọn.');
     if(!controlReady(device))throw new Error('Máy chưa sẵn sàng kết nối. Thử lại khi máy online.');
     const id=requestId('jnl');
     return new Promise(async (resolve,reject)=>{
-      const pending=startTransaction(id,{kind:'journal',operation:action,deviceId,resolve,reject},30000);
+      const pending=startTransaction(id,{kind:'journal',operation:action,deviceId,resolve,reject,journalRead:{action,body},journalRecovery:recovery},30000);
       pending.onTimeout=()=>{if(state.pending.get(id)!==pending)return;moveToUncertain(id,pending);
-        reject(new Error('Chưa nhận phản hồi đầy đủ từ máy. Nội dung vẫn giữ lại; bấm Làm mới để kiểm tra.'));};
+        const stage=pending.journalDiagnostic==='DATA_SIGNATURE_INVALID'?'Dữ liệu trả về không xác thực được':
+          pending.journalDiagnostic==='ACK_SIGNATURE_INVALID'?'ACK từ máy không xác thực được':
+          pending.journalAck?'Máy đã xác nhận nhưng thiếu dữ liệu trả về':
+          pending.tDeviceReceived?'Máy đã nhận yêu cầu nhưng chưa trả kết quả':
+          pending.tHubForwarded!=null?'Hub đã chuyển yêu cầu nhưng chưa nhận phản hồi xác thực từ máy':'Chưa xác nhận được yêu cầu đã tới máy';
+        console.warn('[JOURNAL]',{operation:action,stage});
+        reject(new Error(stage+'. Nội dung vẫn giữ lại; bấm Thử lại để đọc lại.'));};
       try{
         const envelope=await signRealtimeWrite(device,'notes/request',{v:PROTOCOL_VERSION,requestId:id,action,
           expiresAt:Math.floor(Date.now()/1000)+30,...body});
@@ -1969,15 +1975,39 @@
        encoder.encode(frame.body).length>=1700||!pending.ackKey||!/^[a-f0-9]{64}$/.test(frame.sig||''))return;
     const bytes=new Uint8Array(frame.sig.match(/../g).map(h=>parseInt(h,16)));
     const text=['mayap-note-journal:v2',device.id,frame.bootId,id,frame.operation,frame.body].join('\n');
-    if(!await crypto.subtle.verify('HMAC',pending.ackKey,bytes,encoder.encode(text)))return;
+    if(!await crypto.subtle.verify('HMAC',pending.ackKey,bytes,encoder.encode(text))){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';return;}
     if((state.pending.get(id)||state.uncertain.get(id))!==pending||frame.bootId!==device.bootId)return;
     try{const data=JSON.parse(frame.body);if(!Number.isInteger(data.generation)||data.generation<0||data.generation>0xffffffff)return;
       pending.journalData=data;if(pending.journalAck)handleAck(device,pending.journalAck);
     }catch{}
   }
 
+  function recoverJournalRead(device,id,pending,ack){
+    if(pending.journalRecovery||pending.journalRecoveryTimer||
+       !['notes.list','notes.reminders.read'].includes(pending.operation))return;
+    // A terminal ACK proves the read completed. Firmware's terminal cache only
+    // replays ACK, so recover lost DATA with one fresh, generation-fenced READ.
+    // Never re-sign or repeat a mutation here.
+    pending.journalRecovery=true;
+    pending.journalRecoveryTimer=setTimeout(async()=>{
+      if(pending.journalData||(state.pending.get(id)||state.uncertain.get(id))!==pending)return;
+      clearTimeout(pending.retryTimer);
+      try{
+        const data=await exchangeJournal(device.id,pending.operation,
+          {...pending.journalRead.body,generation:ack.revision},true);
+        if((state.pending.get(id)||state.uncertain.get(id))!==pending||pending.journalData)return;
+        if(data.generation!==ack.revision)throw new Error('Dữ liệu máy đã thay đổi trong lúc đọc lại. Bấm Thử lại.');
+        pending.journalData=data;handleAck(device,ack);
+      }catch(error){
+        if((state.pending.get(id)||state.uncertain.get(id))!==pending||pending.journalData)return;
+        pending.reject(error);state.uncertain.delete(id);clearPending(id);
+      }
+    },250);
+  }
+
   function clearPending(id) {
     const pending = state.pending.get(id);
+    if (pending?.journalRecoveryTimer) clearTimeout(pending.journalRecoveryTimer);
     if (pending?.timeout) clearTimeout(pending.timeout);
     if (pending?.retryTimer) clearTimeout(pending.retryTimer);
     state.pending.delete(id);
@@ -2010,7 +2040,9 @@
       return;
     }
     if(pending.kind==='journal'&&ack.phase==='completed'&&ack.ok===true){
-      if(!pending.journalData){pending.journalAck=ack;return;}
+      if(!pending.journalData){pending.journalAck=ack;
+        if(ack.operation===pending.operation&&ack.bootId===device.bootId&&Number.isInteger(ack.revision))recoverJournalRead(device,id,pending,ack);
+        return;}
       if(pending.journalData.generation!==ack.revision){pending.reject(new Error('Revision journal không khớp ACK.'));clearPending(id);return;}
     }
     const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
@@ -3080,6 +3112,8 @@
           if (valid) handleAck(device,payload);
           else if (state.pending.has(String(payload.requestId || '')) ||
               state.uncertain.has(String(payload.requestId || ''))) {
+            const pending=state.pending.get(String(payload.requestId||''))||state.uncertain.get(String(payload.requestId||''));
+            if(pending?.kind==='journal')pending.journalDiagnostic='ACK_SIGNATURE_INVALID';
             console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
           }
         }).catch((error) => console.error('[TX] ACK verify', error));
