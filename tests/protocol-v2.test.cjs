@@ -70,7 +70,7 @@ test('FRAME packet worst cases stay within budgets', () => {
     action: 'batch_overdue_continue' };
   assert.ok(wireBytes('command', command) < PacketPolicy.SMALL_TARGET);
   const advanced = {
-    kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100,
+    kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100, adaptiveThermalBalanceEnabled: true,
     tempRateLimitC: 10, tempRateWindowSec: 1800, tempOscillationCrossLimit: 30,
     tempOscillationWindowSec: 3600, heaterStuckMinRiseC: 5,
     heaterStuckDurationSec: 3600,
@@ -82,7 +82,9 @@ test('FRAME packet worst cases stay within budgets', () => {
   assert.ok(advancedSource, 'advanced form source not found');
   const advancedFields = [...advancedSource.matchAll(/config\.([A-Za-z0-9]+)\s*=/g)]
     .map((match) => match[1]);
-  assert.deepEqual([...new Set(advancedFields)].sort(), Object.keys(advanced).sort());
+  // The reserved field still fits the legacy packet but is no longer editable.
+  assert.deepEqual([...new Set(advancedFields)].sort(), Object.keys(advanced).filter(key => key !== 'pidCycleSec').sort());
+  assert.ok(webSource.includes("'pidCycleSec'"), 'legacy full-config readback remains supported');
   const config = { ...base, requestId: `cfg-${'a'.repeat(20)}`,
     revision: 4294967295, bootId: 4294967295, config: advanced };
   assert.ok(wireBytes('config/set', config) < PacketPolicy.CHUNK_TARGET);

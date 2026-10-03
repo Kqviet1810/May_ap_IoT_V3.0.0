@@ -52,7 +52,7 @@ test('all settings remain reachable exactly once in shorter groups', () => {
   assert.equal(indexes.length, 33);
   assert.equal(new Set(indexes).size, 33);
   assert.deepEqual([...indexes].sort((a, b) => a - b), [
-    ...Array.from({ length: 33 }, (_, i) => i).filter((i) => ![33, 34, 35, 36, 37, 38, 39, 40, 41].includes(i)),
+    ...Array.from({ length: 33 }, (_, i) => i).filter((i) => ![18, 33, 34, 35, 36, 37, 38, 39, 40, 41].includes(i)), 51,
   ]);
   assert.equal(groups.length, 8);
   assert.equal(groups.at(-1).name, 'TAO AM');

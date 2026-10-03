@@ -109,6 +109,8 @@ Commit `274b0d28` đã sửa false-timeout khi task tỉnh muộn: sau khi sched
 
 Firmware có fault manager tập trung với severity `Info / Warning / Stop / Emergency`, output arbiter và heater inhibit. Tuy nhiên software chỉ là một lớp.
 
+Phần cứng heater hiện tại: **GPIO1 điều khiển đồng thời cả hai SSR**, phần cứng hiện có 8 thanh nhiệt, 4 thanh mỗi bên quạt, tổng 16 kW. Firmware chỉ có **một bank 16 kW** (GPIO1 OFF = 0 kW, ON = 16 kW); công suất PID 0–100% là công suất trung bình của toàn bank. Không có GPIO điều khiển riêng SSR thứ hai. Xem [báo cáo thermal V2](audit/THERMAL_CONTROL_V2.md) trước khi thử nghiệm trên máy thật. Quantum 300 ms là candidate commissioning, chưa được xác nhận trên máy thật. PID 18/0.8/45, beta=1 chưa được đặc trưng trên buồng 12 m³. Mô phỏng chỉ so sánh control-only; vượt High/Emergency được báo riêng và không chứng minh độ chính xác thực tế. `pidCycleSec` chỉ còn là dữ liệu legacy, đã ẩn khỏi Web/HMI.
+
 Chuỗi an toàn phần cứng yêu cầu:
 
 ```text
@@ -226,3 +228,7 @@ Chi tiết Cloudflare: `cloudflare/README.md`.
 - Không coi `forwarded`/transport receipt là thành công điều khiển.
 - Không đổi EEPROM region/protocol/crypto domain chỉ vì tên lịch sử “không đẹp”; phải đánh giá tương thích trước.
 - Mọi thay đổi heater safety, provisioning, WebSocket auth, ATtiny, EEPROM hoặc OTA phải đi qua regression gate và commissioning phần cứng trước khi rollout.
+
+### Tự cân bằng nhiệt (candidate trên PR #2)
+
+Mặc định **OFF**, config cũ không tự bật. Khi ON, observer học từ GPIO1 ON-time thực; supervisor chỉ giới hạn heater authority/soft landing và yêu cầu quạt hút ON/OFF, giữ nguyên PID, SP và safety. Không nhận biết số xe hay nhiệt từng khoang. Learned model NVS chỉ là seed confidence thấp, không restore quyền điều khiển. Xem [Adaptive Thermal Balance](audit/THERMAL_CONTROL_V2.md) và chạy commissioning observer-only (`MAYAP_ADAPTIVE_OBSERVER_ONLY=1`) trước khi bật actuator trên máy thật. Không có tuyên bố độ chính xác ±0.1°C hay đều nhiệt toàn buồng.

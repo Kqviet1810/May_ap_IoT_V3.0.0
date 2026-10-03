@@ -103,9 +103,13 @@ jobs:
           python3 tools/test_single_eeprom.py --sanitize --check-regression
 
       - name: Actual PID and autotune host tests
-        run: |
-          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
-          /tmp/mayap-thermal-test
+        run: python3 tools/test_thermal_control.py --sanitize --report-dir /tmp/mayap-thermal-report
+
+      - name: Thermal control-only metrics and safety threshold qualification (physical performance unverified)
+        uses: actions/upload-artifact@v4
+        with:
+          name: thermal-old-new-metrics
+          path: /tmp/mayap-thermal-report
 
       - name: Adaptive staged boot policy host tests
         run: |

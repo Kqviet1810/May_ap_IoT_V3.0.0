@@ -235,7 +235,7 @@ require(app, "outputHumidifierTile", "web humidifier feature-gated runtime tile"
 require(app, "syncHumidifierFeatureUi", "web humidifier feature gate")
 require(config, "ventScheduleEnabled = false", "periodic ventilation default off")
 require(machine, "scheduledVentActive", "periodic ventilation RTC control")
-require(machine, "CONFIG_SCHEMA = 12", "config schema 12 for ventilation profile")
+require(machine, "CONFIG_SCHEMA = 13", "config schema 13 opt-in adaptive balance")
 require(machine, "CONFIG_SCHEMA_LEGACY_V11 = 11", "schema 11 migration")
 require(machine, "ventProfileDutyPercent", "day-based ventilation profile")
 require(machine, "ventFanForceOn", "thermal ventilation override")

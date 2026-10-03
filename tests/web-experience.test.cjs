@@ -15,7 +15,7 @@ function browser(overrides = {}, initialStorage = {}) {
     runtimeRealtime = { deviceId:'MAP-1234567890AB', url:'wss://test.invalid/realtime/browser/MAP-1234567890AB', ticket:'test-ticket' };
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectRealtime, supportsVentProfile,
-      swipeDestination, buildConfig, validateVentForm, REQUIRED_CONFIG_KEYS,
+      swipeDestination, buildConfig, validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
       refreshRealtimeSession, requestRealtimeSession, postCloudJson, isDeviceOnline, sendCommand,
       handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
@@ -64,6 +64,43 @@ function connected(h) {
   h.state.realtimeConnected = true; h.published = [];
   h.state.realtime = { deviceId:h.device.id, connected:true, send:(topic, body, callback)=>{h.published.push({topic,body});callback?.();}, resume(){}, renew(){} };
 }
+
+test('advanced UI hides SSR cycle while preserving legacy protocol readback', () => {
+  const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  assert.doesNotMatch(html, /advPidCycleSec/);
+  for (const pidCycleSec of [1, 10, 60]) {
+    const h = browser();
+    h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+    h.device.config.pidCycleSec = pidCycleSec;
+    const values = { advKp:18, advKi:0.8, advKd:45, advMaxHeaterPower:100,
+      advTempRateLimitC:1, advTempRateWindowSec:120, advTempOscillationCrossLimit:6,
+      advTempOscillationWindowSec:600, advHeaterStuckMinRiseC:0.3,
+      advHeaterStuckDurationSec:900, advAutotuneRelayPowerPercent:30, advAutotuneBandC:0.2 };
+    for (const [id,value] of Object.entries(values)) h.elements.set(id,{value});
+    assert.equal(h.validateAdvancedForm(), true);
+    assert.equal(h.buildConfig('advanced').pidCycleSec, pidCycleSec);
+  }
+});
+
+test('adaptive thermal setting is explicit opt-in and omitted for legacy firmware', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/Tự cân bằng nhiệt/);
+  assert.match(html,/id="adaptiveThermalBalanceEnabled" type="checkbox" disabled/);
+  const webSource=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  assert.match(webSource,/unsupportedAdaptive = input\.id === 'adaptiveThermalBalanceEnabled'/);
+  const h=browser();h.device.config=Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key=>[key,0]));
+  const values={advKp:18,advKi:.8,advKd:45,advMaxHeaterPower:100,advTempRateLimitC:1,
+    advTempRateWindowSec:120,advTempOscillationCrossLimit:6,advTempOscillationWindowSec:600,
+    advHeaterStuckMinRiseC:.3,advHeaterStuckDurationSec:900,advAutotuneRelayPowerPercent:30,advAutotuneBandC:.2};
+  for(const [id,value] of Object.entries(values))h.elements.set(id,{value});
+  h.elements.set('adaptiveThermalBalanceEnabled',{checked:true});
+  assert.equal(Object.hasOwn(h.buildConfig('advanced'),'adaptiveThermalBalanceEnabled'),false);
+  h.device.config.adaptiveThermalBalanceEnabled=false;
+  assert.equal(h.buildConfig('advanced').adaptiveThermalBalanceEnabled,true);
+  h.elements.get('adaptiveThermalBalanceEnabled').checked=false;
+  const off=h.buildConfig('advanced');assert.equal(off.adaptiveThermalBalanceEnabled,false);
+  assert.equal(off.kp,18);assert.equal(off.ki,.8);assert.equal(off.kd,45);
+});
 
 test('admitted selected socket is reused without broker subscriptions', async () => {
   const h=browser(); connected(h);

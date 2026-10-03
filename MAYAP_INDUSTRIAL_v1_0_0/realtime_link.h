@@ -376,6 +376,7 @@ inline bool publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   c["powerRestoreDelaySec"] = cfg.powerRestoreDelaySec;
   c["sensorTimeoutSec"] = cfg.sensorTimeoutSec;
   c["maxHeaterPower"] = cfg.maxHeaterPower;
+  c["adaptiveThermalBalanceEnabled"] = cfg.adaptiveThermalBalanceEnabled;
   c["totalIncubationDays"] = cfg.totalIncubationDays;
   c["circulationFanEnabled"] = cfg.circulationFanEnabled;
   c["turningEnabled"] = cfg.turningEnabled;
@@ -472,6 +473,14 @@ inline bool publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["nextTurnMinutes"] = rt.nextTurnMinutes;
   r["autoTuneState"] = static_cast<uint8_t>(rt.autoTuneState);
   r["autoTuneProgress"] = rt.autoTuneProgress;
+  JsonObject adapt=r["adaptiveThermal"].to<JsonObject>();
+  adapt["enabled"]=rt.adaptiveEnabled;adapt["state"]=rt.adaptiveState;
+  adapt["confidence"]=rt.adaptiveConfidence;adapt["loadIndex"]=rt.adaptiveLoadIndex;
+  adapt["coastRiseC"]=rt.adaptiveCoastRiseC;adapt["coastTimeSec"]=rt.adaptiveCoastTimeSec;
+  adapt["holdPowerPct"]=rt.adaptiveHoldPowerPct;adapt["effectiveMaxPowerPct"]=rt.effectiveMaxPowerPct;
+  adapt["approachBandC"]=rt.adaptiveApproachBandC;adapt["selfHeating"]=rt.adaptiveSelfHeating;
+  adapt["coolingDemand"]=rt.adaptiveCoolingDemand;adapt["validWindows"]=rt.observerValidWindows;
+  adapt["reason"]=rt.lastAdaptiveReason;
   r["resumeConfirmationRequired"] = rt.resumeConfirmationRequired;
   r["batchOverdueConfirmationPending"] = rt.batchOverdueConfirmationPending;
   // Danh sach loi dang active, da sap xep theo displayPriority giam dan boi
@@ -1007,7 +1016,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
     "circulationFanEnabled", "controlMode", "emergencyTemp", "heaterStuckDurationSec", "heaterStuckMinRiseC",
     "highTempAlarm", "highTempAlarmWithoutBatch", "humidifierEnabled", "humidifierHysteresisRh", "humidityAlarmDelaySec", "humidityOffset",
     "kd", "ki", "kp", "lightAfterBatchAlarmEnabled", "lowHumidityAlarm",
-    "lowTempAlarm", "manualTurnReanchorsSchedule", "maxHeaterPower", "nextDirection", "pidCycleSec",
+    "lowTempAlarm", "manualTurnReanchorsSchedule", "adaptiveThermalBalanceEnabled", "maxHeaterPower", "nextDirection", "pidCycleSec",
     "powerRestoreDelaySec", "sensorTimeoutSec", "sirenSelfTestEnabled", "targetHumidity", "targetTemp",
     "tempHysteresis", "tempOffset", "tempOscillationCrossLimit", "tempOscillationWindowSec", "tempRateLimitC",
     "tempRateWindowSec", "totalIncubationDays", "turnIntervalMin", "turnMaxRunSec", "turningEnabled",
@@ -1053,6 +1062,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   candidate.ventScheduleHour4 = configObj["ventScheduleHour4"] | candidate.ventScheduleHour4;
   candidate.ventScheduleHour5 = configObj["ventScheduleHour5"] | candidate.ventScheduleHour5;
   candidate.ventScheduleHour6 = configObj["ventScheduleHour6"] | candidate.ventScheduleHour6;
+  candidate.adaptiveThermalBalanceEnabled = configObj["adaptiveThermalBalanceEnabled"] | candidate.adaptiveThermalBalanceEnabled;
   candidate.ventAutoEnabled = configObj["ventAutoEnabled"] | candidate.ventAutoEnabled;
   candidate.ventProfileLevel = configObj["ventProfileLevel"] | candidate.ventProfileLevel;
   candidate.ventCycleMinutes = configObj["ventCycleMinutes"] | candidate.ventCycleMinutes;

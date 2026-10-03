@@ -279,7 +279,31 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 
 // ----------------------------- GPIO ------------------------------------------
 // Output HIGH = ON.
-constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
+constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // Both SSRs, one logical 16 kW bank
+constexpr uint8_t HEATER_GROUP_COUNT = 1U;
+// Provisional commissioning default; final timing is not physically validated.
+constexpr uint32_t HEATER_BURST_QUANTUM_MS = 300UL;
+#ifdef MAYAP_HEATER_SSR_B_PIN
+#error "This board has one heater control GPIO; both SSRs share GPIO1"
+#endif
+#if defined(MAYAP_SENSOR_TEMP_FORMAT) || defined(MAYAP_SENSOR_HUMIDITY_RAW16)
+#error "Use MAYAP_SENSOR_PROFILE for paired temperature/humidity decoding"
+#endif
+
+// Paired T/RH Modbus profile: 0=AUTO, 1=X10/RH-X10, 2=X100/RH-X10,
+// 3=native SHT30 T+RH. An explicit profile is still verified every boot.
+// Service commissioning build: observe ON without actuator adaptation.
+#ifndef MAYAP_ADAPTIVE_OBSERVER_ONLY
+#define MAYAP_ADAPTIVE_OBSERVER_ONLY 0
+#endif
+static_assert(MAYAP_ADAPTIVE_OBSERVER_ONLY == 0 || MAYAP_ADAPTIVE_OBSERVER_ONLY == 1,
+              "Observer-only override must be 0 or 1");
+#ifndef MAYAP_SENSOR_PROFILE
+#define MAYAP_SENSOR_PROFILE 0
+#endif
+static_assert(MAYAP_SENSOR_PROFILE >= 0 && MAYAP_SENSOR_PROFILE <= 3,
+              "Invalid RS485 sensor profile");
+constexpr float THERMAL_PID_BETA = 1.0f;
 // Chan 2 truoc day du phong (PULSE_SPARE), sau do gan LED xanh bao "dang co
 // me ap" - nay bo han tinh nang LED nay, chan 2 chuyen thanh coi HMI (xem
 // PIN_BUZZER ben duoi). GPIO41 (coi HMI cu) tung de trong, nay da dung lai
@@ -818,7 +842,9 @@ constexpr uint32_t RELAY_LIGHT_MIN_SWITCH_MS = 150UL;
 constexpr uint32_t DIAGNOSTIC_FAST_STATUS_MS = 1000UL;
 constexpr uint16_t MAX_RELAY_TRANSITIONS_PER_HOUR = 1800U;
 
-// SSR zero-cross: cua so cham, co xung toi thieu de tranh dap lien tuc.
+// Legacy SSR-window limits retained for regression/config compatibility.
+// Production candidate uses 300 ms pulse-density quanta (scheduler minimum 300 ms).
+// The old 10 s SSR window is retained only in legacy/regression compatibility.
 constexpr uint32_t SSR_MIN_ON_MS = 300UL;
 constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 
@@ -831,7 +857,11 @@ constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 constexpr uint8_t AUTOTUNE_REQUIRED_CYCLES = 3;
 constexpr float AUTOTUNE_STABILITY_FRACTION = 0.20f;
 constexpr float PID_D_FILTER_TAU_SEC = 5.0f;
-constexpr uint32_t AUTOTUNE_MAX_MS = 2700000UL; // 45 phut
+// Bounded commissioning candidates; no power escalation or timeout extension.
+constexpr uint8_t AUTOTUNE_PREHEAT_POWER_PERCENT = 30U; // Provisional 4.8 kW average, capped by maxHeaterPower
+constexpr uint32_t AUTOTUNE_PREHEAT_MAX_MS = 900000UL; // 15 min separate preheat limit
+constexpr uint32_t AUTOTUNE_TOTAL_MAX_MS = 2700000UL; // 45 min INCLUDING preheat
+constexpr uint32_t AUTOTUNE_MAX_MS = AUTOTUNE_TOTAL_MAX_MS; // legacy host comparison alias
 constexpr uint32_t AUTOTUNE_PHASE_MAX_MS = 900000UL; // moi pha toi da 15 phut
 constexpr uint32_t AUTOTUNE_MIN_PERIOD_MS = 10000UL;
 constexpr float AUTOTUNE_MIN_AMPLITUDE_C = 0.10f;
@@ -1051,8 +1081,10 @@ struct MachineConfig {
   float kp = 18.0f;
   float ki = 0.8f;
   float kd = 45.0f;
+  // Legacy reserved EEPROM/protocol field; runtime uses HEATER_BURST_QUANTUM_MS.
   uint16_t pidCycleSec = 10;
   uint8_t maxHeaterPower = 100;
+  bool adaptiveThermalBalanceEnabled = false; // opt-in; old schema defaults OFF
 
   // Nang cao (schema 8): nguong chan doan nhiet + tham so Auto Tune, truoc
   // day la hang so cung trong config.h (xem ghi chu cu o khu "HANG SO AN
@@ -1254,6 +1286,12 @@ struct MachineRuntime {
   bool batchLogAvailable = false;
   uint8_t currentDay = 0;
   float heaterPower = 0.0f;
+  bool adaptiveEnabled = false, adaptiveSelfHeating = false;
+  uint8_t adaptiveState = 0, lastAdaptiveReason = 0;
+  float adaptiveConfidence = 0, adaptiveLoadIndex = 0.5f, adaptiveCoastRiseC = 0;
+  float adaptiveCoastTimeSec = 0, adaptiveHoldPowerPct = 0;
+  float effectiveMaxPowerPct = 100, adaptiveApproachBandC = 0, adaptiveCoolingDemand = 0;
+  uint32_t observerValidWindows = 0;
   bool heaterOn = false;
   bool circulationFanOn = false;
   bool ventFanOn = false;

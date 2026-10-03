@@ -60,7 +60,7 @@
     'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC',
     'manualTurnReanchorsSchedule', 'sirenSelfTestEnabled'
   ]);
-  const CONFIG_KEYS = Object.freeze([...REQUIRED_CONFIG_KEYS, ...VENT_PROFILE_KEYS]);
+  const CONFIG_KEYS = Object.freeze([...REQUIRED_CONFIG_KEYS, ...VENT_PROFILE_KEYS, 'adaptiveThermalBalanceEnabled']);
 
   const DEFAULT_BATCH_META = Object.freeze({
     name: 'Mẻ ấp 01',
@@ -907,6 +907,9 @@
     for (const formId of ['quickForm', 'temperatureForm', 'ventForm', 'turningForm',
       'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm']) {
       $(formId)?.querySelectorAll('input,select').forEach(input => {
+        const unsupportedAdaptive = input.id === 'adaptiveThermalBalanceEnabled' &&
+          typeof device?.config?.adaptiveThermalBalanceEnabled !== 'boolean';
+        if (unsupportedAdaptive) { input.disabled = true; return; }
         if (input.type === 'checkbox' || input.tagName === 'SELECT') input.disabled = !device?.config;
         else input.readOnly = !device?.config;
       });
@@ -1149,7 +1152,7 @@
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
     renderLiveState(device, runtime);
-    // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
+    // Thanh nhiet dong cat theo burst PDM; cong suat la yeu cau trung binh, trang thai SSR
     // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
     // heaterPower > 0 phan anh dung y dinh dieu khien (PID dang can nhiet),
@@ -1233,6 +1236,11 @@
     }
     renderBatchAction(device, runtime);
 
+    if (runtime.adaptiveThermal && $('adaptiveThermalStatus')) {
+      const names = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
+      const adapt = runtime.adaptiveThermal;
+      $('adaptiveThermalStatus').textContent = names[Number(adapt.state)] || 'Tạm ngưng';
+    }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));
     $('tuneBar').style.width = `${autoTuneProgress}%`;
@@ -1514,8 +1522,13 @@
     assign('advancedForm', 'advKp', config.kp);
     assign('advancedForm', 'advKi', config.ki);
     assign('advancedForm', 'advKd', config.kd);
-    assign('advancedForm', 'advPidCycleSec', config.pidCycleSec);
     assign('advancedForm', 'advMaxHeaterPower', config.maxHeaterPower);
+    const adaptiveSupported = typeof config.adaptiveThermalBalanceEnabled === 'boolean';
+    $('adaptiveThermalBalanceEnabled').disabled = !adaptiveSupported;
+    check('advancedForm', 'adaptiveThermalBalanceEnabled', config.adaptiveThermalBalanceEnabled === true);
+    $('adaptiveThermalStatus').textContent = adaptiveSupported
+      ? (config.adaptiveThermalBalanceEnabled ? 'Bật · máy sẽ học trước khi điều chỉnh.' : 'Tắt · sử dụng PID hiện tại.')
+      : 'Firmware hiện tại chưa hỗ trợ Tự cân bằng nhiệt.';
     assign('advancedForm', 'advTempRateLimitC', config.tempRateLimitC);
     assign('advancedForm', 'advTempRateWindowSec', config.tempRateWindowSec);
     assign('advancedForm', 'advTempOscillationCrossLimit', config.tempOscillationCrossLimit);
@@ -1621,8 +1634,9 @@
       config.kp = Number($('advKp').value);
       config.ki = Number($('advKi').value);
       config.kd = Number($('advKd').value);
-      config.pidCycleSec = Number($('advPidCycleSec').value);
       config.maxHeaterPower = Number($('advMaxHeaterPower').value);
+      if (typeof device.config.adaptiveThermalBalanceEnabled === 'boolean')
+        config.adaptiveThermalBalanceEnabled = $('adaptiveThermalBalanceEnabled').checked;
       config.tempRateLimitC = Number($('advTempRateLimitC').value);
       config.tempRateWindowSec = Number($('advTempRateWindowSec').value);
       config.tempOscillationCrossLimit = Number($('advTempOscillationCrossLimit').value);
@@ -2613,6 +2627,10 @@
       51: 'Tự dò PID đã bắt đầu',
       52: 'Tự dò PID đã hoàn tất',
       53: 'Tự dò PID không hoàn tất',
+      450: 'Trạng thái Tự cân bằng nhiệt thay đổi',
+      451: 'Mô hình nhiệt cần học lại',
+      452: 'Bật Tự cân bằng nhiệt',
+      453: 'Tắt Tự cân bằng nhiệt',
       60: 'Bắt đầu đảo trứng sang trái',
       61: 'Bắt đầu đảo trứng sang phải',
       62: 'Đang đưa khay về gốc trái',
@@ -3315,7 +3333,6 @@
     const kp = Number($('advKp').value);
     const ki = Number($('advKi').value);
     const kd = Number($('advKd').value);
-    const pidCycleSec = Number($('advPidCycleSec').value);
     const maxHeaterPower = Number($('advMaxHeaterPower').value);
     const tempRateLimitC = Number($('advTempRateLimitC').value);
     const tempRateWindowSec = Number($('advTempRateWindowSec').value);
@@ -3328,7 +3345,6 @@
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
     if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
     if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
-    if (!(pidCycleSec >= 1 && pidCycleSec <= 60)) return invalidate('advancedForm', 'advPidCycleSec', 'Chu kỳ SSR phải từ 1 đến 60 giây.');
     if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
     if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
     if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');

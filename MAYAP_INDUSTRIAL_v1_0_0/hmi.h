@@ -531,14 +531,15 @@ const SettingItem SETTINGS[] = {
   ITEM_U8_OPTIONS("Ket noi", connectivityMode,
                   OPT_OFFLINE_ONLINE, 2),                                     // 14
 
-  // ---- NANG CAO (13 muc): PID thu cong + nguong chan doan nhiet + Auto
+  // ---- NANG CAO (12 muc hien + 1 slot legacy an): PID thu cong + nguong chan doan nhiet + Auto
   // Tune - them de nguoi dung tu chinh khi lap may that (dan nhiet cong suat
   // lon co the can nguong khac mac dinh) ma khong can nap lai firmware. Gioi
   // han min/max khop dung sanitizeMachineConfig() trong machine_control.h.
   ITEM_FLOAT("He so Kp", kp, 0.0f, 100.0f, 0.5f, 1, ""),                     // 15
   ITEM_FLOAT("He so Ki", ki, 0.0f, 20.0f, 0.05f, 2, ""),                     // 16
   ITEM_FLOAT("He so Kd", kd, 0.0f, 200.0f, 1.0f, 1, ""),                     // 17
-  ITEM_U16("Chu ky SSR", pidCycleSec, 1, 60, 1, "s"),                        // 18
+  // Hidden legacy slot 18; preserve fixed indexes used by ventilation menus.
+  ITEM_U16("", pidCycleSec, 1, 60, 1, "s"),
   ITEM_U8("Tran cong suat", maxHeaterPower, 10, 100, 5, "%"),                // 19
   ITEM_FLOAT("Nguong ket dinh", heaterStuckMinRiseC, 0.05f, 5.0f, 0.05f, 2, "C"), // 20
   ITEM_U16("TG xac nhan ket", heaterStuckDurationSec, 60, 3600, 30, "s"),    // 21
@@ -575,18 +576,19 @@ const SettingItem SETTINGS[] = {
   ITEM_U8("Ngay 8-11", ventDutyDay8To11, 5, 90, 1, "%"),                     // 47
   ITEM_U8("Ngay 12-15", ventDutyDay12To15, 5, 90, 1, "%"),                   // 48
   ITEM_U8("Ngay 16-18", ventDutyDay16To18, 5, 90, 1, "%"),                   // 49
-  ITEM_U8("Ngay 19-21", ventDutyDay19To21, 5, 90, 1, "%")                    // 50
+  ITEM_U8("Ngay 19-21", ventDutyDay19To21, 5, 90, 1, "%"),                    // 50
+  ITEM_BOOL("Tu can bang nhiet", adaptiveThermalBalanceEnabled)               // 51
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 51, "Bang SETTINGS phai co 51 thong so");
+static_assert(SETTING_COUNT == 52, "Bang SETTINGS phai co 52 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,7,8,                           // Nhiet do
   11,12,13,28,                         // Dao trung
   14,29,32,                            // He thong
-  15,16,17,18,19,                      // PID / SSR
+  15,16,17,19,51,                      // PID / SSR
   20,21,22,23,24,25,26,27,             // Bao ve nhiet
   9,10,                                // Quat hut; Thong gio la menu con
   30,31                                // Tao am
@@ -3917,6 +3919,10 @@ void eventText(const HmiEventItem &e, char *title, size_t titleSize,
     case 51: snprintf(title, titleSize, "BAT AUTO TUNE"); break;
     case 52: snprintf(title, titleSize, "AUTO TUNE OK"); break;
     case 53: snprintf(title, titleSize, "AUTO TUNE LOI"); break;
+    case 451: snprintf(title, titleSize, "BO MO HINH NHIET"); return;
+    case 452: snprintf(title, titleSize, "BAT TU CAN BANG"); return;
+    case 453: snprintf(title, titleSize, "TAT TU CAN BANG"); return;
+    case 450: snprintf(title, titleSize, "TU CAN BANG NHIET"); snprintf(detail, detailSize, "TRANG THAI %d", e.value); return;
     case 54: snprintf(title, titleSize, "EEPROM PHUC HOI"); break;
     case 55:
       snprintf(title, titleSize, "DA BU GIO MAT DIEN");

@@ -53,6 +53,7 @@ async function setup(browser, options = {}) {
       const h = window.__qa, d = h.state.devices[0]; if (!d) return;
       const config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(key => [key, defaults[key] ?? 0]));
       config.ventAutoEnabled = true;
+      config.adaptiveThermalBalanceEnabled = false;
       h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, notesVersion:1, ssid: 'Wi-Fi gia đình' });
       h.handleConfigReport(d, { revision: 1, bootId: 123, config });
       h.handleSnapshot(d, { revision: 1, bootId: 123, runtime: { temperature: 37.5, humidity: 58,
@@ -232,6 +233,10 @@ async function main() {
         await page.evaluate(tab => window.__qa.showPage(tab), tab);
         await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
         const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth);
+        if(tab==='settings'){
+          assert.equal(await page.locator('#adaptiveThermalBalanceEnabled').isChecked(),false);
+          assert.equal(await page.locator('#adaptiveThermalBalanceEnabled').isEnabled(),true);
+        }
         assert.equal(overflow, false, `${width}/${theme}/${tab} horizontal overflow`);
         const header = await inspectHeader(page);
         assert.equal(header.rows,1,`${width}x${height}/${tab}: title and readings share one row`);
