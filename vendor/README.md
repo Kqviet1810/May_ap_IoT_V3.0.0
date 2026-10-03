@@ -1,5 +1,10 @@
 # Browser dependencies
 
-`jsQR.min.js` is the existing QR decoder. Realtime uses the browser's native
-WebSocket API and the first-party bounded client in `realtime_transport.js`.
-MQTT.js and its bundle were removed after the WebSocket regression passed.
+Thư mục này chỉ chứa dependency browser được vendored có chủ ý.
+
+- `jsQR.min.js`: fallback giải mã QR cho browser không có `BarcodeDetector` (đặc biệt WebKit/iOS).
+- Realtime **không dùng MQTT.js**. Browser dùng native `WebSocket` thông qua bounded client first-party `realtime_transport.js`.
+
+MQTT.js/bundle đã được loại khỏi runtime sau khi migration WebSocket/DeviceHub và regression tương ứng đạt yêu cầu.
+
+Không thêm CDN runtime tùy ý vào đây. Dependency mới phải được review về license, kích thước, CSP/offline behavior và phải đi qua Web regression trước khi đưa vào public asset allowlist.

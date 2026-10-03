@@ -1,157 +1,228 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> Baseline đã audit: **MAYAP release 1.0.0** trên ESP32-S3-WROOM-1U-N8, Web PWA và Cloudflare Worker. Xem `doc/RELEASE_1_0_0.md` về giới hạn kiểm thử.
+> **Trạng thái nhánh `main`: baseline mã nguồn 1.1.0.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime 1.1.0.
+>
+> `release-manifest.json` là manifest phiên bản của `main`. Việc file này ghi `1.1.0` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
 
-Firmware bổ sung staged startup, chẩn đoán RTC và adaptive recovery Level 0–3. Boot flow, thời gian, file thay đổi và giới hạn phần cứng: [Adaptive Staged Boot](doc/ADAPTIVE_STAGED_BOOT.md).
+## Phiên bản hiện hành trên `main`
 
-Runtime recovery cho shared I2C, RS485, service task và Wi-Fi deep recovery: [Runtime Self-Recovery](doc/RUNTIME_SELF_RECOVERY.md). Tài liệu nêu ladder, owner/mutex, điều kiện restart và giới hạn kiểm thử.
-
-Nhánh migration dự kiến **V1.1.0** chuyển realtime sang Cloudflare WebSocket + SQLite Durable Objects và đưa Web PWA lên Workers Static Assets. ESP32 vẫn là controller duy nhất. Account/API/D1/Push và signed command/ACK V2 được giữ; không còn broker hoặc credential fleet. Chưa phát hành OTA. Xem [kiến trúc, cấu hình, quota, test và commissioning](doc/CLOUDFLARE_REALTIME_MIGRATION.md).
-
-| Thành phần | Phiên bản hiện hành |
+| Thành phần | Phiên bản |
 |---|---:|
-| Release dự kiến | 1.1.0 |
+| Release / baseline mã nguồn | 1.1.0 |
 | ESP32 firmware | 1.1.0 |
 | HMI firmware | 1.0.0 |
-| Web cache | 1.1.0 |
+| Web PWA | 1.1.0 |
+| Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
 | Arduino CLI CI | 1.5.1 |
 | Node CI | 24 |
 
-Các giá trị trên được khai báo ở `release-manifest.json` và được CI đối chiếu với source bằng `tools/check_release_sync.py`. Không sửa một phiên bản đơn lẻ mà không cập nhật manifest/checker tương ứng.
+Các giá trị này được khai báo tại `release-manifest.json` và được CI đối chiếu bằng `tools/check_release_sync.py`. Không sửa riêng một version mà không cập nhật manifest/checker tương ứng.
+
+## Source-of-truth
+
+Khi tài liệu cũ mâu thuẫn với code hiện hành, dùng thứ tự ưu tiên sau:
+
+1. **Code đang chạy + `release-manifest.json`**: `MAYAP_INDUSTRIAL_v1_0_0/`, `app.js`, `realtime_transport.js`, `cloudflare/src/`, workflow CI/deploy.
+2. **Tài liệu migration/review hiện hành**: `doc/CLOUDFLARE_REALTIME_MIGRATION.md`, `doc/REALTIME_REVIEW_FIXES.md`, `doc/ADAPTIVE_STAGED_BOOT.md`, `doc/RUNTIME_SELF_RECOVERY.md`.
+3. Các tài liệu tên `V3_8_x` được giữ để truy vết lịch sử/hardening. Chúng **không còn là nguồn chuẩn cho realtime** nếu vẫn mô tả MQTT/HiveMQ.
+
+Mốc audit phát hành 1.0.0 vẫn được lưu tại `doc/RELEASE_1_0_0.md`.
 
 ## Kiến trúc hiện hành
 
 ```text
-Web PWA (Workers Static Assets) -- WSS --> DeviceHub / máy <-- WSS -- ESP32-S3
-               |                          (routing + lease)           |
-               +-- HTTPS --> Worker account/API/D1/Push <-- HTTPS ------+
-                                   |
-                       GitHub source / CI / deployment
-
-ESP32-S3 <---- pulse-width protocol v4 ----> ATtiny13A
+Web PWA / Workers Static Assets
+          |
+          | WSS (ticket theo phiên)
+          v
+Cloudflare Worker ---- D1 account / ownership / PIN / Push / OTA metadata
+          |
+          v
+SQLite Durable Object: DeviceHub (1 hub / 1 máy)
+          ^                         ^
+          | WSS                     | WSS
+          |                         |
+       Browser                   ESP32-S3
+                                    |
+                                    +-- PID / heater / safety / turning / batch
+                                    +-- HMI / RTC / AT24C512 / recovery
+                                    +-- HTTPS heartbeat + alarm/Push
+                                    |
+                                    +-- pulse-width protocol v4 --> ATtiny13A
 ```
 
-- ESP32 điều khiển PID/heater/safety/turning/alarm/batch; Internet mất vẫn chạy độc lập.
-- Hub kiểm identity/ownership và chuyển gói tin; chỉ ACK có HMAC từ ESP32 xác nhận kết quả.
-- Telemetry dùng socket/attachment có giới hạn; D1 chỉ làm control plane.
-- Cloud tiếp tục provisioning, account, PIN, Push, trạng thái và metadata OTA.
-- OTA Internet vẫn cần xác nhận HMI, SHA-256 và ECDSA; PR này không phát hành OTA.
-- Yêu cầu phần cứng an toàn giữ nguyên: [SAFETY_HARDWARE_REQUIREMENTS](doc/SAFETY_HARDWARE_REQUIREMENTS.md).
+### Nguyên tắc điều khiển
 
-## Trải nghiệm người dùng
+- **ESP32 là controller duy nhất.** Cloudflare/DeviceHub chỉ xác thực, định tuyến và giới hạn phiên; không điều khiển heater hay state machine.
+- Mất Internet/Cloudflare/Web không làm mất điều khiển cục bộ: PID, heater safety, đảo trứng, batch, HMI, alarm và recovery vẫn chạy trên ESP32.
+- `DeviceHub` gửi `forwarded` chỉ có nghĩa frame đã được chuyển tới socket thiết bị. **Chỉ terminal ACK đã xác minh từ ESP32 mới là kết quả thao tác.**
+- Command/config/reminder/notes giữ transaction V2 với `bootId`, `clientId`, sequence, nonce, expiry, HMAC, replay protection và exact retry.
+- TLS verification là bắt buộc; production không được dùng `setInsecure()`.
 
-Người dùng cuối **không nhập hostname, port, WebSocket URL hay Cloudflare token**. Luồng chuẩn là:
+### Tên legacy còn tồn tại
 
-1. Máy tạo Device ID dạng `MAP-XXXXXXXXXXXX` từ eFuse MAC.
-2. ESP32 có device key 256-bit riêng, lưu NVS.
-3. Máy đăng ký/provision qua Worker và đồng bộ PIN Web.
-4. Trên Web cùng origin Cloudflare, người dùng đăng nhập **Google**, claim máy lần đầu bằng **Device ID + PIN**.
-5. Worker cấp MAYAP account session, kiểm ownership trước khi cấp ticket WebSocket/control grant; lần sau login Google tự lấy lại danh sách máy trên điện thoại/PC khác.
+Một số tên như `mqttTask`, `MayapRecovery::Service::Mqtt` hoặc crypto domain `mayap-mqtt-write:v2` vẫn được giữ để bảo toàn ABI/state-machine/transaction đã kiểm thử. **Đó không phải bằng chứng runtime còn MQTT broker.** `mqttTask` hiện bơm native WebSocket qua `realtime_link.h` + `websocket_transport.h`.
 
-Nếu `REQUIRE_DEVICE_INVENTORY=0`, Worker v3.8.1 có thể auto-admit máy mới theo rate-limit và ghi vào `device_inventory`. Nếu đặt `=1`, quay lại chế độ factory allowlist nghiêm ngặt.
+## Phân miền thực thi ESP32
 
-## Cấu trúc repo
+Staged boot đi theo thứ tự: **Safe outputs → Storage → Sensor/Machine → HMI → Control safety → Local settle → Wi-Fi → Realtime → Cloud → OTA → Running**.
+
+| Task | Core | Priority | Vai trò |
+|---|---:|---:|---|
+| `controlTask` | 1 | 5 | State machine, PID, safety, turning, outputs |
+| `supervisorTask` | 1 | 6 | Heartbeat/deadline, latch trip, safe restart |
+| `hmiTask` | 0 | 2 | LCD ST7567S, encoder, HMI transaction |
+| `networkTask` | 0 | 1 | Wi-Fi, portal, radio recovery |
+| `mqttTask` *(legacy name)* | 0 | 2 | Native WebSocket realtime |
+| `cloudTask` | 0 | 1 | HTTPS heartbeat, provisioning, alarm/Push |
+| `otaTask` | 0 | 1 | ArduinoOTA, Internet OTA, rollback service |
+
+Network/HTTPS/OTA không chạy trong `controlTask`. Task và stack được tạo tĩnh; watchdog/supervisor giám sát miền điều khiển độc lập với mạng.
+
+## Device identity và tài khoản
+
+Luồng người dùng chuẩn:
+
+1. ESP32 tạo Device ID `MAP-XXXXXXXXXXXX` từ eFuse MAC.
+2. Mỗi máy tạo **device key 256-bit riêng** và lưu trong NVS; không dùng fleet realtime secret.
+3. Máy provision/heartbeat với Worker qua HTTPS.
+4. Người dùng đăng nhập Web bằng Google và claim máy lần đầu bằng **Device ID + PIN**.
+5. Worker kiểm ownership/role trước khi cấp ticket WebSocket và control grant.
+6. Browser mở `GET /realtime/browser/<device>`; ESP32 mở `GET /realtime/device/<device>`.
+
+Nếu `REQUIRE_DEVICE_INVENTORY=0`, reliability layer có thể auto-admit máy mới theo rate-limit. `=1` bật lại factory allowlist nghiêm ngặt.
+
+## Lưu trữ cục bộ
+
+Firmware hiện dùng **AT24C512 64 KiB tại I2C `0x50`** làm EEPROM ngoài bắt buộc:
+
+- Config / Batch / Reminders dùng các vùng A/B cố định để giữ tương thích dữ liệu.
+- Lịch sử nhiệt: **7 ngày, 5 phút/mẫu**, vùng `0x1000..0x2F7F`.
+- Ghi chú vận hành: `notes_store.h`, tối đa **16 ghi chú**, mỗi record có A/B bank + version + CRC + readback verify; vùng bắt đầu `0x3000`.
+- Driver ghi EEPROM dùng ACK polling có timeout và retry; regression hiện kiểm cả write-cycle thực, task wake-up trễ, millis wrap và power-cut/readback.
+
+Commit `274b0d28` đã sửa false-timeout khi task tỉnh muộn: sau khi scheduler trì hoãn, driver phải probe EEPROM thêm lần nữa trước khi kết luận hết thời gian.
+
+## Safety
+
+Firmware có fault manager tập trung với severity `Info / Warning / Stop / Emergency`, output arbiter và heater inhibit. Tuy nhiên software chỉ là một lớp.
+
+Chuỗi an toàn phần cứng yêu cầu:
 
 ```text
-MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.0
-ATTINY13A_POWER_ALARM/     firmware ATtiny13A
-cloudflare/                Worker + D1 migrations
-.github/workflows/         CI/build/release/deploy
-app.js/config.js/...       Web PWA
-release-manifest.json      manifest đồng bộ release
-tools/                     regression/sync checker
-doc/                       kiến trúc, deploy, commissioning, safety
-audit/                     audit lịch sử + delta audit
+thermal fuse -> thermostat/thermal relay độc lập -> safety contactor -> SSR -> heater
 ```
 
-Tên sketch hiện hành được đồng bộ với release 1.0.0: `MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino`. Phiên bản runtime vẫn lấy từ `MAYAP_FIRMWARE_VERSION` và `release-manifest.json`; tên thư mục không được dùng thay cho kiểm tra version trong CI.
-
-## Build ESP32
-
-Board: **ESP32-S3-WROOM-1U-N8**, flash thật 8 MB, không PSRAM.
-
-Thiết lập bắt buộc:
-
-- Flash Size: 8 MB
-- Partition Scheme: `default_8MB` / “8M with spiffs”
-- PSRAM: disabled
-- Không dùng `huge_app` vì cấu hình đó không có dual OTA phù hợp dự án.
-
-CI dùng FQBN:
-
-```text
-esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
-```
-
-### Build local và identity
-
-Không cần broker username/password khi build. Mỗi ESP32 có key ngẫu nhiên 256-bit trong NVS; Worker lưu hash có pepper và cấp command key riêng như baseline. Template `build_secrets.h` rỗng chỉ giữ optional LAN OTA password; không có credential fleet. Bench có thể dùng `build_secrets.local.h` đã được gitignore để override host pilot. Không commit key thiết bị hoặc private OTA key.
-
-### Build profile
-
-Workflow hiện chia 3 profile mà không cần sửa source:
-
-- **DEV:** diagnostic Serial ON, input simulation OFF.
-- **PILOT:** chạy `workflow_dispatch`, diagnostic Serial ON, input simulation OFF.
-- **PROD:** build từ tag `vX.Y.Z`, diagnostic Serial OFF, input simulation OFF.
-
-Tag release phải khớp chính xác `MAYAP_FIRMWARE_VERSION`.
-
-## CI/release invariants
-
-Trước build/release, pipeline bắt buộc:
-
-1. kiểm version/tag;
-2. cấm `setInsecure()`;
-3. cấm private key trong firmware;
-4. kiểm contract ESP32 ↔ ATtiny;
-5. chạy `tools/check_release_sync.py`;
-6. chạy `tools/check_reliability.py`;
-7. syntax-check toàn bộ entrypoint JS, gồm cả security/reliability wrapper;
-8. compile ATtiny với giới hạn 1 KB flash / 64 B static RAM;
-9. compile ESP32;
-10. với tag: ký ECDSA và tạo GitHub Release.
-
-CI dùng Node 24. Arduino CLI được tải từ GitHub Release chính thức ở phiên bản cố định và kiểm SHA-256 trước khi cài, không phụ thuộc `arduino/setup-arduino-cli@v2`.
-
-## Cloudflare
-
-Entrypoint hiện hành là:
-
-```text
-cloudflare/src/reliability-wrapper.js
-  -> security-wrapper.js
-     -> index.js
-```
-
-`wrangler.toml` hiện giữ compatibility date `2026-08-01` và `nodejs_compat` có chủ ý. Không tự động đẩy compatibility date theo ngày hiện tại khi chưa regression-test Worker.
-
-Deploy: `.github/workflows/deploy-cloudflare-worker.yml`.
-
-Hiện `cloudflare/` chưa commit `package-lock.json`, vì vậy workflow dùng `npm install` với dependency trực tiếp đã pin và phát warning. Khi lockfile được tạo/commit hợp lệ, workflow tự chuyển sang `npm ci`.
-
-Chi tiết: `cloudflare/README.md` và `doc/DEPLOY_V3_8_1.md`.
+Thermostat/thermal relay phải có khả năng cắt coil contactor trực tiếp, không phụ thuộc ESP32. Xem `doc/SAFETY_HARDWARE_REQUIREMENTS.md`.
 
 ## OTA
 
 Có hai đường OTA độc lập:
 
-- **ArduinoOTA LAN:** chỉ dùng khi đặt `MAYAP_OTA_PASSWORD`; để trống là tắt.
-- **Internet OTA:** GitHub Release → Worker → ESP32; không tự flash từ xa. Operator phải xác nhận tại máy.
+- **ArduinoOTA LAN**: chỉ bật khi cấu hình `MAYAP_OTA_PASSWORD`.
+- **Internet OTA**: GitHub Release → Cloudflare Worker → ESP32. Firmware kiểm kích thước/thời gian, SHA-256 và chữ ký ECDSA trước khi flash.
 
-Private signing key chỉ được đặt trong GitHub Actions secret. Firmware chỉ chứa public key xác minh.
+Web không được tự flash máy. Operator phải xác nhận trực tiếp tại HMI; rollback cũng là thao tác local.
 
-## Tài liệu chuẩn
+## Cấu trúc repo
 
-- `doc/ARCHITECTURE_V3_8_1.md` — source-of-truth kiến trúc.
-- `doc/DEPLOY_V3_8_1.md` — triển khai hiện hành.
-- `doc/COMMISSIONING_V3_8_1.md` — checklist máy pilot và soak.
-- `doc/SAFETY_HARDWARE_REQUIREMENTS.md` — yêu cầu an toàn phần cứng.
-- `doc/DEPLOY_V3_8_0.md` — **archive, không dùng để triển khai**.
-- `audit/06_V381_DELTA_AUDIT.md` — trạng thái delta audit v3.8.1.
+```text
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.0
+ATTINY13A_POWER_ALARM/     firmware ATtiny13A protocol v4
+cloudflare/                Worker + D1 + DeviceHub + Static Assets config
+.github/workflows/         build / test / release / deploy
+app.js                     Web application
+realtime_transport.js      bounded native browser WebSocket client
+protocol_v2.js             transaction/ACK protocol helpers
+notes.js / notes.css       giao diện Ghi chú
+release-manifest.json      manifest version/toolchain
+tests/                     host/browser/runtime regressions
+tools/                     checker, web asset builder, QA/integration
+doc/                       architecture, migration, commissioning, safety
+audit/                     audit lịch sử và simulated evidence
+vendor/                    browser dependency được vendored có chủ ý
+```
 
-## Nguyên tắc source-of-truth
+Tên thư mục sketch `MAYAP_INDUSTRIAL_v1_0_0` là tên lịch sử của sketch. **Version runtime phải đọc từ `MAYAP_FIRMWARE_VERSION`/manifest**, không suy ra từ tên thư mục.
 
-Khi comment/tài liệu cũ mâu thuẫn với code thực thi, phải xác minh lại và sửa tài liệu; không dùng comment cũ để thay đổi hành vi an toàn đang chạy. Với heater safety, provisioning, WebSocket auth, ATtiny và OTA, mọi thay đổi phải đi qua regression gate và commissioning trước khi phát hành hàng loạt.
+## Build ESP32
+
+Board production: **ESP32-S3-WROOM-1U-N8**, flash thật 8 MB, không PSRAM.
+
+Thiết lập bắt buộc:
+
+- Flash Size: `8M`
+- Partition Scheme: `default_8MB` / “8M with spiffs”
+- PSRAM: disabled
+- Không dùng `huge_app` vì không có dual OTA phù hợp dự án.
+
+FQBN của CI:
+
+```text
+esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+```
+
+Build profile:
+
+- **DEV**: diagnostic Serial ON, input simulation OFF.
+- **PILOT**: `workflow_dispatch`, diagnostic Serial ON, input simulation OFF.
+- **PROD**: tag `vX.Y.Z`, diagnostic Serial OFF, input simulation OFF.
+
+Tag release phải khớp chính xác `MAYAP_FIRMWARE_VERSION`.
+
+## CI / regression gates
+
+`Build & release firmware` hiện kiểm tối thiểu:
+
+1. version/tag và release manifest;
+2. cấm `setInsecure()` và private signing key trong firmware;
+3. contract ESP32 ↔ ATtiny;
+4. reliability checker;
+5. Node transaction/account/Web/DeviceHub regressions;
+6. real local Cloudflare `workerd` + Chromium realtime test;
+7. Web connection/UX QA;
+8. PID/autotune, staged boot, runtime recovery, buses, EEPROM/notes regressions;
+9. compile ATtiny13A với trần 1 KiB flash / 64 B static RAM;
+10. compile ESP32-S3 và kiểm linked GPIO ISR cache safety;
+11. khi build tag: ký ECDSA và tạo GitHub Release.
+
+Cloudflare dependencies được khóa bằng `cloudflare/pnpm-lock.yaml`; workflow cài bằng **pnpm 11.19.0 + `--frozen-lockfile`**.
+
+## Cloudflare hiện hành
+
+`cloudflare/wrangler.toml` hiện cấu hình:
+
+- Worker: `mayap-push-worker`
+- Entrypoint: `src/account-worker.js`
+- Compatibility date: **`2026-10-01`**
+- Flag: `nodejs_compat`
+- D1 binding: `DB` → `mayap_push`
+- Durable Object binding: `DEVICE_HUB` → `DeviceHub`
+- Static Assets binding: `ASSETS`
+- Worker-first routes: `/api/*`, `/realtime/*`
+- Cron: `* * * * *`
+
+`account-worker.js` là cửa vào account/realtime. Các endpoint vật lý được chuyển qua `reliability-wrapper.js -> security-wrapper.js -> index.js` để giữ provisioning, heartbeat, alarm/Push và OTA control-plane hiện có.
+
+Deploy chuẩn: `.github/workflows/deploy-cloudflare-worker.yml`. Production auto-deploy chỉ chạy khi repository variable `CLOUDFLARE_REALTIME_AUTODEPLOY=1`; mặc định migration/commissioning không được coi là rollout tự động.
+
+Chi tiết Cloudflare: `cloudflare/README.md`.
+
+## Tài liệu nên đọc
+
+- `doc/CLOUDFLARE_REALTIME_MIGRATION.md` — kiến trúc realtime 1.1.0, wire contract, quota, cutover.
+- `doc/REALTIME_REVIEW_FIXES.md` — các finding/fix về transaction, auth, lease, concurrency.
+- `doc/ADAPTIVE_STAGED_BOOT.md` — staged startup và adaptive boot recovery.
+- `doc/RUNTIME_SELF_RECOVERY.md` — recovery ladder cho I2C/RS485/service/Wi-Fi.
+- `doc/SAFETY_HARDWARE_REQUIREMENTS.md` — yêu cầu phần cứng an toàn.
+- `doc/attiny_power_alarm.md` — bộ báo mất điện ATtiny.
+- `doc/RELEASE_1_0_0.md` — mốc release 1.0.0 đã audit.
+
+## Nguyên tắc bảo trì
+
+- Không đưa HTTP/TLS/Cloud vào hot path điều khiển.
+- Không coi `forwarded`/transport receipt là thành công điều khiển.
+- Không đổi EEPROM region/protocol/crypto domain chỉ vì tên lịch sử “không đẹp”; phải đánh giá tương thích trước.
+- Mọi thay đổi heater safety, provisioning, WebSocket auth, ATtiny, EEPROM hoặc OTA phải đi qua regression gate và commissioning phần cứng trước khi rollout.
