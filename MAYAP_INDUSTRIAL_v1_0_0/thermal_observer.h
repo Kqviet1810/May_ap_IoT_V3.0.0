@@ -15,6 +15,10 @@ constexpr float JumpC=0.35f, HighMarginC=0.3f;
 constexpr float MediumConfidence=50, HighConfidence=80;
 constexpr float RisePctPerMin=5, FallPctPerMin=20, MinAuthorityPct=10;
 constexpr float ApproachMinC=0.15f, ApproachMaxC=1.0f;
+constexpr float SelfOnC=0.12f, SelfOffC=0.04f, ConfidenceLoss=0.5f;
+constexpr float LoadConfidenceGain=8, CoastConfidenceGain=12, HoldConfidenceGain=12;
+constexpr uint32_t MinQualifiedWindows=5;
+constexpr uint8_t RateSamples=64; // 126s at production 2s poll; preserves slow X10 staircases
 }
 inline uint32_t since(uint32_t now,uint32_t then){return now-then;}
 inline float bound(float x,float lo,float hi){return std::max(lo,std::min(hi,x));}
@@ -35,7 +39,12 @@ struct Estimates {
 class ThermalObserver {
  public:
   void reset(){*this=ThermalObserver{};}
-  void degrade(){e_.confidence*=0.5f;e_.validMs=0;clearWindow();guarded_=false;}
+  void degrade(){e_.confidence*=Policy::ConfidenceLoss;e_.validMs=0;clearWindow();guarded_=false;}
+  void suspend(bool critical=false){
+    if(critical)e_.confidence=0;
+    else if(!invalid_)e_.confidence*=Policy::ConfidenceLoss;
+    invalid_=true;e_.learningValid=false;e_.validMs=0;clearWindow();
+  }
   void seed(float load,float coast,float coastSec,float hold){
     if(!finiteSeed(load,coast,coastSec,hold))return;
     e_.load=load;e_.coast=coast;e_.coastSec=coastSec;e_.hold=hold;
@@ -63,7 +72,7 @@ class ThermalObserver {
     if(!o.valid()||jump||dt>10000){
       e_.learningValid=false;clearWindow();guarded_=true;guardAt_=now;
       if(!o.sensor||o.safety)e_.confidence=0;
-      else if(!invalid_)e_.confidence*=0.5f;
+      else if(!invalid_)e_.confidence*=Policy::ConfidenceLoss;
       e_.validMs=0;
       invalid_=true;return;
     }
@@ -77,12 +86,15 @@ class ThermalObserver {
       if(since(now,offAt_)>=Policy::CoastMs){
         const float rise=std::max(0.0f,peak_-offTemp_);
         if(rise<=5 && (e_.coastWindows<2||rise<=std::max(0.3f,e_.coast*3))){
-          coastHistory_[coastCount_%5]=rise;++coastCount_;
-          float values[5];const uint8_t count=std::min<uint32_t>(coastCount_,5);
+          coastHistory_[coastHead_]=rise;coastHead_=(coastHead_+1)%5;
+          coastCount_=std::min<uint8_t>(5,coastCount_+1);
+          float values[5];const uint8_t count=coastCount_;
           for(uint8_t i=0;i<count;++i)values[i]=coastHistory_[i];
-          std::sort(values,values+count);e_.coast=values[count/2];
+          for(uint8_t i=0;i<count;++i)for(uint8_t j=i+1;j<count;++j)
+            if(values[j]<values[i])std::swap(values[j],values[i]);
+          e_.coast=values[count/2];
           e_.coastSec=e_.coastWindows?e_.coastSec*.75f+since(peakAt_,offAt_)*.00025f:since(peakAt_,offAt_)*.001f;
-          ++e_.coastWindows;qualify(12);
+          ++e_.coastWindows;qualify(Policy::CoastConfidenceGain);
         }
         episodeOnMs_=0;coastActive_=false;
       }
@@ -96,13 +108,13 @@ class ThermalObserver {
     if(energy>=Policy::MinEnergyJ&&delta>=0.1f&&o.pv<o.sp-Policy::HoldBandC){
       const float response=static_cast<float>(delta/(energy/1000000));
       const float load=1/(1+response); // normalized inverse C/MJ response.
-      if(e_.loadWindows && std::fabs(load-e_.load)>0.3f)e_.confidence*=.5f;
-      e_.load=e_.loadWindows?e_.load*.75f+load*.25f:load;++e_.loadWindows;qualify(8);
+      if(e_.loadWindows && std::fabs(load-e_.load)>0.3f)e_.confidence*=Policy::ConfidenceLoss;
+      e_.load=e_.loadWindows?e_.load*.75f+load*.25f:load;++e_.loadWindows;qualify(Policy::LoadConfidenceGain);
     }
     if(holdEligible_){
       const float hold=100.0f*(onMs_-windowOn_)/elapsed;
-      if(e_.holdWindows && std::fabs(hold-e_.hold)>10)e_.confidence*=.5f;
-      e_.hold=e_.holdWindows?e_.hold*.75f+hold*.25f:hold;++e_.holdWindows;qualify(12);
+      if(e_.holdWindows && std::fabs(hold-e_.hold)>10)e_.confidence*=Policy::ConfidenceLoss;
+      e_.hold=e_.holdWindows?e_.hold*.75f+hold*.25f:hold;++e_.holdWindows;qualify(Policy::HoldConfidenceGain);
     }
     windowSeen_=false;
   }
@@ -113,10 +125,10 @@ class ThermalObserver {
   void clearWindow(){windowSeen_=false;coastActive_=false;episodeOnMs_=0;}
   void qualify(float amount){++e_.windows;e_.confidence=std::min(100.0f,e_.confidence+amount);}
   void updateRate(uint32_t now,float pv){
-    times_[rateHead_]=now;temperatures_[rateHead_]=pv;rateHead_=(rateHead_+1)%16;rates_=std::min<uint8_t>(16,rates_+1);
+    times_[rateHead_]=now;temperatures_[rateHead_]=pv;rateHead_=(rateHead_+1)%Policy::RateSamples;rates_=std::min<uint8_t>(Policy::RateSamples,rates_+1);
     if(rates_<8){e_.rate=0;return;}
-    const uint8_t first=(rateHead_+16-rates_)%16;double sx=0,sy=0,sxx=0,sxy=0;
-    for(uint8_t i=0;i<rates_;++i){const uint8_t j=(first+i)%16;const double x=since(times_[j],times_[first])*.001,y=temperatures_[j];sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;}
+    const uint8_t first=(rateHead_+Policy::RateSamples-rates_)%Policy::RateSamples;double sx=0,sy=0,sxx=0,sxy=0;
+    for(uint8_t i=0;i<rates_;++i){const uint8_t j=(first+i)%Policy::RateSamples;const double x=since(times_[j],times_[first])*.001,y=temperatures_[j];sx+=x;sy+=y;sxx+=x*x;sxy+=x*y;}
     const double denominator=rates_*sxx-sx*sx;
     const float slope=denominator>0?static_cast<float>((rates_*sxy-sx*sy)/denominator):0;
     e_.rate=e_.rate*.5f+slope*.5f;
@@ -124,7 +136,7 @@ class ThermalObserver {
   Estimates e_{};uint64_t onMs_=0,windowOn_=0,episodeOnMs_=0;
   uint32_t tickAt_=0,sampleAt_=0,guardAt_=0,windowAt_=0,offAt_=0,peakAt_=0;
   float lastPv_=0,windowPv_=0,offTemp_=0,peak_=0,coastHistory_[5]{};
-  uint32_t coastCount_=0,times_[16]{};float temperatures_[16]{};
+  uint8_t coastCount_=0,coastHead_=0;uint32_t times_[Policy::RateSamples]{};float temperatures_[Policy::RateSamples]{};
   uint8_t rates_=0,rateHead_=0;
   bool tickSeen_=false,sampleSeen_=false,guarded_=false,invalid_=false;
   bool windowSeen_=false,offSeen_=false,coastActive_=false,holdEligible_=false;

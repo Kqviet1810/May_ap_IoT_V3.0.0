@@ -120,9 +120,16 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         +method('inline MachineConfig unpackConfig(')+'\n'+method('inline uint8_t ventProfileDutyPercent(')+'\n')
     (out / 'actual-config-load.inc').write_text(method('  bool loadConfig(')+'\n'+method('  bool saveConfig(')+'\n'
         +method('  static bool newer(')+'\n'+validators+'\n'+method('  bool refreshConfigCache('))
+    adaptive_methods = ['  uint32_t adaptiveCompatibility(', '  void trackAdaptiveEnergy(',
+        '  bool adaptiveCoolingRequested(', '  float updateAdaptiveBalance(']
+    (out / 'actual-adaptive.inc').write_text('\n'.join(method(signature) for signature in adaptive_methods))
+    # Storage I/O and FreeRTOS critical-section stubs only; real mailbox/store class is tested.
+    (out / 'freertos').mkdir()
+    (out / 'freertos/FreeRTOS.h').write_text('#pragma once\nusing portMUX_TYPE=int;\n#define portMUX_INITIALIZER_UNLOCKED 0\n#define portENTER_CRITICAL(x) (void)(x)\n#define portEXIT_CRITICAL(x) (void)(x)\n')
+    (out / 'Preferences.h').write_text('#pragma once\n#include <map>\n#include <string>\n#include <vector>\n#include <cstring>\nclass Preferences {\n public:\n  static std::map<std::string,std::vector<unsigned char>> &records(){static std::map<std::string,std::vector<unsigned char>> map;return map;}\n  static int &budget(){static int limit=-1;return limit;}\n  bool begin(const char *,bool){return true;}\n  bool isKey(const char *key){auto i=records().find(key);return i!=records().end()&&!i->second.empty();}\n  size_t getBytes(const char *key,void *data,size_t length){auto &v=records()[key];if(v.size()!=length)return 0;std::memcpy(data,v.data(),length);return length;}\n  size_t putBytes(const char *key,const void *data,size_t length){if(budget()>=0 && static_cast<size_t>(budget())<length){const auto *p=static_cast<const unsigned char *>(data);records()[key]=std::vector<unsigned char>(p,p+budget());return budget();}const auto *p=static_cast<const unsigned char *>(data);records()[key]=std::vector<unsigned char>(p,p+length);return length;}\n};\n')
     extra_constants = ['THERMAL_PID_BETA','PID_D_FILTER_TAU_SEC','HEAT_RESTART_LOCKOUT_MS','POST_COOL_MS',
         'EVENT_LOG_RAM_SIZE','HMI_EVENT_DISPLAY_CAPACITY','CIRC_FAN_BATCH_START_STAGGER_MS','FAN_PRESTART_MS',
-        'MANUAL_FAN_CAN_DISABLE_HEATING']
+        'MANUAL_FAN_CAN_DISABLE_HEATING','CONTROL_TASK_PERIOD_MS','CONTROL_CYCLE_TRIP_US']
     (out / 'actual-tune-extra.inc').write_text('\n'.join(re.search(r'constexpr [^;\n]*\b'+n+r'\s*=[^;]*;', config)[0] for n in extra_constants))
     event_types = ''
     for name in ['HmiEventItem','HmiEventSnapshot']:
@@ -143,7 +150,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
     plant_source=(ROOT / 'tests/thermal-plant.cpp').read_text()
     (out / 'actual-plants.inc').write_text(re.search(r'const Plant plants\[\]=[^;]+;', plant_source)[0])
-    for test in ['thermal-autotune','thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
+    for test in ['adaptive-observer','adaptive-thermal','thermal-autotune','thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
         variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
@@ -163,6 +170,21 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                 with (args.report_dir / 'low-duty.csv').open('w') as bank_report:
                     bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
                     bank_report.writelines(line[5:]+'\n' for line in result.stdout.splitlines() if line.startswith('BANK,'))
+    executable = out / 'adaptive-plant'
+    subprocess.run(common + ['-O2', str(ROOT / 'tests/adaptive-plant.cpp'), '-o', str(executable)], check=True)
+    with (args.report_dir / 'adaptive-summary.csv').open('w') as report:
+        subprocess.run([str(executable), str(args.report_dir / 'adaptive-observer.csv'), str(args.report_dir / 'adaptive-control.csv')], stdout=report, check=True)
+    adaptive_rows=list(csv.DictReader((args.report_dir / 'adaptive-summary.csv').open()))
+    assert len(adaptive_rows)==1248
+    assert all(int(r['false_learning_count'])==0 for r in adaptive_rows)
+    for old,new in zip(adaptive_rows[::2],adaptive_rows[1::2]):
+        assert new['mode']=='ADAPTIVE' and old['mode']=='BASELINE'
+        assert int(new['Emergency'])<=int(old['Emergency']), 'new Emergency crossing'
+        if int(old['settling'])>=0:
+            assert int(new['settling'])>=0, 'previously settled case no longer settles'
+            assert float(new['ripple'])<=max(0.25,float(old['ripple'])+0.1), 'new sustained oscillation'
+
+    print('Adaptive actual plant matrix: '+str(len(adaptive_rows))+' baseline/adaptive rows; cooling capacity unknown (zero watts credited)')
     executable = out / 'thermal-autotune-plant'
     subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-plant.cpp'), '-o', str(executable)], check=True)
     with (args.report_dir / 'autotune-plant.csv').open('w') as report:

@@ -9,6 +9,8 @@ namespace MayapAdaptive {
 class ModelStorage {
  public:
   void offer(const Model &model){portENTER_CRITICAL(&mux_);pending_=model;hasPending_=true;portEXIT_CRITICAL(&mux_);}
+  void discardPending(){portENTER_CRITICAL(&mux_);hasPending_=false;portEXIT_CRITICAL(&mux_);}
+  bool takeInvalid(){portENTER_CRITICAL(&mux_);const bool invalid=invalidRecord_;invalidRecord_=false;portEXIT_CRITICAL(&mux_);return invalid;}
   bool takeSeed(Model &model){
     portENTER_CRITICAL(&mux_);const bool ready=seedReady_;
     if(ready){model=seed_;seedReady_=false;}portEXIT_CRITICAL(&mux_);return ready;
@@ -19,6 +21,9 @@ class ModelStorage {
       if(!available_)return;
       Model a{},b{};const bool va=prefs_.getBytes("a",&a,sizeof(a))==sizeof(a)&&validModel(a);
       const bool vb=prefs_.getBytes("b",&b,sizeof(b))==sizeof(b)&&validModel(b);
+      if((prefs_.isKey("a")&&!va)||(prefs_.isKey("b")&&!vb)){
+        portENTER_CRITICAL(&mux_);invalidRecord_=true;portEXIT_CRITICAL(&mux_);
+      }
       if(va||vb){
         const bool useA=!vb||(va&&static_cast<int32_t>(a.sequence-b.sequence)>=0);
         activeA_=useA;sequence_=useA?a.sequence:b.sequence;
@@ -39,7 +44,7 @@ class ModelStorage {
   }
  private:
   Preferences prefs_;portMUX_TYPE mux_=portMUX_INITIALIZER_UNLOCKED;
-  Model pending_{},seed_{};bool hasPending_=false,seedReady_=false;
+  Model pending_{},seed_{};bool hasPending_=false,seedReady_=false,invalidRecord_=false;
   bool initialized_=false,available_=false,activeA_=false;uint32_t sequence_=0,lastSave_=0;
 };
 static ModelStorage modelStorage;

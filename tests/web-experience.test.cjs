@@ -82,6 +82,24 @@ test('advanced UI hides SSR cycle while preserving legacy protocol readback', ()
   }
 });
 
+test('adaptive thermal setting is explicit opt-in and omitted for legacy firmware', () => {
+  const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
+  assert.match(html,/Tự cân bằng nhiệt/);
+  assert.match(html,/id="adaptiveThermalBalanceEnabled" type="checkbox" disabled/);
+  const h=browser();h.device.config=Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key=>[key,0]));
+  const values={advKp:18,advKi:.8,advKd:45,advMaxHeaterPower:100,advTempRateLimitC:1,
+    advTempRateWindowSec:120,advTempOscillationCrossLimit:6,advTempOscillationWindowSec:600,
+    advHeaterStuckMinRiseC:.3,advHeaterStuckDurationSec:900,advAutotuneRelayPowerPercent:30,advAutotuneBandC:.2};
+  for(const [id,value] of Object.entries(values))h.elements.set(id,{value});
+  h.elements.set('adaptiveThermalBalanceEnabled',{checked:true});
+  assert.equal(Object.hasOwn(h.buildConfig('advanced'),'adaptiveThermalBalanceEnabled'),false);
+  h.device.config.adaptiveThermalBalanceEnabled=false;
+  assert.equal(h.buildConfig('advanced').adaptiveThermalBalanceEnabled,true);
+  h.elements.get('adaptiveThermalBalanceEnabled').checked=false;
+  const off=h.buildConfig('advanced');assert.equal(off.adaptiveThermalBalanceEnabled,false);
+  assert.equal(off.kp,18);assert.equal(off.ki,.8);assert.equal(off.kd,45);
+});
+
 test('admitted selected socket is reused without broker subscriptions', async () => {
   const h=browser(); connected(h);
   await Promise.all([h.subscribeDevice(h.device.id),h.subscribeDevice(h.device.id)]);

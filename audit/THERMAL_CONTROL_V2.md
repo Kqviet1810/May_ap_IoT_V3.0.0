@@ -4,7 +4,7 @@ Branch `codex/thermal-control-v2`, PR #2, based on main `9569fcc`. No main merge
 
 ## HARDWARE CONFIRMED
 
-GPIO1 drives **both heater SSRs simultaneously**. Each SSR feeds two 4 kW heaters; the only controllable actuator is **one logical 16 kW bank**. GPIO1 OFF is 0 kW; GPIO1 ON is 16 kW. `HEATER_GROUP_COUNT` is fixed at one and defining `MAYAP_HEATER_SSR_B_PIN` fails compilation. The generic scheduler's two-channel path is future-only host code; it has no production output or claimed hardware. No B GPIO has been assigned. `runtime.heaterPower` stays the requested average of the whole 16 kW bank; 50% is 8 kW average, not one independently driven SSR.
+GPIO1 drives **both heater SSRs simultaneously**. Latest hardware description: eight elements, four on each side of the circulation fan, total 16 kW; the only controllable actuator is **one logical 16 kW bank**. GPIO1 OFF is 0 kW; GPIO1 ON is 16 kW. `HEATER_GROUP_COUNT` is fixed at one and defining `MAYAP_HEATER_SSR_B_PIN` fails compilation. The generic scheduler's two-channel path is future-only host code; it has no production output or claimed hardware. No B GPIO has been assigned. `runtime.heaterPower` stays the requested average of the whole 16 kW bank; 50% is 8 kW average, not one independently driven SSR.
 
 Production path: paired RS485 T/RH profile → existing median-3/IIR-3/8 float filter → sample-driven PID (beta=1) → requested 0–100% average → one-bank pulse-density scheduler → OutputArbiter → GPIO1 → two SSRs together. Only the arbiter writes the heater GPIO. E115 HeaterNotHeating and SensorFrozen count every millisecond of GPIO1 ON as a full-bank millisecond; no half weighting. The actual watchdog body is compiled into a host test at 5 ms control cadence/300 ms quantum: 900 s accumulated ON triggers E115 for each 5/10/30/50/100% request; OFF does not contribute, and sensor loss resets the evidence. Safety OFF and contactor/fan interlocks retain priority over scheduler phase. AutoTune remains Tyreus-Luyben, with its requested percentage passing through the same one-bank scheduler (30% = 4.8 kW average).
 
@@ -62,7 +62,7 @@ Legacy `pidCycleSec` is hidden from both HMI navigation and Web forms; internal 
 
 E115/full-bank, 16 PID and 15 AutoTune actual heating-path safety cuts, native T+RH and X10/X100 AUTO locks, locked-format rejection, 3,000-cycle anti-windup, NaN/clamps, 1,000,000 variable-demand slots and millis wrap are tested. `maxHeaterPower=50` means 50% average of 16 kW. AutoTune's 30% request delivers 30% average through the same scheduler in the actual MachineController harness. Mechanical relay wear counters do not count pulse-rated SSR edges.
 
-The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C` and `emergencyTemp >= highTempAlarm + EMERGENCY_ABOVE_HIGH_C`; lowering SP to 30°C does **not** automatically lower stored high/emergency thresholds (defaults 38.2/39.0°C). Review these limits manually before low-temperature operation. This PR does not change safety setpoints or stored schema.
+The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C` and `emergencyTemp >= highTempAlarm + EMERGENCY_ABOVE_HIGH_C`; lowering SP to 30°C does **not** automatically lower stored high/emergency thresholds (defaults 38.2/39.0°C). Review these limits manually before low-temperature operation. That earlier qualification did not change safety setpoints or stored schema; the later Adaptive section documents the append-only schema13 opt-in flag.
 
 ## Test/CI and reproduction
 
@@ -72,7 +72,7 @@ The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C
 
 ### ALGORITHM VERIFIED
 
-The existing public AutoTune state values, GPIO1 full 16 kW bank, PID defaults 18/0.8/45 with beta=1, 300 ms scheduler, RS485/filter cadence, safety policies and EEPROM schemas remain unchanged. This qualification changes only AutoTune and its outside-batch diagnostic events.
+The AutoTune qualification below retains its existing public state values, GPIO1 full 16 kW bank, PID defaults 18/0.8/45 with beta=1, 300 ms scheduler, RS485/filter cadence, safety policies and EEPROM schemas. The later Adaptive section separately documents schema13 and its opt-in setting.
 
 Flow: START/preconditions → PREHEAT → fresh relay measurement → discard startup cycle → three repeatable cycles → Ku/Pu → Tyreus-Luyben → gain validation → existing atomic save. PREHEAT requests **30% average total bank power (4.8 kW)**, capped by `maxHeaterPower`; it does not request 100% or escalate. At SP minus band, peak/period measurement starts fresh. PREHEAT samples never contribute to Ku/Pu. Relay high is the configured relay power capped by `maxHeaterPower`, relay low is zero. All power goes through the existing scheduler and OutputArbiter; neither AutoTune nor PID writes GPIO.
 
@@ -84,7 +84,7 @@ Ku uses `4 * ((actualHigh - actualLow) / 2) / (pi * amplitude)`, never PREHEAT p
 
 Hard tests exercise max heater 20/30/50/100%, actual capped relay swing, invalid gains, wrap including an upper crossing at millis zero, phase/total/preheat timeouts, 34 safety/mode/sensor cuts across PREHEAT and relay, restart/reset and every partial ConfigRecord byte cut. Abort and save failure clear scheduler credit, turn heating OFF at the next control tick and retain old RAM gains. Partial records fail CRC and preserve the old valid EEPROM bank. As with the existing atomic store, a fully committed record followed by lost verification acknowledgement can leave a complete new bank on reboot; atomicity prevents mixed gains, rather than proving an acknowledged outcome after every possible power loss.
 
-Outside a batch, EventLog now retains **Boot, AutoTuneStart and AutoTuneEnd only**. Normal network/input/output events remain suppressed. This is the existing bounded RAM event log; no new persistent sink or high-rate EEPROM logging was added.
+At that AutoTune milestone, outside-batch EventLog retained **Boot, AutoTuneStart and AutoTuneEnd only**; the later Adaptive milestone adds bounded adaptive transitions. Normal network/input/output events remain suppressed. This is the existing bounded RAM event log; no new persistent sink or high-rate EEPROM logging was added.
 
 ### SIMULATION VERIFIED — qualification, not physical performance
 
@@ -132,6 +132,72 @@ First tune must be outside a batch, with no live eggs, door closed, circulation 
 
 Software hard gates and simulation failure behavior qualify the code for this supervised step only: **AUTOTUNE READY FOR CONTROLLED PHYSICAL COMMISSIONING.** No hardware tune, merge, deploy or OTA was performed.
 
+## Adaptive Thermal Balance / Tự cân bằng nhiệt
+
+### Architecture and scope
+
+This feature is opt-in, **default OFF**, layered above the existing PID. GPIO1 still switches both SSRs together as one 16 kW bank; the latest user hardware description has eight elements, four on each side of the central fan. There is one existing paired-profile RS485 probe, not a sensor for each of the two compartments. No new GPIO, automatic setpoint change, PID gain scheduling, automatic AutoTune, filter/poll change or new safety authority was introduced.
+
+`ThermalObserver` is read-only; `AdaptiveThermalSupervisor` chooses a bounded actuator ceiling and a separate ON/OFF cooling request. MachineController supplies actual GPIO state/context, a transient config view passes the effective integer-percent ceiling into the unchanged PID anti-windup, then the unchanged 300 ms PDM/OutputArbiter drive GPIO1. Between samples the requested power is bounded by that same ceiling; it is not a second control law. `runtime.heaterPower` remains requested average total-bank power, never instantaneous ON/OFF. Ceiling rounding is conservative (floor to the existing uint8 percent representation).
+
+### Observer equations and validity
+
+- Delivered energy: `16000 W * actual GPIO1 ON milliseconds / 1000`, integrated in O(1) each control cycle. Requested duty is never substituted for delivered energy. A >1 s tracking gap invalidates the window; no unknown historical energy is credited.
+- LoadIndex: apparent inverse response `1 / (1 + ΔT_C / delivered_MJ)`, bounded 0..1, low=fast/light response, high=slow/heavy response. Windows are 120 s, require at least 160 kJ and 0.1°C rise below the holding band; estimates blend 3/4 old + 1/4 new. This is not independently identified heat capacity: loss, ambient and internal heat can affect it. **It does not identify cart count.**
+- CoastRise: following an episode with ≥10 s actual full-bank ON, use filtered PV at final OFF and maximum PV during ≤180 s uninterrupted OFF. Interrupted PDM OFF gaps do not qualify. Median of last five accepted rises, with outlier rejection; smoothed time-to-peak supplies a lag index. It is not a full physical decay model.
+- HoldPower: actual delivered ON duty in a complete 120 s window, only if every sample stays within ±0.15°C of SP and |rate|≤0.001°C/s. No requested-output estimate.
+- Rate: bounded least-squares fit over 64 sensor samples (126 s at the unchanged 2 s poll), followed by smoothing. A 30 s trial failed the real-filter X10 slow-self-heating regression; 126 s passes both 0.1/0.01°C formats. Sensor/PID median, IIR and derivative filtering are unchanged.
+
+Learning is forbidden during invalid/non-finite sensor data, unstable circulation command/actual relay, AutoTune, safety/inhibit, ventilation, own cooling, startup/recovery, maintenance/test, raw/filtered PV within 0.3°C of High, a >0.35°C sample jump or >10 s sensor sample gap. Disturbances require 180 s stable re-entry. Confidence/validity suspension also happens on a control tick without a new sensor sample and on early Test/Resume output returns. Failed samples never become permanent model evidence. Slow ambient/internal-heat changes cannot be uniquely separated with one probe; only net thermal response is estimated.
+
+### Confidence, state machine and authority
+
+States: Disabled → Learning → Qualified/Adaptive; invalid evidence → Degraded; sensor/safety/recovery/AutoTune/test/maintenance → FaultBypass; separately qualified positive heat → SelfHeating. All transitions and times are deterministic and wrap-safe.
+
+Thermal confidence adds 8 per consistent load window, 12 per hold/coast window, saturating at 100. Inconsistent load/hold or disturbances halve it; critical sensor/safety evidence sets it to zero. Eligibility needs ≥50 confidence, ≥600 s continuously valid learning and **five fresh windows after the last invalidation**. ≥80 plus at least two coast observations allows the wider envelope. These are software commissioning bounds checked by hard tests, not fitted physical chamber constants.
+
+LOW/unqualified evidence chooses baseline configured authority. MEDIUM may reduce the ceiling by at most 20%, with a floor `min(configuredMax, max(10, 1.5*holdPower+10))`. HIGH selects `configuredMax*(0.5+0.5*LoadIndex)`, respecting the same floor. A proven ceiling returns gradually to baseline after ordinary degradation so changed load cannot cause an authority jump; this is rollback, not a fresh low-confidence estimate. Explicit OFF, internal invariant failure, safety/mode/AutoTune bypass and user configuration limits take precedence. There is no authority above configured max. Normal increases are ≤5 percentage points/minute, reductions ≤20/minute; protective self-heating cuts to zero are immediate. Both normal slew and exceptional bypass changes are reported separately.
+
+Soft landing changes only this ceiling. Approach band is `coastRise + max(rate,0)*timeToPeak`, clamped 0.15..1.0°C. Within the band, positive rate progressively reduces the ceiling, while preserving the holding floor. No SP or gains change. Any PID/SP/offset/max/control-mode/sensor-profile compatibility change invalidates current qualification; previous estimates are low-trust history until fresh windows requalify.
+
+### Self-heating and cooling
+
+The self-heating channel needs valid, startup-qualified samples, actual heater OFF ≥180 s, PV>SP+0.12°C and fitted positive rate >0.0003°C/s maintained for 60 s. This repeated evidence qualifies the channel at confidence80; no single sample or persisted self-heating flag can authorize it. Displayed supervisor confidence is the active channel's confidence, while observer CSV retains thermal-model confidence. Heating authority becomes zero. Exit at PV≤SP+0.04°C; after exit, heater authority resumes within the normal upward slew.
+
+“SelfHeating” means sustained **net positive heat after the bounded coast interval**, not proof of embryo watts. Late physical coast, ambient change or sensor drift could still mimic it. It does not identify which compartment/cart produces heat.
+
+CoolingDemand is staged 0/100 as a request for the existing ON/OFF exhaust relay, not fan speed or proportional cooling power. Normal minimum ON/OFF is 60 s plus the existing arbiter rules. Safety High/Emergency/fault fan forcing is ORed independently and always wins; smart cooling cannot cancel it. Scheduled/profile ventilation and RH rules remain intact; their actual cooling periods are excluded from learning. OFF removes the adaptive request immediately; actual relay release still observes existing non-safety minimum timings.
+
+### OFF rollback, AutoTune and diagnostics
+
+A frozen b537786 heating-body oracle compares the actual new heating path at SP30/32/35/37.5 over 288,000 five-ms ticks: Adaptive OFF GPIO waveform, requested power and vent output match exactly. OFF resets observer/supervisor/self-heating, discards pending model saves and clears scheduler heat credit on the toggle; ON again starts learning. AutoTune bypasses all adaptive actuation and learning; its existing 864-case qualification still passes unchanged. New gains invalidate the model signature; tune failure retains historical estimates but cannot preserve active qualification through the disturbance.
+
+Web/HMI expose the same ON/OFF setting; old firmware has the Web toggle disabled and no unsupported patch key is sent. Runtime diagnostics include state/reason, confidence, load, coast/time-to-peak, hold power, effective ceiling, approach, self-heating, cooling and valid-window count. Serial `[THERMAL-ADAPT]` is bounded to 30 s; state/enable/disable/model invalidation use the bounded EventLog. Outside batches the earlier Boot/AutoTune exception is extended only for Adaptive transition events; ordinary network/I/O remain suppressed. No new persistent event sink was added.
+
+### Config and learned-model persistence
+
+Config schema13 appends one byte. Real schemas3..12 are CRC-checked and migrated with the new feature OFF; slot addresses, reminder/history/notes regions and atomic config save remain unchanged. Existing schema12 payload size/CRC have their own exact legacy record. New ON/OFF roundtrips through the existing signed config/verified EEPROM transaction.
+
+Learned models use a **separate `mayap_thermal` NVS namespace**, two alternating versioned/CRC records with sequence, RTC epoch, thermal/hardware/profile compatibility signature and scalar estimates. EEPROM machine config remains in AT24C512. No NVS/EEPROM/file/network I/O is done by the observer or adaptive control hot path. A fixed mailbox hands qualified snapshots to the existing Arduino loop; no new task/WDT architecture. Writes are at most hourly, including failed-attempt backoff, and only qualified stable snapshots are offered (a stable unchanged snapshot may refresh hourly); invalid/OFF/test/recovery cancels pending offers. NVS failure is optional-feature failure, never a machine boot/storage/safety failure.
+
+Restore requires valid CRC/version/ranges, compatible PID/SP/offset/max/control mode/sensor profile/bank/GPIO/quantum, RTC age≤7 days and no abnormal-reset latch. Restored confidence is10, window counts/state/heat credit remain zero: a seed cannot enable adaptive actuation. It is consumed only when enabled with valid sensor/RTC. All model bytes are CRC-corruption tested; all partial-record write cuts preserve the last valid record. This does not guarantee acknowledgement after a fully committed write followed by reset.
+
+### Honest simulation and hard qualification
+
+[adaptive-summary.csv](thermal-v2/adaptive-summary.csv): 1248 runs / 624 identical-condition baseline/adaptive pairs, each3h. Same Light/Medium/Heavy capacities/losses and 8 s heater lag as the existing model; ambient20/25/28, delays5/15/30/60, resolution0.1/0.01, SP30/32/35/37.5. Disturbance subset at ambient25/SP37.5 covers light→heavy, heavy→light, loss up/down, ambient rise, door drop, internal heat0→500→1000→2000 W, invalid PV, sensor loss/reconnect, inhibit, scheduled vent, SP step, power recovery and Test Mode. All inputs pass through actual filter, PID, supervisor, PDM, arbiter and heating orchestration. No cart-number or spatial-temperature labels are assigned to plant classes.
+
+[adaptive-observer.csv](thermal-v2/adaptive-observer.csv) and [adaptive-control.csv](thermal-v2/adaptive-control.csv) retain representative minute traces (16,200 rows each). Cooling capacity is physically unknown: the simulator credits **zero cooling watts**, records the actual exhaust request/runtime and does not fake vent heat removal. Physical threshold flags use conservative instantaneous plant crossings; production alarm confirmation timers/vent physics are not replayed. Internal-heating watts are stimulus assumptions, not embryo measurements.
+
+Performance remains experimental. Across624 pairs: MAE better100/same450/worse74; P95 better105/same450/worse69; ripple better102/same450/worse72; overshoot better159/same455/worse10; heater energy lower133/same450/higher41. Mean steady MAE baseline0.323809 versus adaptive0.323257°C. High crossings430 versus328; Emergency158 versus158. Adaptive authority is active in361 runs; self-heating is not confirmed in any plant-matrix run after the final valid-learning gate. Net-heating stimuli can be below heat loss/rate threshold or hit safety/vent inhibition before the conservative OFF/confirmation period. Dedicated slow-rise tests through the real quantized sensor filter pass, but this matrix does not establish successful plant-in-loop self-heating detection or useful cooling; that limitation remains a physical commissioning risk. **Neither mode meets all absolute thermal targets in this matrix**; the original0/1536 target result also remains unchanged. Default gains are not tuned to make this feature win.
+
+Hard gates include the frozen OFF oracle, nine actual-path safety cuts, eleven prohibited-learning contexts, immediately invalid sensor without a new sample, confidence/requalification, X10/X100 self-heating/noise, read-only commissioning, coast/hold/energy windows, normal slew, dynamic PID saturation/no stale integral, cooling minimum timings, OFF/ON/reset, wrap, CRC/age/signature/all-byte model write cuts, real config migrations and existing E115/Frozen accounting. Plant gates reject false learning, new Emergency crossings, newly lost settling and new gross sustained ripple in previously settled cases; performance targets were not relaxed. Host CPU timing is checked against the extracted existing period/trip budget; it is a proxy, not proof of ESP32 task jitter under flash/network/ISR load.
+
+### Controlled physical commissioning
+
+Default remains OFF. First build with `MAYAP_ADAPTIVE_OBSERVER_ONLY=1` (local build override), enable only observer diagnostics, compare delivered energy, load/coast/hold/rate and confidence to independent probes. Then manually use the normal build (`0`) and enable the setting after review. No batch/live eggs in the first commissioning; circulation as intended, doors closed, sensor placement verified, independent calibrated probes in both compartments and several cart positions. Check SSR/contactors/current/heatsinks, fan relay minimum timing, raw/filtered slope, coast after OFF, model restore/invalidation, OFF rollback, safety cuts and actual controlMaxCycleUs under long offline/online soak. One probe cannot establish hotspot/airflow balance or ±0.1°C accuracy. No merge, deploy, OTA or physical flash was performed.
+
+**ADAPTIVE THERMAL BALANCE — SOFTWARE READY FOR CONTROLLED PHYSICAL COMMISSIONING.** This marks software qualification only; physical actuation and thermal performance remain unverified.
+
 ## REMAINING RISKS
 
 - Confirm GPIO1 drives both SSR inputs on the physical board as specified, their zero-cross behavior, rating, heatsinking, contactor and 16 kW electrical loading. High burst transition rates make this a commissioning blocker until measured.
@@ -142,3 +208,15 @@ Software hard gates and simulation failure behavior qualify the code for this su
 - 300 ms is provisional; verify real control task jitter and SSR temperature over a long soak before accepting final actuator timing.
 
 - AutoTune PREHEAT30 can be insufficient or exceed the fixed deadline; High/Emergency residual coast and 92/110 BAD cold-start post-validations prevent unattended acceptance. Commissioning must validate power, margin, generated gains and recovery on the real chamber.
+
+- Adaptive LoadIndex is apparent net response, not cart count or spatial uniformity; one probe cannot identify compartment temperatures/hotspots/airflow imbalance.
+- Real chamber gains, cooling capacity, SSR endurance, model staleness, long coast and 0.1°C slow-trend discrimination require physical qualification. Persistent restore is deliberately low-trust.
+- No measured ±0.1°C accuracy or full control-task timing under real flash/network/ISR load is claimed. All new bounds are software commissioning candidates.
+
+### Final local software gates
+
+- 160 Node/account/protocol/realtime tests PASS; native Chromium Web/connection/notes and real workerd suites PASS; web assets built.
+- Full ASan/UBSan thermal suite retains the 1536-row historical matrix and 864 AutoTune runs, plus 1248 Adaptive runs. New hard coverage includes 288,000 OFF-oracle ticks, nine actual-path safety scenarios, eleven forbidden-learning contexts, 384 single-bit model CRC corruptions and 48 partial-write cuts, both sensor resolutions, slew/anti-windup/wrap/read-only and schema3..13 migration with ON/OFF/reboot roundtrips. These are coverage counts, not a claim that each assertion is a separate test.
+- Actual runtime buses/transactions, AT24C512 notes/store/power cuts and boot/recovery suites PASS. Preservation hashes retain PID, AutoTune, alarms, arbiter and PDM bodies; integration/new-model hashes are reviewed explicitly.
+- ESP32-S3 Arduino3.3.11/IDF5.5.5 DEV: 1,412,409 bytes flash / 199,440 static RAM; PROD: 1,388,489 / 197,544. Both linked ISR IRAM/DRAM checks PASS. Host route timing is a budget proxy; physical task jitter remains unverified.
+- Exact final-commit GitHub CI is reported on the draft PR and in the completion report. No software performance target was relaxed to obtain a green hard-regression result.

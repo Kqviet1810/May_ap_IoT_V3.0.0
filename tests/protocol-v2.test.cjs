@@ -70,7 +70,7 @@ test('FRAME packet worst cases stay within budgets', () => {
     action: 'batch_overdue_continue' };
   assert.ok(wireBytes('command', command) < PacketPolicy.SMALL_TARGET);
   const advanced = {
-    kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100,
+    kp: 100, ki: 20, kd: 200, pidCycleSec: 60, maxHeaterPower: 100, adaptiveThermalBalanceEnabled: true,
     tempRateLimitC: 10, tempRateWindowSec: 1800, tempOscillationCrossLimit: 30,
     tempOscillationWindowSec: 3600, heaterStuckMinRiseC: 5,
     heaterStuckDurationSec: 3600,

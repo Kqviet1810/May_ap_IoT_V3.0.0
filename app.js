@@ -1233,6 +1233,11 @@
     }
     renderBatchAction(device, runtime);
 
+    if (runtime.adaptiveThermal && $('adaptiveThermalStatus')) {
+      const names = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
+      const adapt = runtime.adaptiveThermal;
+      $('adaptiveThermalStatus').textContent = names[Number(adapt.state)] || 'Tạm ngưng';
+    }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));
     $('tuneBar').style.width = `${autoTuneProgress}%`;
@@ -2619,6 +2624,10 @@
       51: 'Tự dò PID đã bắt đầu',
       52: 'Tự dò PID đã hoàn tất',
       53: 'Tự dò PID không hoàn tất',
+      450: 'Trạng thái Tự cân bằng nhiệt thay đổi',
+      451: 'Mô hình nhiệt cần học lại',
+      452: 'Bật Tự cân bằng nhiệt',
+      453: 'Tắt Tự cân bằng nhiệt',
       60: 'Bắt đầu đảo trứng sang trái',
       61: 'Bắt đầu đảo trứng sang phải',
       62: 'Đang đưa khay về gốc trái',

@@ -3919,6 +3919,10 @@ void eventText(const HmiEventItem &e, char *title, size_t titleSize,
     case 51: snprintf(title, titleSize, "BAT AUTO TUNE"); break;
     case 52: snprintf(title, titleSize, "AUTO TUNE OK"); break;
     case 53: snprintf(title, titleSize, "AUTO TUNE LOI"); break;
+    case 451: snprintf(title, titleSize, "BO MO HINH NHIET"); return;
+    case 452: snprintf(title, titleSize, "BAT TU CAN BANG"); return;
+    case 453: snprintf(title, titleSize, "TAT TU CAN BANG"); return;
+    case 450: snprintf(title, titleSize, "TU CAN BANG NHIET"); snprintf(detail, detailSize, "TRANG THAI %d", e.value); return;
     case 54: snprintf(title, titleSize, "EEPROM PHUC HOI"); break;
     case 55:
       snprintf(title, titleSize, "DA BU GIO MAT DIEN");

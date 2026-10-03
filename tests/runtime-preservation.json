@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "198c96f282a8b2b498fddb39244181265c704117576a53612a99587eb5dcd8a3",
+      "sha256": "5dedc739e028658c2459a244114b9ce981e628fad1f3a04571b426e94a4d5295",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "69112595187caff64735542d56b03919f02a5007002fd15ec0cfef8548e21284",
+      "sha256": "eb0eaba7ab08d5de4367f2b9bcb180df67c4df46c1220159863f67d4f99c48a3",
       "signature": "class MachineController {"
     },
     {
@@ -418,6 +418,22 @@
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
       "signature": "bool saveBatchRecord(",
       "sha256": "f5ac9f3bc0071ed0acb367f5fbd4567b1e4050066dd00ab5f5afb78f29149d16"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_observer.h",
+      "sha256": "9b8e7b5bd91000d3ed2ef02c38760e6c5fc06f570aa812ce825601b4725e4019"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_thermal_balance.h",
+      "sha256": "de11aa26b421d05e5319c8d0ec176c6f3f45c6424ae8a50f5d36689f15ed47a0"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_model.h",
+      "sha256": "f628daec0b64ba7d5fad99e3cecaa2d8ec8d12b18f6d50a6ed1f90198e8fbaa9"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_persistence.h",
+      "sha256": "edff38adbe7188ac13530dffe7161aedc47c0643c4a8fd375c0ab17d17ea36a9"
     }
   ],
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
@@ -427,5 +443,6 @@
   "thermalV2ReviewNote": "2026-10-03: adversarial review correction on PR #2. GPIO1 is confirmed to drive both SSRs, one 16 kW bank; independent B production routing was removed. Only config paired-profile/bank declarations, ThermalController actuator-boundary anti-windup, MachineController paired sensor decoding/single-bank E115 and scheduling, OutputArbiter single-bank routing, and decodeFrame fingerprints changed. Kp/Ki/Kd, beta=1, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New sensor decoder and scheduler hashes updated after explicit review; no blanket baseline refresh.",
   "thermalFinalReviewNote": "2026-10-03: explicit provisional 300ms production quantum and bounded SENSOR humidity diagnostic and CONFIG labels distinguishing legacy cycle from candidate burst only inside protected config/MachineController. PID, AutoTune, output arbitration, config serializers/schema and safety bodies unchanged. Legacy pidCycleSec hidden from Web/HMI with EEPROM schema3..12 and production cadence regressions.",
   "autotuneQualificationReviewNote": "2026-10-03: reviewed AutoTune-only preheat 30% commissioning candidate with 15min preheat/phase,45min total deadlines; explicit phases/reasons/locked actual relay swing, upward one-ULP uniform gain scaling, bounded diagnostics, fail/reset before next GPIO cycle and outside-batch AutoTune EventLog exception. Actual PID/PDM/filter/safety threshold/alarm bodies, OutputArbiter, EEPROM schema and atomic save implementation unchanged. Plant-in-loop includes honest cold and near-SP qualification; performance/BAD candidates are experimental reports, not physical validation.",
+  "adaptiveThermalReviewNote": "2026-10-03: explicit review of new opt-in schema13/runtime diagnostics in config.h and MachineController adaptive orchestration only. Actual requested PID limit comes from a transient config view; PID gains/filter/PDM/AutoTune/safety alarm/OutputArbiter/E115/Frozen bodies unchanged. Background loop owns versioned CRC NVS seeds with fixed mailbox, no control-task flash writes. Schema12 prefix/CRC migration defaults OFF. Frozen b537786 heating-body oracle proves OFF actual GPIO/request/vent equivalence. No blanket fingerprint refresh. Final qualification adds actual-fan validity, 126s robust observer rate after X10 evidence, independent confirmed self-heating confidence, bounded transition events outside batch, and background-only invalid-model diagnostics. Old thermal/safety/AutoTune function hashes remain unchanged. Integration also retains remote 013d931/f9fe684 config-save setpoint correction; its ThermalController hash and dedicated regressions are preserved.",
   "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged."
 }

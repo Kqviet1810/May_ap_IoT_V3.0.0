@@ -70,7 +70,7 @@ void mayapCloudSetConfig(const MachineConfig &){}
 void mayapSetConnectivityMode(ConnectivityMode){}
 struct InputState{bool light=false,autoMode=true,circulationFan=true,heaterEnable=true;};
 struct FakeInputs{InputState in;const InputState &state()const{return in;}};
-struct FakeRtc{bool usable=true;bool valid()const{return usable;}uint32_t epoch()const{return 0;}};
+struct FakeRtc{bool usable=true;bool valid()const{return usable;}uint32_t epoch()const{return 1800000000;}};
 struct FakeFaults{
   bool drop=false,inhibit=false,cooling=false;
   bool masterDropRequired()const{return drop;}bool ssrInhibited()const{return inhibit;}
@@ -83,7 +83,11 @@ struct TuneHarness {
   TuneStore store_;EventLog eventLog_;OutputArbiter outputs_;
   ThermalController pid_;RelayAutoTune autotune_;
 #include "actual-burst-member.inc"
-  struct{float heaterPower=0;}runtime_;
+  struct{float heaterPower=0;bool adaptiveEnabled=false,adaptiveSelfHeating=false;
+    uint8_t adaptiveState=0,lastAdaptiveReason=0;
+    float adaptiveConfidence=0,adaptiveLoadIndex=0,adaptiveCoastRiseC=0,adaptiveCoastTimeSec=0;
+    float adaptiveHoldPowerPct=0,effectiveMaxPowerPct=0,adaptiveApproachBandC=0,adaptiveCoolingDemand=0;
+    uint32_t observerValidWindows=0;}runtime_;
   bool testModeActive_=false,lightWebOverrideActive_=false,lightWebOverrideRefInput_=false,lightWebOverrideValue_=false;
   bool resumeConfirmationRequired_=false,resumePending_=false,batchRunning_=false,prevBatchRunningForOutputs_=false;
   bool sensorUsable_=true,humidityLowActive_=false,previousFanCommand_=false;
@@ -98,9 +102,18 @@ struct TuneHarness {
   void latchStorageFault(const char *){storageFaultLatched_=true;}
 #include "actual-tune-start.inc"
 #include "actual-tune-update.inc"
+#ifdef MAYAP_TEST_ADAPTIVE
+  MayapAdaptive::AdaptiveThermalSupervisor adaptiveThermal_;
+  uint32_t adaptiveDiagnosticAt_=0,adaptiveSignature_=0;
+  bool adaptiveSignatureSeen_=false;
+  MayapAdaptive::State adaptiveLoggedState_=MayapAdaptive::State::Disabled;
+  struct {uint8_t sensorProfile()const{return 1;}} sensor_;
+#include "actual-adaptive.inc"
+#else
   void trackAdaptiveEnergy(uint32_t){}
   float updateAdaptiveBalance(uint32_t,bool,bool,bool){return config_.maxHeaterPower;}
   bool adaptiveCoolingRequested()const{return false;}
+#endif
 #include "actual-heating.inc"
   explicit TuneHarness(uint8_t preheat=AUTOTUNE_PREHEAT_POWER_PERCENT):autotune_(preheat){outputs_.begin();MachineConfig back;assert(store_.saveConfig(config_,back));store_.saves=0;}
   void cycle(uint32_t now,bool sample=true){clockMs=now;newSensorSample_=sample;updateAutoTune(now);updateHeatingAndOutputs(now);}

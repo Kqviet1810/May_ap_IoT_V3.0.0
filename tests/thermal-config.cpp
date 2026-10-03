@@ -53,6 +53,18 @@ template<class Record> void verifyLegacy(uint16_t schema,uint16_t cycle) {
 int main(){
   static_assert(CONFIG_SCHEMA==13,"Append-only adaptive opt-in schema");
   static_assert(HEATER_BURST_QUANTUM_MS==300,"Commissioning candidate stays 300 ms");
+  // Exercise actual append-only save/readback and reboot selection, both ways.
+  ConfigStore flags;
+  for(bool enabled : {true, false, true}) {
+    MachineConfig input, readback;
+    input.adaptiveThermalBalanceEnabled=enabled;
+    assert(flags.saveConfig(input,readback));
+    assert(readback.adaptiveThermalBalanceEnabled==enabled);
+    ConfigStore reboot;
+    std::memcpy(reboot.bytes,flags.bytes,sizeof(flags.bytes));
+    assert(reboot.loadConfig(readback));
+    assert(readback.adaptiveThermalBalanceEnabled==enabled);
+  }
   for(uint16_t cycle:{1U,10U,60U}) {
     verifyLegacy<ConfigRecordV1>(13,cycle);
     verifyLegacy<ConfigRecordLegacyV12>(12,cycle);

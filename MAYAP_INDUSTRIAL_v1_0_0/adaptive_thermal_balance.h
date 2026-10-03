@@ -15,37 +15,48 @@ struct Decision {
 class AdaptiveThermalSupervisor {
  public:
   void reset(){*this=AdaptiveThermalSupervisor{};}
-  void invalidate(){observer_.degrade();d_.reason=Reason::ConfigChanged;ready_=false;}
+  void invalidate(){observer_.degrade();qualificationAnchor_=observer_.estimates().windows;d_.reason=Reason::ConfigChanged;ready_=false;}
   ThermalObserver &observer(){return observer_;}
   const ThermalObserver &observer()const{return observer_;}
   const Decision &decision()const{return d_;}
+  float effectiveConfidence()const{return self_||cool_?Policy::HighConfidence:observer_.estimates().confidence;}
   bool changedEnabled()const{return changedEnabled_;}
   void tick(uint32_t now,bool actualOn){observer_.tick(now,actualOn);}
   void sample(uint32_t now,const Observation &o){observer_.sample(now,o);}
-  Decision update(uint32_t now,bool enabled,float configured,const Observation &o){
+  Decision update(uint32_t now,bool enabled,float configured,const Observation &o,bool readOnly=false){
     changedEnabled_=enabled!=enabled_;const uint32_t dt=seen_?since(now,at_):0;seen_=true;at_=now;
     if(changedEnabled_){observer_.reset();ready_=false;enabled_=enabled;self_=confirm_=false;cool_=false;coolAt_=now;}
     if(!enabled){d_=Decision{};d_.effective=configured;return d_;}
     if(!std::isfinite(configured)||configured<0||configured>100||!o.sensor||
        !std::isfinite(o.pv)||!std::isfinite(o.raw)||o.safety||o.tune||o.test||o.maintenance||o.recovery){
+      observer_.suspend(!o.sensor||o.safety||!std::isfinite(o.pv)||!std::isfinite(o.raw));
       d_=Decision{};d_.state=State::FaultBypass;d_.reason=Reason::SensorSafety;
       d_.effective=std::isfinite(configured)?bound(configured,0,100):0;ready_=false;
+      qualificationAnchor_=observer_.estimates().windows;
       self_=confirm_=cool_=false;coolAt_=now;return d_;
     }
     const auto &e=observer_.estimates();
-    const bool positive=o.fanStable&&!o.vent&&observer_.offMs(now)>=Policy::CoastMs&&
-      o.pv>o.sp+0.12f&&e.rate>Policy::SelfRateCPerSec;
+    if(!ThermalObserver::finiteSeed(e.load,e.coast,e.coastSec,e.hold)||
+       !std::isfinite(e.confidence)||!std::isfinite(e.rate)){
+      observer_.reset();d_=Decision{};d_.effective=configured;d_.state=State::FaultBypass;
+      d_.reason=Reason::InvalidWindow;self_=confirm_=cool_=ready_=false;return d_;
+    }
+    if(readOnly){d_=Decision{};d_.state=State::Learning;d_.reason=Reason::Learning;
+      d_.effective=configured;self_=confirm_=cool_=ready_=false;return d_;}
+    const bool positive=e.learningValid&&o.fanStable&&!o.vent&&observer_.offMs(now)>=Policy::CoastMs&&
+      o.pv>o.sp+Policy::SelfOnC&&e.rate>Policy::SelfRateCPerSec;
     if(positive&&!confirm_){confirm_=true;confirmAt_=now;}
     if(!positive)confirm_=false;
     if(confirm_&&since(now,confirmAt_)>=Policy::SelfConfirmMs)self_=true;
-    if(self_&&o.pv<=o.sp+0.04f)self_=false;
-    const bool wantCool=self_&&o.pv>o.sp+0.12f;
+    if(self_&&o.pv<=o.sp+Policy::SelfOffC)self_=false;
+    const bool wantCool=self_&&o.pv>o.sp+Policy::SelfOnC;
     if(wantCool!=cool_&&since(now,coolAt_)>=Policy::CoolingMinMs){cool_=wantCool;coolAt_=now;}
     if(self_||cool_){
       d_.state=State::SelfHeating;d_.reason=Reason::SelfHeating;d_.selfHeating=self_;
       d_.cooling=cool_;d_.coolingDemand=cool_?100:0;d_.effective=0;ready_=true;return d_;
     }
-    if(!e.learningValid || e.confidence<Policy::MediumConfidence || e.validMs<Policy::LearnMinMs || e.windows<5){
+    if(!e.learningValid)qualificationAnchor_=e.windows;
+    if(!e.learningValid || e.confidence<Policy::MediumConfidence || e.validMs<Policy::LearnMinMs || e.windows-qualificationAnchor_<Policy::MinQualifiedWindows){
       const float before=d_.effective;
       d_=Decision{};d_.state=e.windows?State::Degraded:State::Learning;
       d_.reason=e.learningValid?Reason::Learning:Reason::InvalidWindow;
@@ -72,6 +83,7 @@ class AdaptiveThermalSupervisor {
  private:
   ThermalObserver observer_;Decision d_{};uint32_t at_=0;
   uint32_t confirmAt_=0,coolAt_=0;bool self_=false,confirm_=false,cool_=false;
+  uint32_t qualificationAnchor_=0;
   bool enabled_=false,seen_=false,ready_=false,changedEnabled_=false;
 };
 }

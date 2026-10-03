@@ -189,7 +189,7 @@ enum class EventCode : uint16_t {
   InputBase = 100,
   OutputBase = 200,
   FaultBase = 1000,
-  AdaptiveChanged = 450
+  AdaptiveChanged = 450, AdaptiveModelInvalidated, AdaptiveEnabled, AdaptiveDisabled
 };
 
 struct EventEntry {
@@ -250,10 +250,11 @@ class EventLog {
     // som hon, luc loggingEnabled_ con mac dinh false) - neu khong co ngoai
     // le nay, su kien Boot se LUON bi mat ngay tu dau, khong bao gio thay
     // duoc ly do reset that su tren man Nhat Ky.
-    // AutoTune is commissioning outside a batch: retain only its start/end,
-    // plus Boot. Regular input/output/network events remain disabled.
+    // Retain bounded commissioning transitions outside a batch: Boot,
+    // AutoTune start/end and Adaptive. Ordinary network/I/O remains disabled.
     if (!loggingEnabled_ && type != EventType::Boot &&
-        type != EventType::AutoTuneStart && type != EventType::AutoTuneEnd) return;
+        type != EventType::AutoTuneStart && type != EventType::AutoTuneEnd &&
+        type != EventType::Adaptive) return;
     EventEntry &entry = entries_[head_];
     entry.sequence = ++sequence_;
     entry.atMs = now;
@@ -5961,28 +5962,33 @@ class MachineController {
   }
 
   uint32_t adaptiveCompatibility() const {
-    const float signature[]={config_.targetTemp,config_.kp,config_.ki,config_.kd,
+    const float signature[]={config_.targetTemp,config_.kp,config_.ki,config_.kd,static_cast<float>(config_.controlMode),
       static_cast<float>(config_.maxHeaterPower),config_.tempOffset,
       static_cast<float>(sensor_.sensorProfile()),static_cast<float>(MAYAP_SENSOR_PROFILE),
-      MayapAdaptive::Policy::BankWatts,static_cast<float>(HEATER_BURST_QUANTUM_MS),1.0f};
+      MayapAdaptive::Policy::BankWatts,static_cast<float>(HEATER_BURST_QUANTUM_MS),static_cast<float>(PIN_OUT_HEATER_SSR),1.0f};
     return mcCrc32(reinterpret_cast<const uint8_t *>(signature),sizeof(signature));
   }
   void trackAdaptiveEnergy(uint32_t now) {
     adaptiveThermal_.tick(now, outputs_.state().heaterSsr);
     if(testModeActive_ || resumeConfirmationRequired_){
+      MayapAdaptive::modelStorage.discardPending();
       MayapAdaptive::Observation o; o.test=testModeActive_;o.recovery=resumeConfirmationRequired_;
       adaptiveThermal_.update(now,config_.adaptiveThermalBalanceEnabled,config_.maxHeaterPower,o);
     }
   }
   bool adaptiveCoolingRequested() const {return adaptiveThermal_.decision().cooling;}
   float updateAdaptiveBalance(uint32_t now,bool permit,bool fanStable,bool vent) {
-    const uint32_t signature=adaptiveCompatibility();
-    if(adaptiveSignatureSeen_ && signature!=adaptiveSignature_)adaptiveThermal_.invalidate();
-    adaptiveSignature_=signature;adaptiveSignatureSeen_=true;
+    const uint32_t signature=newSensorSample_?adaptiveCompatibility():adaptiveSignature_;
+    if(newSensorSample_ && adaptiveSignatureSeen_ && signature!=adaptiveSignature_){
+      adaptiveThermal_.invalidate();
+      if(config_.adaptiveThermalBalanceEnabled)
+        eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(EventCode::AdaptiveModelInvalidated),static_cast<int16_t>(MayapAdaptive::Reason::ConfigChanged));
+    }
+    adaptiveSignature_=signature;adaptiveSignatureSeen_=adaptiveSignatureSeen_||newSensorSample_;
     MayapAdaptive::Observation o;
     o.pv=temperature_;o.raw=rawTemperature_;o.sp=config_.targetTemp;o.high=config_.highTempAlarm;
     o.requested=pidPower_;o.effective=adaptiveThermal_.decision().effective;
-    o.sensor=sensorUsable_;o.fanStable=fanStable;
+    o.sensor=sensorUsable_;o.fanStable=fanStable && outputs_.state().circulationFan;
     o.vent=vent || (outputs_.state().ventFan && !adaptiveCoolingRequested());
     o.cooling=adaptiveCoolingRequested();o.tune=autotune_.running();
     o.safety=highTemperatureActive_||emergencyActive_||ventTemperatureActive_||
@@ -5992,31 +5998,42 @@ class MachineController {
       !timeReached(now,sensorStartupGraceUntil_);
     o.test=testModeActive_;o.maintenance=mayapFirmwareMaintenanceActive();
     // AutoTune must see the unmodified bank. No sample is learned without heat context.
+    o.recovery=o.recovery || (!permit && !o.cooling && !o.tune);
     if(newSensorSample_ && config_.adaptiveThermalBalanceEnabled){
-      if(!permit&&!o.cooling)o.recovery=true;
       adaptiveThermal_.sample(now,o);
     }
-    const auto d=adaptiveThermal_.update(now,config_.adaptiveThermalBalanceEnabled,config_.maxHeaterPower,o);
-    if(newSensorSample_ && sensorUsable_ && rtc_.valid()){
+    const auto d=adaptiveThermal_.update(now,config_.adaptiveThermalBalanceEnabled,config_.maxHeaterPower,o,MAYAP_ADAPTIVE_OBSERVER_ONLY!=0);
+    if(newSensorSample_ && (!config_.adaptiveThermalBalanceEnabled || !adaptiveThermal_.observer().estimates().learningValid))
+      MayapAdaptive::modelStorage.discardPending();
+    if(newSensorSample_ && config_.adaptiveThermalBalanceEnabled && sensorUsable_ && rtc_.valid()){
+      if(MayapAdaptive::modelStorage.takeInvalid()){
+        eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(EventCode::AdaptiveModelInvalidated),static_cast<int16_t>(MayapAdaptive::Reason::SeedInvalid));
+        mayapSerialPrintf(false,"[THERMAL-ADAPT] model CRC/version invalid; relearn\n");
+      }
       MayapAdaptive::Model seed{};
       if(MayapAdaptive::modelStorage.takeSeed(seed)){
         if(MayapAdaptive::compatibleModel(seed,signature,rtc_.epoch(),abnormalResetLatched_))
           adaptiveThermal_.observer().seed(seed.load,seed.coast,seed.coastSec,seed.hold);
         else {
-          eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(EventCode::AdaptiveChanged),static_cast<int16_t>(MayapAdaptive::Reason::SeedInvalid));
+          eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(EventCode::AdaptiveModelInvalidated),static_cast<int16_t>(MayapAdaptive::Reason::SeedInvalid));
           mayapSerialPrintf(false,"[THERMAL-ADAPT] seed discarded\n");
         }
       }
       const auto &estimate=adaptiveThermal_.observer().estimates();
       if(config_.adaptiveThermalBalanceEnabled && estimate.learningValid &&
-         estimate.confidence>=MayapAdaptive::Policy::HighConfidence && estimate.windows>=5)
+         estimate.confidence>=MayapAdaptive::Policy::HighConfidence &&
+         estimate.validMs>=MayapAdaptive::Policy::LearnMinMs && estimate.windows>=MayapAdaptive::Policy::MinQualifiedWindows)
         MayapAdaptive::modelStorage.offer(MayapAdaptive::makeModel(estimate,signature,rtc_.epoch(),0));
     }
-    if(adaptiveThermal_.changedEnabled())heaterBurst_.reset();
+    if(adaptiveThermal_.changedEnabled()){
+      heaterBurst_.reset();
+      eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(config_.adaptiveThermalBalanceEnabled?
+        EventCode::AdaptiveEnabled:EventCode::AdaptiveDisabled));
+    }
     const auto &e=adaptiveThermal_.observer().estimates();
     runtime_.adaptiveEnabled=config_.adaptiveThermalBalanceEnabled;
     runtime_.adaptiveState=static_cast<uint8_t>(d.state);runtime_.lastAdaptiveReason=static_cast<uint8_t>(d.reason);
-    runtime_.adaptiveConfidence=e.confidence;runtime_.adaptiveLoadIndex=e.load;
+    runtime_.adaptiveConfidence=adaptiveThermal_.effectiveConfidence();runtime_.adaptiveLoadIndex=e.load;
     runtime_.adaptiveCoastRiseC=e.coast;runtime_.adaptiveCoastTimeSec=e.coastSec;
     runtime_.adaptiveHoldPowerPct=e.hold;runtime_.effectiveMaxPowerPct=d.effective;
     runtime_.adaptiveApproachBandC=d.approach;runtime_.adaptiveSelfHeating=d.selfHeating;
@@ -6028,7 +6045,7 @@ class MachineController {
     if(config_.adaptiveThermalBalanceEnabled && elapsedMs(now,adaptiveDiagnosticAt_)>=MayapAdaptive::Policy::DiagnosticMs){
       adaptiveDiagnosticAt_=now;
       mayapSerialPrintf(false,"[THERMAL-ADAPT] state=%s conf=%.0f load=%.3f coast=%.3f hold=%.1f max=%.1f approach=%.3f selfheat=%u cool=%u\n",
-        MayapAdaptive::stateName(d.state),e.confidence,e.load,e.coast,e.hold,d.effective,d.approach,d.selfHeating,d.cooling);
+        MayapAdaptive::stateName(d.state),adaptiveThermal_.effectiveConfidence(),e.load,e.coast,e.hold,d.effective,d.approach,d.selfHeating,d.cooling);
     }
     return d.effective;
   }

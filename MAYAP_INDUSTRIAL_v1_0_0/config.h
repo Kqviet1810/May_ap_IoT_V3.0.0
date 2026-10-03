@@ -292,6 +292,12 @@ constexpr uint32_t HEATER_BURST_QUANTUM_MS = 300UL;
 
 // Paired T/RH Modbus profile: 0=AUTO, 1=X10/RH-X10, 2=X100/RH-X10,
 // 3=native SHT30 T+RH. An explicit profile is still verified every boot.
+// Service commissioning build: observe ON without actuator adaptation.
+#ifndef MAYAP_ADAPTIVE_OBSERVER_ONLY
+#define MAYAP_ADAPTIVE_OBSERVER_ONLY 0
+#endif
+static_assert(MAYAP_ADAPTIVE_OBSERVER_ONLY == 0 || MAYAP_ADAPTIVE_OBSERVER_ONLY == 1,
+              "Observer-only override must be 0 or 1");
 #ifndef MAYAP_SENSOR_PROFILE
 #define MAYAP_SENSOR_PROFILE 0
 #endif
