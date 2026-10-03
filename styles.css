@@ -153,7 +153,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible{outline:none}
 .main{grid-column:2;padding:0 28px 44px;max-width:1320px;width:100%;min-width:0;margin:0 auto}
 .topbar{position:sticky;top:0;z-index:30;display:grid;grid-template-columns:var(--workspaceColumns);gap:var(--workspaceGap);align-items:center;padding:calc(20px + var(--safeTop)) 0 16px;background:var(--topbarBg);transition:background var(--ease)}
 /* Giữ dải thông số thẳng hàng với nội dung cài đặt. */
-body[data-page="settings"] .topbar{max-width:960px}
+body[data-page="settings"] .topbar{max-width:none;width:100%}
 .title{display:flex;flex-direction:column;justify-content:center;min-width:0}
 .title h1{margin:0;font-size:var(--fs-3xl);font-weight:800;letter-spacing:-.9px}
 .title p{margin:5px 0 0;color:var(--muted);font-size:var(--fs-sm);line-height:1.4;
@@ -388,7 +388,7 @@ input:disabled,select:disabled,textarea:disabled,.customSelectTrigger:disabled{o
 .temperatureFormCompact .primary{min-height:46px}
 
 /* Cài đặt theo progressive disclosure */
-.settingsStack{display:grid;gap:10px;max-width:960px}
+.settingsStack{display:grid;gap:10px;width:100%;max-width:none}
 .settingGroupLabel{margin:19px 4px 0;color:var(--primary2);font-size:var(--fs-xs);letter-spacing:.55px;font-weight:800;text-transform:uppercase}
 .settingGroupLabel:first-child{margin-top:0}
 .settingCard{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadowSm);overflow:hidden}
@@ -749,7 +749,7 @@ body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 0;height:0;min-height:72px
 }
 
 /* Group labels always travel with their own settings, including optional equipment. */
-.settingGroup{display:grid;gap:10px;margin-top:12px;min-width:0}
+.settingGroup{display:grid;gap:10px;margin-top:12px;min-width:0;width:100%}
 .settingGroup:first-child{margin-top:0}
 .settingGroup .settingGroupLabel{margin:0 4px 2px;color:var(--label);letter-spacing:.7px}
 .ventProfileFields{border:0;padding:0;margin:0;min-width:0;display:grid;gap:12px}

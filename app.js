@@ -880,7 +880,7 @@
       cache: ['ĐANG ĐỒNG BỘ', 'soft', state.realtimeConnected ? 'Đã nối máy chủ · chờ máy' : 'Đang nối máy chủ…'],
       connecting: ['ĐANG KẾT NỐI', 'soft', 'Đang nối máy chủ…'],
       waiting: ['CHỜ THIẾT BỊ', 'soft', 'Đã nối máy chủ · chờ máy'],
-      offline: ['MÁY NGOẠI TUYẾN', 'offline', 'Máy đã ngắt kết nối'],
+      offline: ['NGOẠI TUYẾN', 'offline', 'Máy đã ngắt kết nối'],
       none: ['CHƯA CÓ MÁY', 'soft', 'Thêm máy để bắt đầu']
     };
     const [label, css, connectionDetail] = labels[connection];
@@ -1993,15 +1993,30 @@
     }
     return result;
   }
+  function notesWritable(deviceId) {
+    const device = state.devices.find(d => d.id === deviceId);
+    return Boolean(device && deviceId === state.selectedId && controlReady(device) &&
+      Number(device.presence?.notesVersion || 0) === 1);
+  }
   const notesStorage = {
-    list: deviceId => notesRequest(deviceId,'read'),
+    // Offline/unpaired is a preview, not an error screen. Keep the last RAM
+    // snapshot if this tab has already read the notes; otherwise show an empty
+    // normal notes list. Notes are never persisted in browser storage.
+    list(deviceId) {
+      const device = state.devices.find(d => d.id === deviceId);
+      if (!device || deviceId !== state.selectedId || !controlReady(device))
+        return Promise.resolve((notesCache.get(deviceId) || []).map(note => ({...note})));
+      return notesRequest(deviceId,'read');
+    },
     save(deviceId,note) {
+      if (!notesWritable(deviceId)) return Promise.reject(new Error('Kết nối máy để lưu ghi chú.'));
       const previous = notesCache.get(deviceId)?.find(n=>n.id===note.id);
       // A late verified ACK may have stored this draft after its UI timed out.
       if (previous && ['title','content','type','createdAt'].every(k=>previous[k]===note[k])) return Promise.resolve({...previous});
       return notesRequest(deviceId,'save',{...note,version:Number(note.version || 0)});
     },
     remove: (deviceId,id,version) => {
+      if (!notesWritable(deviceId)) return Promise.reject(new Error('Kết nối máy để xóa ghi chú.'));
       const note = notesCache.get(deviceId)?.find(n=>n.id===id);
       if (!note) return Promise.reject(new Error('Ghi chú không còn trong danh sách; tải lại từ máy.'));
       if (note.version !== version) return Promise.reject(new Error('Ghi chú đã thay đổi; tải lại danh sách trước khi xóa.'));
@@ -4023,7 +4038,8 @@
       getContext: () => {
         const device = currentDevice();
         return { deviceId: device?.id || '', deviceName: device?.name || '',
-          batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning) };
+          batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning),
+          notesWritable: notesWritable(device?.id || '') };
       }
     });
     renderSelector();

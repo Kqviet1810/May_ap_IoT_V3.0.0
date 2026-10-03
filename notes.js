@@ -106,6 +106,7 @@
     document.addEventListener('scroll', () => { if (!scrollFrame) scrollFrame = root.requestAnimationFrame(() => { scrollFrame = 0; position(); }); }, { passive:true, capture:true });
     root.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('scroll', position, { passive:true });
     function context() { return getContext() || {}; }
+    function writable() { return context().notesWritable === true; }
     function currentScope() { return context().deviceId || 'unpaired'; }
     async function load() {
       const token = ++generation;
@@ -168,6 +169,7 @@
       }
       const create = button('+ Ghi chú mới','primary full',() => form()); create.disabled = records.length >= 16;
       body.append(create);
+      if (!writable()) body.append(el('small','notesNotice','Chế độ xem thử · Kết nối máy để lưu hoặc xóa ghi chú.'));
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -211,6 +213,7 @@
       original = JSON.stringify(formValues(f));
       f.addEventListener('submit',async event => {
         event.preventDefault(); if (busy || !content.value.trim()) return;
+        if (!writable()) { failure.textContent = 'Kết nối máy để lưu ghi chú.'; return; }
         // A device switch must never save a draft to another machine.
         if (scope !== currentScope()) { failure.textContent = 'Máy đang chọn đã thay đổi. Hủy bản nháp và mở lại Ghi chú.'; return; }
         if (type.value === 'batch' && !context().batchRunning && note?.type !== 'batch') { failure.textContent = 'Mẻ đã kết thúc. Chọn Máy / bảo trì để lưu.'; return; }
@@ -227,6 +230,10 @@
     }
     async function remove(note) {
       if (busy || confirmPending) return;
+      if (!writable()) {
+        const message = el('p','notesError','Kết nối máy để xóa ghi chú.');
+        message.setAttribute('role','alert'); body.prepend(message); return;
+      }
       const noteScope = scope;
       confirmPending = true;
       let accepted;

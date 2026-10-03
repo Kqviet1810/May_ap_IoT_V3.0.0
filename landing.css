@@ -16,16 +16,71 @@ html:not([data-auth="checking"]) .authLoading {display:none}
 .landing h1{font-size:clamp(30px,3.3vw,45px);line-height:1.15;letter-spacing:-1.2px;max-width:520px;margin:8px 0 22px}
 .heroCopy{font-size:17px;line-height:1.65;color:var(--muted);max-width:490px;margin-bottom:30px}
 .heroTrust{display:flex;gap:20px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:22px}.heroTrust span:before{content:'✓';margin-right:7px;color:var(--accent)}
-.dashboardDemo{position:relative;background:#ffffffb8;border:1px solid #fff;padding:18px;border-radius:28px;box-shadow:0 28px 60px #1548521a;transform:rotate(-1deg)}
+.dashboardDemo{position:relative;background:#ffffffb8;border:1px solid #fff;padding:18px;border-radius:28px;box-shadow:0 28px 60px #1548521a;transform:none}
 .demoInner{border:1px solid #e4eff0;background:#fff;border-radius:16px;padding:22px}.demoTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:26px}.demoBadge{font-size:11px;background:#eaf8ef;color:#208153;padding:7px 10px;border-radius:20px}
 .demoName{font-weight:750;font-size:19px;margin:0 0 4px}.demoTimestamp{color:var(--muted);font-size:11px}.demoReadings{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:20px 0}
 .demoReading{background:#f4f9fa;padding:15px 10px;border-radius:12px;min-width:0}.demoReading span{display:block;font-size:11px;color:var(--muted)}.demoReading strong{display:block;font-size:22px;margin:6px 0}.demoReading small{font-size:10px;color:var(--muted)}
 .demoChart{padding:15px 0 0;border-top:1px solid #edf3f3}.demoChart strong{font-size:12px}.demoChart svg{width:100%;height:120px;display:block;margin-top:12px}.demoIllustrationLabel{font-size:11px;color:var(--muted);text-align:center;margin:14px 0 0}
 .landingBenefits{display:grid;grid-template-columns:repeat(4,1fr);max-width:1240px;margin:auto;gap:18px;padding:0 32px 46px}.landingBenefits article{background:#ffffffbd;border:1px solid #fff;border-radius:20px;padding:24px}.benefitIcon{font-size:25px;color:var(--accent);margin-bottom:15px}.landingBenefits h2{font-size:16px;margin:0 0 12px}.landingBenefits p{font-size:14px;line-height:1.6;color:var(--muted);margin:0}.landingFooter{text-align:center;padding:24px;color:var(--muted);font-size:12px}
 .accountBar{padding:16px 10px;border-top:1px solid #e1ebed;margin-top:auto;display:grid;gap:8px}.accountBar span{font-size:12px;word-break:break-word}.accountBar button{font-size:12px;padding:8px}.accountBar small{font-size:11px}.accountSessions{display:grid;gap:8px;max-height:200px;overflow:auto}
+
+/* Commercial landing density: on a normal PC viewport the complete opening
+   page fits without scrolling; unusually short windows may still scroll. */
+@media(min-width:901px) and (min-height:700px){
+  .landing{height:100dvh;min-height:700px;display:grid;grid-template-rows:68px minmax(0,1fr) auto 30px;overflow:hidden}
+  .landingNav{height:68px;padding:12px 32px}
+  .landingHero{padding:18px 32px 22px;gap:46px;align-items:center;min-height:0}
+  .heroBrand{font-size:clamp(44px,4.6vw,64px)}
+  .landing h1{font-size:clamp(30px,3vw,41px);margin:6px 0 14px;line-height:1.1}
+  .heroCopy{font-size:16px;line-height:1.5;margin:0 0 18px}
+  .heroTrust{gap:14px;margin-top:14px}
+  .dashboardDemo{padding:14px;border-radius:24px}
+  .demoInner{padding:18px}
+  .demoTop{margin-bottom:18px}
+  .demoReadings{margin:14px 0}
+  .demoReading{padding:12px 9px}
+  .demoChart{padding-top:11px}
+  .demoChart svg{height:92px;margin-top:8px}
+  .demoIllustrationLabel{margin-top:8px}
+  .landingBenefits{gap:14px;padding:0 32px 12px}
+  .landingBenefits article{padding:15px 18px}
+  .benefitIcon{margin-bottom:7px}
+  .landingBenefits h2{margin-bottom:6px}
+  .landingBenefits p{line-height:1.45}
+  .landingFooter{padding:5px 24px 8px}
+}
+
 @media(max-width:900px){.landingHero{gap:24px;padding-top:32px}.landingBenefits{grid-template-columns:repeat(2,1fr)}.demoInner{padding:16px}.demoReading strong{font-size:18px}.heroTrust{gap:12px}.accountBar{display:none}}
 @media(max-width:600px){.landingNav{padding:16px 20px;height:72px}.landingNav .googleLogin{padding:9px 13px;font-size:11px;min-height:40px;gap:7px}.landingNav .googleG{width:25px;height:25px;font-size:18px}.landingBrand{font-size:20px;gap:9px}.landingHero{grid-template-columns:1fr;padding:32px 22px 38px;gap:40px}.heroBrand{font-size:54px}.landing h1{font-size:34px}.heroCopy{font-size:15px}.heroTrust{font-size:11px}.dashboardDemo{transform:none;padding:12px}.demoInner{padding:19px}.landingBenefits{padding:0 22px 24px;gap:12px}.landingBenefits article{padding:18px}.landingBenefits h2{font-size:14px}.landingBenefits p{font-size:12px}.demoReading strong{font-size:21px}.accountBar{display:grid;margin:10px 0}.sidebar .accountBar{display:none}}
 
 /* Google renders its official popup button inside these two containers. */
 .googleLogin,.landingNav .googleLogin{padding:0;min-height:44px;background:transparent;box-shadow:none;border-radius:0}
 .googleLogin:hover{background:transparent}
+
+
+/* Mobile keeps the same product story but removes decorative vertical space. */
+@media(max-width:600px){
+  .landingNav{height:58px;padding:10px 16px}
+  .landingBrand{font-size:19px}
+  .eggMark{width:21px;height:27px}
+  .landingHero{padding:18px 16px 22px;gap:20px}
+  .heroBrand{font-size:42px;letter-spacing:-1.4px}
+  .landing h1{font-size:28px;line-height:1.12;margin:4px 0 12px}
+  .heroCopy{font-size:14px;line-height:1.5;margin:0 0 16px}
+  .heroTrust{gap:8px 12px;margin-top:12px;font-size:10.5px}
+  .dashboardDemo{padding:8px;border-radius:20px}
+  .demoInner{padding:13px}
+  .demoTop{margin-bottom:13px}
+  .demoReadings{gap:7px;margin:11px 0}
+  .demoReading{padding:10px 7px}
+  .demoReading strong{font-size:18px;margin:4px 0}
+  .demoChart{padding-top:9px}
+  .demoChart svg{height:70px;margin-top:6px}
+  .demoIllustrationLabel{margin-top:6px}
+  .landingBenefits{grid-template-columns:repeat(2,minmax(0,1fr));padding:0 16px 14px;gap:9px}
+  .landingBenefits article{padding:13px}
+  .benefitIcon{font-size:21px;margin-bottom:6px}
+  .landingBenefits h2{font-size:13px;margin-bottom:5px}
+  .landingBenefits p{font-size:11px;line-height:1.45}
+  .landingFooter{padding:10px 16px 14px}
+}
