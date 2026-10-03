@@ -98,7 +98,9 @@ jobs:
           MAYAP_NOTES_QA_DELAY_MS=150 run_browser_qa tools/test_notes_browser.cjs /tmp/mayap-notes-qa
 
       - name: AT24C512 notes power-cut and readback regression
-        run: python3 tools/test_notes_store.py
+        run: |
+          python3 tools/test_notes_store.py
+          python3 tools/test_single_eeprom.py --sanitize --check-regression
 
       - name: Actual PID and autotune host tests
         run: |

@@ -55,3 +55,26 @@ Hardware acceptance: add a Vietnamese reminder, wait for confirmed save,
 power-cycle both ESP32 and EEPROM, reopen reminders and verify the text. Repeat
 for deletion. `[REMIND] save=FAIL` must never be presented as a confirmed save.
 This automated simulation is not a substitute for that physical test.
+
+## ACK polling under task suspension
+
+Notes already use the same `ExternalEeprom24xx` driver as configuration,
+batch and reminders, with separate A/B regions, CRC and EEPROM readback.
+The commissioning regression now models a 5 ms EEPROM program cycle and
+0–250 ms delay before a Core 0 task resumes. The previous driver checked the
+20 ms deadline after sleeping and could reject a completed write without
+probing the chip again. This reproduces `notes.save stage=WRITE addr=0x3C00`
+while a reminder saved without that scheduling delay succeeds.
+
+The driver now probes the chip before checking the deadline after resuming.
+The timeout value, page size, chunk size, retries and record schemas remain
+unchanged. A chip still returning NACK at the deadline fails; write protection
+and failed CRC/readback still cannot produce a successful terminal ACK.
+
+`python3 tools/test_single_eeprom.py --sanitize --check-regression` covers
+actual reminder and notes persistence, delayed scheduling, millis wrap, 500
+updates with varying delays, existing-region preservation and a mutation
+proof: restoring the old poll loop must reproduce the failure. The earlier
+instant-ACK fake did not cover write-cycle timing or delayed task wake-up.
+These simulations prove the software defect; physical save/reboot acceptance
+is still required after flashing the fix.

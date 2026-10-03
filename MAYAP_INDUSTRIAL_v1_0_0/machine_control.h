@@ -2059,11 +2059,13 @@ class ExternalEeprom24xx {
 
   static bool waitWriteCompleteLocked() {
     const uint32_t started = millis();
-    do {
+    for (;;) {
+      // A delayed task resume must observe the chip before declaring timeout.
+      // A still-busy chip exits at the existing deadline; no extra sleep/retry.
       if (probeLocked()) return true;
+      if (elapsedMs(millis(), started) >= EEPROM_WRITE_TIMEOUT_MS) return false;
       vTaskDelay(pdMS_TO_TICKS(1));
-    } while (elapsedMs(millis(), started) < EEPROM_WRITE_TIMEOUT_MS);
-    return false;
+    }
   }
 };
 
