@@ -7359,9 +7359,9 @@ class MachineController {
         config_.highTempAlarm, config_.emergencyTemp,
         config_.controlMode == ControlMode::Pid ? "PID" : "ON/OFF");
     mayapSerialPrintf(false,
-        "[CONFIG] PID kp=%.2f ki=%.2f kd=%.2f chu_ky=%us cong_suat_max=%u%%\n",
+        "[CONFIG] PID kp=%.2f ki=%.2f kd=%.2f legacy_cycle=%us burst_candidate=%lums cong_suat_max=%u%%\n",
         config_.kp, config_.ki, config_.kd, config_.pidCycleSec,
-        config_.maxHeaterPower);
+        static_cast<unsigned long>(HEATER_BURST_QUANTUM_MS), config_.maxHeaterPower);
     mayapSerialPrintf(false,
         "[CONFIG] Nang cao: ket_dinh=%.2fC/%us toc_do=%.2fC/%us dao_dong=%u/%us "
         "tune_cong_suat=%u%% tune_band=%.2fC\n",
@@ -7404,9 +7404,9 @@ class MachineController {
       static_cast<unsigned long>(ESP.getMaxAllocHeap()), mayapTlsBusy(),
       static_cast<unsigned long>(mayapTlsDeferredCount()));
     if (!detailed) return;
-    mayapSerialPrintf(false, "[SENSOR] format=%u register=%u raw=%.4f filtered=%.4f\n",
+    mayapSerialPrintf(false, "[SENSOR] profile=%u register=%u raw=%.4f filtered=%.4f humidity=%.2f\n",
         static_cast<unsigned>(sensor_.sensorProfile()), sensor_.rawTemperatureRegister(),
-        sensor_.rawTemperatureC(), sensor_.temperatureC());
+        sensor_.rawTemperatureC(), sensor_.temperatureC(), sensor_.humidityRH());
     mayapSerialPrintf(false, "[STATUS] switch=%s batch=%u resume=%u clear=%u recovery=%s phase=%u sensor=%u storage=%u safetyNvs=%u resetFault=%u T=%.2f raw=%.2f H=%.1f\n",
       in.autoMode ? "AUTO" : "MAN",
       batchRunning_, resumePending_, batchClearPending_,
@@ -7696,7 +7696,7 @@ class MachineController {
   bool networkStatusInitialized_ = false;
 
   float pidPower_ = 0.0f;
-  HeaterBurstScheduler heaterBurst_{HEATER_GROUP_COUNT};
+  HeaterBurstScheduler heaterBurst_{HEATER_GROUP_COUNT, HEATER_BURST_QUANTUM_MS};
   bool previousFanCommand_ = false;
   uint32_t fanOnSince_ = 0;
   // Contactor nhiet tong PHAI dong tuc thi cung cong tac (yeu cau nguoi lap

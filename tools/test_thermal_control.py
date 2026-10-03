@@ -22,6 +22,8 @@ config = (ROOT / 'MAYAP_INDUSTRIAL_v1_0_0/config.h').read_text()
 assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/thermal_control.h').read_bytes()).hexdigest() == 'fb2b5828ccdd8997736f9618ae32f3635370c7253f2d1b8efbbd763002d15354'
 assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/ssr_window.h').read_bytes()).hexdigest() == '0a7fa13570ec7a29c603f891dd9f38d7bc884503b684e28fb2ff907a0081c1aa'
 
+assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/sensor_filter.h').read_bytes()).hexdigest() == '58d07d62a9d4d345fce56bf39f4c84fb3de7f1072af9636fbcf5838d9753433e'
+
 def body_end(text, start):
     opening = text.index('{', start)
     depth = 0
@@ -67,7 +69,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     evidence_start = machine.index('    const bool responseDemand = batchRunning_')
     evidence_end = machine.index('    const bool sensorGrace', evidence_start)
     (out / 'actual-heater-evidence.inc').write_text(machine[evidence_start:evidence_end])
-    fields = sorted(set(re.findall(r'config_\.(\w+)', heating)))
+    initializer = re.search(r'HeaterBurstScheduler heaterBurst_\{[^;]+;', machine)[0]
+    assert initializer == 'HeaterBurstScheduler heaterBurst_{HEATER_GROUP_COUNT, HEATER_BURST_QUANTUM_MS};'
+    (out / 'actual-burst-member.inc').write_text(initializer)
+    fields = sorted(set(re.findall(r'config_\.(\w+)', heating)) | {'pidCycleSec'})
     extra = []
     fixture_fields = {'controlMode','kp','ki','kd','maxHeaterPower','autotuneRelayPowerPercent','tempHysteresis','autotuneBandC'}
     for name in fields:
@@ -76,7 +81,8 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         if not match: raise ValueError('missing heat configuration ' + name)
         extra.append(match[0])
     (out / 'actual-heating-config.inc').write_text('struct HeatingConfig : MachineConfig {\n' + '\n'.join(extra) + '\n HeatingConfig() { kp=18.0f; ki=0.8f; kd=45.0f; }\n};\n')
-    constants = ['CIRC_FAN_BATCH_START_STAGGER_MS','POST_COOL_MS','VENT_SCHEDULE_MAX_RUNS','FAN_PRESTART_MS','MANUAL_FAN_CAN_DISABLE_HEATING','HUMIDIFIER_HYSTERESIS_RH']
+    assert re.search(r'uint16_t heaterStuckDurationSec\s*=\s*900;', config), 'E115 test must match production default'
+    constants = ['CIRC_FAN_BATCH_START_STAGGER_MS','POST_COOL_MS','VENT_SCHEDULE_MAX_RUNS','FAN_PRESTART_MS','MANUAL_FAN_CAN_DISABLE_HEATING','HUMIDIFIER_HYSTERESIS_RH','HEATER_BURST_QUANTUM_MS']
     (out / 'actual-heating-constants.inc').write_text('\n'.join(re.search(r'constexpr [^;\n]*\b'+n+r'\s*=[^;]*;',config)[0] for n in constants))
     start = machine.index('  void updateFilter(')
     end = machine.index('  void completeCycleSuccess(', start)
@@ -88,13 +94,40 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         + machine[start:end]
         + ' private: float tempWindow_[3]{}, humWindow_[3]{}; uint8_t windowIndex_=0,windowCount_=0;\n'
         + 'float filteredTemp_=0, filteredHum_=0; bool filterInitialized_=false;\n};\n')
+    # Compile the real config serializers, CRC validators and EEPROM migration
+    # path against a byte-backed EEPROM. No alternate migration implementation.
+    def method(signature):
+        start = machine.index(signature)
+        return machine[start:body_end(machine, start)]
+    cfg_start = config.index('struct MachineConfig {')
+    cfg_struct = config[cfg_start:body_end(config, cfg_start)+1]
+    sanitize = method('inline void sanitizeMachineConfig(')
+    cfg_names = sorted(set(re.findall(r'\b[A-Z][A-Z0-9_]+\b', cfg_struct + sanitize)))
+    cfg_constants = []
+    for name in cfg_names + ['EEPROM_ADDR_CONFIG_A','EEPROM_ADDR_CONFIG_B','HEATER_BURST_QUANTUM_MS']:
+        found = re.search(r'constexpr [^;\n]*\b'+name+r'\s*=[^;]*;', config)
+        if found and found[0] not in cfg_constants: cfg_constants.append(found[0])
+    enums = '\n'.join(re.search(r'enum class '+name+r'[^;]+;', config)[0]
+                      for name in ['ControlMode','TurnDirection','ConnectivityMode'])
+    records = machine[machine.index('struct PackedMachineConfigV1 {'):machine.index('struct PackedBatchV1 {')]
+    schemas = '\n'.join(re.findall(r'constexpr [^;\n]*\bCONFIG_(?:MAGIC|SCHEMA\w*)\s*=[^;]*;', machine))
+    validators = machine[machine.index('  static bool validConfig('):machine.index('  static bool validBatch(')]
+    (out / 'actual-config.inc').write_text('\n'.join(cfg_constants)+'\n'+enums+'\n'+cfg_struct+'\n'
+        +sanitize+'\n#pragma pack(push,1)\n'+records+'\n#pragma pack(pop)\n'+schemas+'\n'
+        +method('inline uint32_t mcCrc32(')+'\n'+method('inline PackedMachineConfigV1 packConfig(')+'\n'
+        +method('inline MachineConfig unpackConfig(')+'\n')
+    (out / 'actual-config-load.inc').write_text(method('  bool loadConfig(')+'\n'
+        +method('  static bool newer(')+'\n'+validators+'\n'+method('  bool refreshConfigCache('))
+    (out / 'actual-safety-thresholds.inc').write_text('\n'.join(
+        'constexpr double MODEL_'+name.upper()+' = '+re.search(r'float '+name+r'\s*=\s*([\d.]+)f;',config)[1]+';'
+        for name in ['highTempAlarm','emergencyTemp']))
     # Assert simulator defaults match current production (both OLD and NEW receive these gains).
     for name, expected in [('kp',18.0),('ki',0.8),('kd',45.0)]:
         actual = float(re.search(r'float ' + name + r'\s*=\s*([\d.]+)f;', config)[1])
         if actual != expected: raise ValueError('Update documented simulator defaults: ' + name)
     common = ['g++', '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out)]
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
-    for test in ['thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115']:
+    for test in ['thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
         variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
@@ -106,6 +139,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                 result.check_returncode()
             (args.report_dir / (test + str(groups) + '.log')).write_text(result.stdout)
             print(result.stdout.splitlines()[-1])
+            if test == 'thermal-filter':
+                (args.report_dir / 'filter-compatibility.csv').write_text(
+                    'samples,max_abs_delta_c,mean_abs_delta_c,rms_delta_c\n'
+                    +next(line[7:] for line in result.stdout.splitlines() if line.startswith('FILTER,'))+'\n')
             if test == 'thermal-v2':
                 with (args.report_dir / 'low-duty.csv').open('w') as bank_report:
                     bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
@@ -116,6 +153,16 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         subprocess.run([str(executable)], stdout=report, check=True)
     print('Thermal model metrics: ' + str(args.report_dir / 'plant.csv'))
     with (args.report_dir / 'plant.csv').open() as report: rows=list(csv.DictReader(report))
+    qualification = ['plant','scenario','setpoint','ambient','dead_s','resolution','algorithm','quantum_ms',
+        'first_high_cross_s','first_emergency_cross_s','peak_before_high','peak_before_emergency',
+        'high_crossed','emergency_crossed','qualification','model_scope']
+    with (args.report_dir / 'safety-qualification.csv').open('w') as report:
+        writer=csv.DictWriter(report, fieldnames=qualification); writer.writeheader()
+        writer.writerows({k:r[k] for k in qualification} for r in rows)
+    sp375=[r for r in rows if r['algorithm']=='NEW' and r['quantum_ms']=='300' and r['setpoint']=='37.5']
+    print(f'CONTROL-ONLY / NO PRODUCTION SAFETY INTERVENTION: NEW300 SP37.5 High '
+          f'{sum(r["high_crossed"]=="1" for r in sp375)}/{len(sp375)}, Emergency '
+          f'{sum(r["emergency_crossed"]=="1" for r in sp375)}/{len(sp375)}')
     failures=sum(r['targets']=='FAIL' for r in rows)
     print(f'SIMULATION TARGETS: {len(rows)-failures}/{len(rows)} pass; {failures} FAIL. Thresholds unchanged; this is not physical accuracy.')
     # Calibrated performance is experimental, but the observed anti-windup

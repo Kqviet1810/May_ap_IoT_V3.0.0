@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "6d716c3406366cb2ed5b52bf9524b6703e955c647dc39df8d0d7b25eccb46bea",
+      "sha256": "98ca47e34169cb9166777f019ae6113bddd7c88d0adb411f0b32e62d5953fc2d",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "d3237e4ae71cd7367a3a6cb556e898d7e1f0ef5009fe2c69f64c8a693b623d5c",
+      "sha256": "911c402a1f687d6d429fc131c9be780191695f7b0e4a6ff9f717e7c63d3b2229",
       "signature": "class MachineController {"
     },
     {
@@ -424,5 +424,6 @@
   "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
   "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed.",
   "transactionHardeningReviewNote": "2026-10-02: reviewed retrySameRequest, moveToUncertain, sweepUncertain, sendConfig, sendCommand and handleAck. Retain signed envelope before receipt; bounded reconnect/UNCERTAIN retries never re-sign or cross boot/device/expiry; terminal ACK cancels retries and incomplete history cannot settle. All controller, safety, storage, HMI display, ATtiny, boot/recovery/OTA preservation entries unchanged.",
-  "thermalV2ReviewNote": "2026-10-03: adversarial review correction on PR #2. GPIO1 is confirmed to drive both SSRs, one 16 kW bank; independent B production routing was removed. Only config paired-profile/bank declarations, ThermalController actuator-boundary anti-windup, MachineController paired sensor decoding/single-bank E115 and scheduling, OutputArbiter single-bank routing, and decodeFrame fingerprints changed. Kp/Ki/Kd, beta=1, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New sensor decoder and scheduler hashes updated after explicit review; no blanket baseline refresh."
+  "thermalV2ReviewNote": "2026-10-03: adversarial review correction on PR #2. GPIO1 is confirmed to drive both SSRs, one 16 kW bank; independent B production routing was removed. Only config paired-profile/bank declarations, ThermalController actuator-boundary anti-windup, MachineController paired sensor decoding/single-bank E115 and scheduling, OutputArbiter single-bank routing, and decodeFrame fingerprints changed. Kp/Ki/Kd, beta=1, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New sensor decoder and scheduler hashes updated after explicit review; no blanket baseline refresh.",
+  "thermalFinalReviewNote": "2026-10-03: explicit provisional 300ms production quantum and bounded SENSOR humidity diagnostic and CONFIG labels distinguishing legacy cycle from candidate burst only inside protected config/MachineController. PID, AutoTune, output arbitration, config serializers/schema and safety bodies unchanged. Legacy pidCycleSec hidden from Web/HMI with EEPROM schema3..12 and production cadence regressions."
 }

@@ -197,6 +197,33 @@ static void burstTimingJitter() {
     if(groups==2)assert(std::fabs(static_cast<double>(a)-b)<=1075); // actual runtime, not only slot count
   }
 }
+static void productionCadenceJitter() {
+  const uint32_t pattern[]={5,5,5,10,5,20,5,5,40,5,5,15};
+  for(uint32_t quantum:{300U,500U,1000U}) for(float power:{0.5f,1.f,2.f,3.f,5.f,10.f,30.f,50.f,100.f}) {
+    HeaterBurstScheduler scheduler(1,quantum);
+    const uint32_t start=UINT32_MAX-20000U; // Include millis rollover.
+    uint32_t passed=0,lastChange=0,n=0;uint64_t on=0;
+    auto previous=scheduler.update(start,power,true);
+    while(passed<3600000) {
+      const uint32_t dt=std::min<uint32_t>(3600000-passed,pattern[n++%12]);
+      if(previous.groupA)on+=dt;
+      passed+=dt;auto current=scheduler.update(start+passed,power,true);
+      if(current.groupA!=previous.groupA){assert(passed-lastChange>=quantum);lastChange=passed;}
+      assert(!current.groupB);previous=current;
+      // Error is bounded over the whole run, not only lucky final endpoints.
+      assert(std::fabs(on-passed*power/100.0)<=2*quantum+80);
+    }
+    assert(std::fabs(on-passed*power/100.0)<=quantum+80);
+    assert(!scheduler.update(start+passed+5,power,false).groupA);
+    assert(!scheduler.update(start+passed+10,0.5f,true).groupA);
+    // A long missed observation resets credit, never shortened catch-up pulses.
+    scheduler.update(start+passed+3*quantum,50,true);
+    const auto initial=scheduler.update(start+passed+3*quantum+5,50,true);
+    for(uint32_t dt=10;dt<quantum;dt+=5)
+      assert(scheduler.update(start+passed+3*quantum+dt,50,true).groupA==initial.groupA);
+  }
+  std::puts("Production-like 5ms jitter/40ms stalls: bounded energy throughout 1h, full pulses, rollover, immediate safety/no catch-up PASS");
+}
 static void singleBankSweep() {
   for(uint32_t quantum:{300U,500U,1000U})
     for(float power:{0.1f,0.25f,0.5f,1.f,2.f,3.f,5.f,10.f,20.f,50.f,75.f,100.f})
@@ -316,6 +343,6 @@ static void antiWindupBoundaryRegression() {
   }
 }
 int main() {
-  defaultPidPreservesLegacy(); antiWindupBoundaryRegression(); sensorFormats(); pidWeightsAndPermits(); burstEnergy(); burstTimingJitter(); singleBankSweep();
+  defaultPidPreservesLegacy(); antiWindupBoundaryRegression(); sensorFormats(); pidWeightsAndPermits(); burstEnergy(); burstTimingJitter(); productionCadenceJitter(); singleBankSweep();
   std::puts("Thermal V2: raw formats/lock/fault, 2-DOF/bumpless/AW, low duty/balance/safety/autotune/rollover/1M slots PASS");
 }

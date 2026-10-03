@@ -105,7 +105,7 @@ jobs:
       - name: Actual PID and autotune host tests
         run: python3 tools/test_thermal_control.py --sanitize --report-dir /tmp/mayap-thermal-report
 
-      - name: Thermal OLD/NEW metrics (simulation targets reported without hiding failures)
+      - name: Thermal control-only metrics and safety threshold qualification (physical performance unverified)
         uses: actions/upload-artifact@v4
         with:
           name: thermal-old-new-metrics

@@ -109,7 +109,7 @@ Commit `274b0d28` đã sửa false-timeout khi task tỉnh muộn: sau khi sched
 
 Firmware có fault manager tập trung với severity `Info / Warning / Stop / Emergency`, output arbiter và heater inhibit. Tuy nhiên software chỉ là một lớp.
 
-Phần cứng heater hiện tại: **GPIO1 điều khiển đồng thời cả hai SSR**, mỗi SSR cấp cho hai thanh 4 kW. Firmware chỉ có **một bank 16 kW** (GPIO1 OFF = 0 kW, ON = 16 kW); công suất PID 0–100% là công suất trung bình của toàn bank. Không có GPIO điều khiển riêng SSR thứ hai. Xem [báo cáo thermal V2](audit/THERMAL_CONTROL_V2.md) trước khi thử nghiệm trên máy thật.
+Phần cứng heater hiện tại: **GPIO1 điều khiển đồng thời cả hai SSR**, mỗi SSR cấp cho hai thanh 4 kW. Firmware chỉ có **một bank 16 kW** (GPIO1 OFF = 0 kW, ON = 16 kW); công suất PID 0–100% là công suất trung bình của toàn bank. Không có GPIO điều khiển riêng SSR thứ hai. Xem [báo cáo thermal V2](audit/THERMAL_CONTROL_V2.md) trước khi thử nghiệm trên máy thật. Quantum 300 ms là candidate commissioning, chưa được xác nhận trên máy thật. PID 18/0.8/45, beta=1 chưa được đặc trưng trên buồng 12 m³. Mô phỏng chỉ so sánh control-only; vượt High/Emergency được báo riêng và không chứng minh độ chính xác thực tế. `pidCycleSec` chỉ còn là dữ liệu legacy, đã ẩn khỏi Web/HMI.
 
 Chuỗi an toàn phần cứng yêu cầu:
 

@@ -15,7 +15,7 @@ function browser(overrides = {}, initialStorage = {}) {
     runtimeRealtime = { deviceId:'MAP-1234567890AB', url:'wss://test.invalid/realtime/browser/MAP-1234567890AB', ticket:'test-ticket' };
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectRealtime, supportsVentProfile,
-      swipeDestination, buildConfig, validateVentForm, REQUIRED_CONFIG_KEYS,
+      swipeDestination, buildConfig, validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
       refreshRealtimeSession, requestRealtimeSession, postCloudJson, isDeviceOnline, sendCommand,
       handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
@@ -64,6 +64,23 @@ function connected(h) {
   h.state.realtimeConnected = true; h.published = [];
   h.state.realtime = { deviceId:h.device.id, connected:true, send:(topic, body, callback)=>{h.published.push({topic,body});callback?.();}, resume(){}, renew(){} };
 }
+
+test('advanced UI hides SSR cycle while preserving legacy protocol readback', () => {
+  const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  assert.doesNotMatch(html, /advPidCycleSec/);
+  for (const pidCycleSec of [1, 10, 60]) {
+    const h = browser();
+    h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+    h.device.config.pidCycleSec = pidCycleSec;
+    const values = { advKp:18, advKi:0.8, advKd:45, advMaxHeaterPower:100,
+      advTempRateLimitC:1, advTempRateWindowSec:120, advTempOscillationCrossLimit:6,
+      advTempOscillationWindowSec:600, advHeaterStuckMinRiseC:0.3,
+      advHeaterStuckDurationSec:900, advAutotuneRelayPowerPercent:30, advAutotuneBandC:0.2 };
+    for (const [id,value] of Object.entries(values)) h.elements.set(id,{value});
+    assert.equal(h.validateAdvancedForm(), true);
+    assert.equal(h.buildConfig('advanced').pidCycleSec, pidCycleSec);
+  }
+});
 
 test('admitted selected socket is reused without broker subscriptions', async () => {
   const h=browser(); connected(h);

@@ -1149,7 +1149,7 @@
     $('liveTemp').textContent = `${numberVi(runtime.temperature)}°C`;
     $('liveHumidity').textContent = `${numberVi(runtime.humidity, 0)}%`;
     renderLiveState(device, runtime);
-    // Thanh nhiet dong cat theo chu ky PID (mac dinh 10s) nen trang thai SSR
+    // Thanh nhiet dong cat theo burst PDM; cong suat la yeu cau trung binh, trang thai SSR
     // tuc thoi (heaterOn) nhap nhay rat nhanh - snapshot 400ms-6s de bat trung
     // luc OFF giua 2 xung, nguoi dung thay "may dang nong" nhung wed bao OFF.
     // heaterPower > 0 phan anh dung y dinh dieu khien (PID dang can nhiet),
@@ -1514,7 +1514,6 @@
     assign('advancedForm', 'advKp', config.kp);
     assign('advancedForm', 'advKi', config.ki);
     assign('advancedForm', 'advKd', config.kd);
-    assign('advancedForm', 'advPidCycleSec', config.pidCycleSec);
     assign('advancedForm', 'advMaxHeaterPower', config.maxHeaterPower);
     assign('advancedForm', 'advTempRateLimitC', config.tempRateLimitC);
     assign('advancedForm', 'advTempRateWindowSec', config.tempRateWindowSec);
@@ -1621,7 +1620,6 @@
       config.kp = Number($('advKp').value);
       config.ki = Number($('advKi').value);
       config.kd = Number($('advKd').value);
-      config.pidCycleSec = Number($('advPidCycleSec').value);
       config.maxHeaterPower = Number($('advMaxHeaterPower').value);
       config.tempRateLimitC = Number($('advTempRateLimitC').value);
       config.tempRateWindowSec = Number($('advTempRateWindowSec').value);
@@ -3315,7 +3313,6 @@
     const kp = Number($('advKp').value);
     const ki = Number($('advKi').value);
     const kd = Number($('advKd').value);
-    const pidCycleSec = Number($('advPidCycleSec').value);
     const maxHeaterPower = Number($('advMaxHeaterPower').value);
     const tempRateLimitC = Number($('advTempRateLimitC').value);
     const tempRateWindowSec = Number($('advTempRateWindowSec').value);
@@ -3328,7 +3325,6 @@
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
     if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
     if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
-    if (!(pidCycleSec >= 1 && pidCycleSec <= 60)) return invalidate('advancedForm', 'advPidCycleSec', 'Chu kỳ SSR phải từ 1 đến 60 giây.');
     if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
     if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
     if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');

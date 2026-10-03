@@ -1,5 +1,6 @@
 // Deterministic commissioning model, NOT proof of sensor accuracy/chamber uniformity.
 // OLD is frozen main 9569fcc. Both paths share plant/noise/quantization/production filter.
+// CONTROL-ONLY MODEL / NO PRODUCTION SAFETY INTERVENTION.
 #include "thermal-fixture.h"
 #include <vector>
 #include <string>
@@ -10,6 +11,7 @@ namespace Old {
 #include "fixtures/thermal-v1/ssr_window.h"
 }
 #include "actual-filter.inc"
+#include "actual-safety-thresholds.inc"
 struct Plant { const char *name; double capacity; double loss; };
 static void run(const Plant &plant,double sp,double ambient,unsigned delay,double resolution,
                 const char *scenario,bool legacy,unsigned quantumMs) {
@@ -32,6 +34,7 @@ static void run(const Plant &plant,double sp,double ambient,unsigned delay,doubl
   unsigned cuts=0, transitions[3]{};
   bool previousOn=false;
   double tailRequested=0;
+  double firstHigh=-1,firstEmergency=-1,peakBeforeHigh=ambient,peakBeforeEmergency=ambient;
   const std::string event(scenario);
   for(unsigned tick=0;tick<static_cast<unsigned>(duration/dt);++tick) {
     const double t=tick*dt;
@@ -71,6 +74,16 @@ static void run(const Plant &plant,double sp,double ambient,unsigned delay,doubl
     // Same 8 s heater/air lag and first-order chamber energy/loss on every algorithm.
     heaterWatts+=(delayed-heaterWatts)*dt/8.0;
     temperature+=(heaterWatts-loss*(temperature-currentAmbient))*dt/plant.capacity;
+    // Conservative plant-temperature crossing qualification, not a replay of
+    // sensor polling/High confirmation or the production safety state machine.
+    if(firstHigh<0) {
+      if(temperature>=MODEL_HIGHTEMPALARM) firstHigh=t+dt;
+      else peakBeforeHigh=std::max(peakBeforeHigh,temperature);
+    }
+    if(firstEmergency<0) {
+      if(temperature>=MODEL_EMERGENCYTEMP) firstEmergency=t+dt;
+      else peakBeforeEmergency=std::max(peakBeforeEmergency,temperature);
+    }
     assert(std::isfinite(temperature) && std::isfinite(power) && power>=0 && power<=100);
     const double error=temperature-target;
     if(event!="setpoint_step" || t>=3600) {
@@ -92,16 +105,21 @@ static void run(const Plant &plant,double sp,double ambient,unsigned delay,doubl
   const double ripple=*std::max_element(tailTemperature.begin(),tailTemperature.end())-*std::min_element(tailTemperature.begin(),tailTemperature.end());
   const int settling=lastOutside<9000 ? lastOutside+1-(event=="setpoint_step"?3600:0) : -1;
   const bool targetPass=mae<=0.1 && p95<=0.15 && ripple<=0.25 && overshoot<=0.3 && settling>=0;
-  std::printf("%s,%s,%.1f,%.1f,%u,%.2f,%s,%u,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%u,%.0f,%u,%s\n",
+  std::printf("%s,%s,%.1f,%.1f,%u,%.2f,%s,%u,%.6f,%d,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%.6f,%u,%.0f,%u,%s,%.1f,%.1f,%.6f,%.6f,%u,%u,%s,%s,%s\n",
       plant.name,scenario,sp,ambient,delay,resolution,legacy?"OLD":"NEW",legacy?0:quantumMs,
       overshoot,settling,mae,bias,p95,ripple,maxError,tailEnergy/(1800*16000)*100,
       totalEnergy/(duration*16000)*100,tailRequested/1800,cuts,totalEnergy,
-      std::max(transitions[0],std::max(transitions[1],transitions[2])),targetPass?"PASS":"FAIL");
+      std::max(transitions[0],std::max(transitions[1],transitions[2])),targetPass?"PASS":"FAIL",
+      firstHigh,firstEmergency,peakBeforeHigh,peakBeforeEmergency,
+      firstHigh>=0?1U:0U,firstEmergency>=0?1U:0U,
+      firstEmergency>=0?"EMERGENCY_INTERVENTION_REQUIRED":firstHigh>=0?"SAFETY_INTERVENTION_REQUIRED":"NO_THRESHOLD_CROSSING",
+      "CONTROL-ONLY MODEL / NO PRODUCTION SAFETY INTERVENTION",
+      firstHigh>=0?"DEBUG_ONLY_AFTER_HIGH_CROSSING":"CONTROL_ONLY_UNVALIDATED");
   assert(totalEnergy>=0);
 }
 int main() {
   const Plant plants[]={{"light",180000,120},{"medium",600000,180},{"heavy",1600000,300}};
-  std::puts("plant,scenario,setpoint,ambient,dead_s,resolution,algorithm,quantum_ms,overshoot,settling_s,mean_abs_error,bias,p95_error,ripple,max_error,delivered_tail_pct,delivered_total_pct,requested_tail_pct,sensor_fault_polls,delivered_j,worst_transitions_per_hour,targets");
+  std::puts("plant,scenario,setpoint,ambient,dead_s,resolution,algorithm,quantum_ms,overshoot,settling_s,mean_abs_error,bias,p95_error,ripple,max_error,delivered_tail_pct,delivered_total_pct,requested_tail_pct,sensor_fault_polls,delivered_j,worst_transitions_per_hour,targets,first_high_cross_s,first_emergency_cross_s,peak_before_high,peak_before_emergency,high_crossed,emergency_crossed,qualification,model_scope,performance_scope");
   for(const auto &p:plants) for(double sp:{30.,32.,35.,37.5}) for(double ambient:{20.,25.,28.})
     for(unsigned delay:{5U,15U,30U,60U}) for(double resolution:{0.1,0.01}) {
       run(p,sp,ambient,delay,resolution,"cold_start",true,1000);

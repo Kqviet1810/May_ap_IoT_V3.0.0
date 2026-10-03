@@ -281,6 +281,8 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 // Output HIGH = ON.
 constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // Both SSRs, one logical 16 kW bank
 constexpr uint8_t HEATER_GROUP_COUNT = 1U;
+// Provisional commissioning default; final timing is not physically validated.
+constexpr uint32_t HEATER_BURST_QUANTUM_MS = 300UL;
 #ifdef MAYAP_HEATER_SSR_B_PIN
 #error "This board has one heater control GPIO; both SSRs share GPIO1"
 #endif
@@ -835,7 +837,8 @@ constexpr uint32_t DIAGNOSTIC_FAST_STATUS_MS = 1000UL;
 constexpr uint16_t MAX_RELAY_TRANSITIONS_PER_HOUR = 1800U;
 
 // Legacy SSR-window limits retained for regression/config compatibility.
-// Production uses pulse-density quanta >= 1 s, without low-duty pulse clipping.
+// Production candidate uses 300 ms pulse-density quanta (scheduler minimum 300 ms).
+// The old 10 s SSR window is retained only in legacy/regression compatibility.
 constexpr uint32_t SSR_MIN_ON_MS = 300UL;
 constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 
@@ -1068,6 +1071,7 @@ struct MachineConfig {
   float kp = 18.0f;
   float ki = 0.8f;
   float kd = 45.0f;
+  // Legacy reserved EEPROM/protocol field; runtime uses HEATER_BURST_QUANTUM_MS.
   uint16_t pidCycleSec = 10;
   uint8_t maxHeaterPower = 100;
 

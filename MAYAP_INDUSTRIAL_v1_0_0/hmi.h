@@ -531,14 +531,15 @@ const SettingItem SETTINGS[] = {
   ITEM_U8_OPTIONS("Ket noi", connectivityMode,
                   OPT_OFFLINE_ONLINE, 2),                                     // 14
 
-  // ---- NANG CAO (13 muc): PID thu cong + nguong chan doan nhiet + Auto
+  // ---- NANG CAO (12 muc hien + 1 slot legacy an): PID thu cong + nguong chan doan nhiet + Auto
   // Tune - them de nguoi dung tu chinh khi lap may that (dan nhiet cong suat
   // lon co the can nguong khac mac dinh) ma khong can nap lai firmware. Gioi
   // han min/max khop dung sanitizeMachineConfig() trong machine_control.h.
   ITEM_FLOAT("He so Kp", kp, 0.0f, 100.0f, 0.5f, 1, ""),                     // 15
   ITEM_FLOAT("He so Ki", ki, 0.0f, 20.0f, 0.05f, 2, ""),                     // 16
   ITEM_FLOAT("He so Kd", kd, 0.0f, 200.0f, 1.0f, 1, ""),                     // 17
-  ITEM_U16("Chu ky SSR", pidCycleSec, 1, 60, 1, "s"),                        // 18
+  // Hidden legacy slot 18; preserve fixed indexes used by ventilation menus.
+  ITEM_U16("", pidCycleSec, 1, 60, 1, "s"),
   ITEM_U8("Tran cong suat", maxHeaterPower, 10, 100, 5, "%"),                // 19
   ITEM_FLOAT("Nguong ket dinh", heaterStuckMinRiseC, 0.05f, 5.0f, 0.05f, 2, "C"), // 20
   ITEM_U16("TG xac nhan ket", heaterStuckDurationSec, 60, 3600, 30, "s"),    // 21
@@ -586,7 +587,7 @@ const uint8_t GROUP_SETTING_INDEXES[] = {
   4,5,6,7,8,                           // Nhiet do
   11,12,13,28,                         // Dao trung
   14,29,32,                            // He thong
-  15,16,17,18,19,                      // PID / SSR
+  15,16,17,19,                         // PID / SSR
   20,21,22,23,24,25,26,27,             // Bao ve nhiet
   9,10,                                // Quat hut; Thong gio la menu con
   30,31                                // Tao am
@@ -605,14 +606,14 @@ const SettingGroup GROUPS[] = {
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
   {"HE THONG", 13, 3},
-  {"PID / SSR", 16, 5},
-  {"BAO VE NHIET", 21, 8},
-  {"QUAT HUT", 29, 2},
-  {"TAO AM", 31, 2}
+  {"PID / SSR", 16, 4},
+  {"BAO VE NHIET", 20, 8},
+  {"QUAT HUT", 28, 2},
+  {"TAO AM", 30, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 8, "Bang GROUPS phai co 8 nhom");
-static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == 33U,
+static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == 32U,
               "Sai so luong setting hien trong menu chinh");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.

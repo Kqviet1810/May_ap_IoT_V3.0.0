@@ -2,6 +2,7 @@
 #include "thermal-fixture.h"
 #include <deque>
 #include <cstddef>
+#include <vector>
 #include "../MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h"
 #include "../MAYAP_INDUSTRIAL_v1_0_0/heater_burst_scheduler.h"
 #include "../MAYAP_INDUSTRIAL_v1_0_0/startup_output_policy.h"
@@ -44,7 +45,7 @@ struct Harness {
   HeatingConfig config_;
   OutputArbiter outputs_;
   ThermalController pid_; RelayAutoTune autotune_;
-  HeaterBurstScheduler heaterBurst_{HEATER_GROUP_COUNT};
+#include "actual-burst-member.inc"
   struct {float heaterPower=0;} runtime_;
   bool testModeActive_=false,lightWebOverrideActive_=false,lightWebOverrideRefInput_=false,lightWebOverrideValue_=false;
   bool resumeConfirmationRequired_=false,batchRunning_=true,prevBatchRunningForOutputs_=false;
@@ -63,7 +64,15 @@ struct Harness {
   void warm(){outputs_.begin();for(uint32_t t=1000;t<=15000;t+=50)cycle(t,t%2000==0);}
 };
 static void assertOff(const Harness &h){assert(!h.outputs_.state().heaterSsr);}
+static std::vector<bool> legacyCycleWaveform(uint16_t cycle) {
+  Harness h;h.config_.pidCycleSec=cycle;h.config_.maxHeaterPower=30;h.outputs_.begin();
+  std::vector<bool> result;
+  for(uint32_t now=1000;now<121000;now+=5){h.cycle(now,now%2000==0);result.push_back(h.outputs_.state().heaterSsr);}
+  return result;
+}
 int main(){
+  assert(legacyCycleWaveform(1)==legacyCycleWaveform(10));
+  assert(legacyCycleWaveform(60)==legacyCycleWaveform(10));
   Harness pickup;pickup.outputs_.begin();pickup.cycle(1000);
   assertOff(pickup);assert(pickup.runtime_.heaterPower==0 && pickup.pid_.output()==0);
   for(unsigned reason=0;reason<16;++reason){
