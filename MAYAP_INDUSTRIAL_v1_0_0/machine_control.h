@@ -4723,6 +4723,8 @@ class MachineController {
         }
         case HmiCommandType::AutoTuneStart:
           ok = startAutoTune(now, message); break;
+        case HmiCommandType::AutoTuneCancel:
+          ok = cancelAutoTune(now, message); break;
         case HmiCommandType::ResumeYes:
           if (resumePending_ && resumeConfirmationRequired_) {
             resumeConfirmationRequired_ = false;
@@ -4971,6 +4973,23 @@ class MachineController {
                      std::min<uint8_t>(AUTOTUNE_PREHEAT_POWER_PERCENT, config_.maxHeaterPower),
                      temperature_, std::min<uint8_t>(config_.autotuneRelayPowerPercent, config_.maxHeaterPower),
                      config_.autotuneBandC);
+    return true;
+  }
+
+  bool cancelAutoTune(uint32_t now, const char *&message) {
+    if (!autotune_.running()) {
+      message = "AUTO TUNE KHONG CHAY";
+      return false;
+    }
+    autotune_.cancel();
+    heaterBurst_.reset();
+    pid_.reset();
+    // Keep the same cool-down and restart lockout used by every terminal
+    // Auto Tune path. Stored/current PID gains are not modified on cancel.
+    postCoolUntil_ = now + POST_COOL_MS;
+    heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
+    message = "DA HUY AUTO TUNE";
+    mayapSerialPrintf(false, "[TUNE] CANCEL operator\n");
     return true;
   }
 

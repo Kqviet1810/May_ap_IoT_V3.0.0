@@ -166,6 +166,14 @@ class RelayAutoTune {
   void abort(AutoTuneReason reason=AutoTuneReason::SafetyAbort) {
     state_=AutoTuneState::Failed;phase_=AutoTunePhase::Failed;reason_=reason;power_=0;progress_=0;
   }
+  void cancel() {
+    // Operator cancellation is not a tuning failure. Remove heater demand
+    // immediately and return the public state to Idle; start() rebuilds all
+    // measurement/cycle state before a later run.
+    state_=AutoTuneState::Idle;phase_=AutoTunePhase::Idle;
+    reason_=AutoTuneReason::None;rejection_=AutoTuneReason::None;
+    power_=relayHigh_=relayLow_=0;progress_=0;levelsLocked_=false;
+  }
   // Called every control cycle; timeout enforcement cannot wait for a sensor sample.
   void checkTimeout(uint32_t now) {
     if(!running())return;

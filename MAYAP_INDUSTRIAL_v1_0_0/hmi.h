@@ -802,7 +802,7 @@ enum class View : uint8_t {
   FirmwareProgress, TurnStatus, VentilationMenu, VentilationAdvanced, FirmwareMenu
 };
 
-enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback, BatchOverdueContinue };
+enum class ConfirmAction : uint8_t { None, BatchToggle, AutoTuneStart, ResumeBatch, TurningToggle, CloudPinReset, FirmwareWebApply, FirmwareRollback, BatchOverdueContinue, AutoTuneCancel };
 
 // Prototype thu cong: Arduino IDE tu sinh prototype cho ham trong .ino.
 // Neu ham dung enum/struct tuy chinh, prototype tu dong co the bi chen
@@ -1206,8 +1206,11 @@ bool commandTypesConflict(HmiCommandType a, HmiCommandType b) {
   const bool aBatch = a == HmiCommandType::BatchStart || a == HmiCommandType::BatchStop;
   const bool bBatch = b == HmiCommandType::BatchStart || b == HmiCommandType::BatchStop;
   if (aBatch && bBatch) return true;
-  const bool aTune = a == HmiCommandType::AutoTuneStart;
-  const bool bTune = b == HmiCommandType::AutoTuneStart;
+  const bool aTune = a == HmiCommandType::AutoTuneStart ||
+                     a == HmiCommandType::AutoTuneCancel;
+  const bool bTune = b == HmiCommandType::AutoTuneStart ||
+                     b == HmiCommandType::AutoTuneCancel;
+  if (aTune && bTune) return true;
   if ((aTune && bBatch) || (bTune && aBatch)) return true;
   const bool aResume = a == HmiCommandType::ResumeYes || a == HmiCommandType::ResumeNo;
   const bool bResume = b == HmiCommandType::ResumeYes || b == HmiCommandType::ResumeNo;
@@ -1599,7 +1602,12 @@ void openAutoTuneConfirm() {
     return;
   }
   if (currentRuntime.autoTuneState == AutoTuneState::Running) {
-    showToast("AUTO TUNE DANG CHAY");
+    confirmAction = ConfirmAction::AutoTuneCancel;
+    confirmReturnView = View::AutoTune;
+    confirmYes = false;
+    clearToast();
+    armInputGuard();
+    dirty = true;
     return;
   }
   if (currentRuntime.batchRunning) {
@@ -1888,6 +1896,7 @@ void buzzerUpdate(uint32_t now) {
       if (resoundNow) {
         buzzer.acknowledgedAlarmMask &= ~bit;
         buzzer.acknowledgedAt[i] = 0;
+        alarmPresentedMask &= ~bit;
         buzzer.tempHighAckBestTemp = NAN;
         buzzer.tempHighAckLastSampleAt = 0;
       }
@@ -1897,9 +1906,9 @@ void buzzerUpdate(uint32_t now) {
     if (repeatMs && now - buzzer.acknowledgedAt[i] >= repeatMs) {
       buzzer.acknowledgedAlarmMask &= ~bit;
       buzzer.acknowledgedAt[i] = 0;
-      // AUTO OFF trong me phai quay lai man Alarm moi 10 phut cho toi khi
-      // dieu kien duoc khac phuc, khong chi keu coi o nen.
-      if (bit == AlarmAutoMode) alarmPresentedMask &= ~AlarmAutoMode;
+      // Re-arming the buzzer also starts a new presentation cycle: the Alarm
+      // screen must return instead of leaving an audible-only repeat.
+      alarmPresentedMask &= ~bit;
     }
   }
 
@@ -2288,6 +2297,12 @@ void executeConfirmation(bool accepted) {
       if (queueCommand(HmiCommandType::AutoTuneStart,
                        COMMAND_AUTOTUNE_VALID_MS)) {
         showToast("DANG KHOI DONG AUTO TUNE");
+      }
+      view = View::AutoTune;
+    } else if (action == ConfirmAction::AutoTuneCancel) {
+      if (queueCommand(HmiCommandType::AutoTuneCancel,
+                       COMMAND_DEFAULT_VALID_MS)) {
+        showToast("DANG HUY AUTO TUNE");
       }
       view = View::AutoTune;
     } else if (action == ConfirmAction::ResumeBatch) {
@@ -4054,6 +4069,8 @@ void drawConfirmScreen() {
     line2 = "TIEP TUC U AM?";
   } else if (confirmAction == ConfirmAction::AutoTuneStart) {
     line1 = "CHAY AUTO TUNE PID?";
+  } else if (confirmAction == ConfirmAction::AutoTuneCancel) {
+    line1 = "HUY TU DO PID?";
   } else if (confirmAction == ConfirmAction::TurningToggle) {
     line1 = pendingTurningConfig.turningEnabled ? "BAT DAO TU DONG?" : "TAT DAO TU DONG?";
   } else if (confirmAction == ConfirmAction::CloudPinReset) {

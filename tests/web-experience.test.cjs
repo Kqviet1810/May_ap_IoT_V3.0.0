@@ -557,3 +557,14 @@ test('native ticket renewal and UI grant preparation share one HTTP request',asy
  finish({ok:true,status:200,json:async()=>({success:true,realtime:{url:'wss://test.invalid/realtime/browser/MAP-1234567890AB',ticket:'one-use-ticket'},control:{sessionKey:'07'.repeat(32),grant:'shared|grant',grantSig:'08'.repeat(32),expiresAt:Math.floor(h.now()/1000)+300}})});
  assert.equal((await native).ticket,'one-use-ticket');assert.equal(await ui,true);assert.equal(calls,1);
 });
+
+
+test('landing has no duplicated top nav and Auto Tune exposes cancel while running', () => {
+  const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+  const css = fs.readFileSync(require.resolve('../landing.css'), 'utf8');
+  const app = fs.readFileSync(require.resolve('../app.js'), 'utf8');
+  assert.doesNotMatch(html, /<nav class="landingNav"/);
+  assert.match(css, /grid-template-rows:minmax\(0,1fr\) auto 30px/);
+  assert.match(app, /textContent = 'Hủy tự dò PID'/);
+  assert.match(app, /sendCommand\('autotune_cancel'\)/);
+});

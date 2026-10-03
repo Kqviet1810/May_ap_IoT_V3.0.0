@@ -1247,11 +1247,15 @@
     if (autoTuneState === 1) {
       $('tuneText').textContent = `Đang chạy · ${autoTuneProgress}%`;
       $('pidSummary').textContent = `Đang tự dò · ${autoTuneProgress}%`;
-      $('startTune').disabled = true;
-      $('startTune').textContent = `Đang tự dò PID · ${autoTuneProgress}%`;
+      $('startTune').disabled = false;
+      $('startTune').textContent = 'Hủy tự dò PID';
+      $('startTune').classList.remove('primary');
+      $('startTune').classList.add('dangerButton');
     } else {
       $('startTune').disabled = false;
       $('startTune').textContent = 'Bắt đầu tự dò PID';
+      $('startTune').classList.remove('dangerButton');
+      $('startTune').classList.add('primary');
       if (autoTuneState === 2) {
         $('tuneText').textContent = 'Hoàn tất · thông số đã được máy lưu';
         $('pidSummary').textContent = 'Đã hoàn tất và tự lưu';
@@ -2107,6 +2111,8 @@
     'DA THOAT TEST': 'Đã thoát chế độ kiểm tra',
     'DA TAT THIET BI': 'Đã tắt thiết bị đang kiểm tra',
     'DA HUY KIEM TRA': 'Đã hủy kiểm tra',
+    'DA HUY AUTO TUNE': 'Đã hủy tự dò PID',
+    'AUTO TUNE KHONG CHAY': 'Không có quá trình tự dò PID đang chạy',
     'DA DONG CONG WIFI': 'Đã đóng cổng đổi Wi-Fi',
     'DA GUI YEU CAU DAT LAI PIN': 'Đã gửi yêu cầu đặt lại mã PIN lên máy chủ',
     'DANG TAI FIRMWARE...': 'Máy đang tải phần mềm mới - không tắt nguồn',
@@ -3661,6 +3667,15 @@
 
     $('startTune').addEventListener('click', async () => {
       const runtime = currentDevice()?.snapshot?.runtime;
+      if (Number(runtime?.autoTuneState || 0) === 1) {
+        const ok = await confirmAction({
+          title: 'Hủy tự dò PID?',
+          message: 'Dừng ngay quá trình tự dò hiện tại. Các thông số PID cũ vẫn được giữ nguyên.',
+          accept: 'Hủy tự dò'
+        });
+        if (ok) await sendCommand('autotune_cancel');
+        return;
+      }
       if (runtime?.batchRunning) return toast('Không thể tự dò khi mẻ đang chạy');
       const ok = await confirmAction({
         title: 'Bắt đầu tự dò PID?',

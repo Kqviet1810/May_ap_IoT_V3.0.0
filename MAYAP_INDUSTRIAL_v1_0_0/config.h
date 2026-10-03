@@ -1375,7 +1375,10 @@ enum class HmiCommandType : uint8_t {
   // F-06: xac nhan "tiep tuc u am" cho me da qua han ngay du kien - huy yeu
   // cau coi + huy dem nguoc tu dong dung 12h cho me hien tai (khong can lam
   // gi them; dung "Ket thuc me" (BatchStop) da co san neu muon dung som hon).
-  BatchOverdueContinue
+  BatchOverdueContinue,
+  // User-requested stop of an Auto Tune already in progress. Appended to keep
+  // every existing command numeric value stable for queues/tests/protocol.
+  AutoTuneCancel
 };
 // F-09 (audit truoc phat hanh v3.7.1): AlarmAck truoc day khong phan biet
 // lenh den tu bang dieu khien vat ly (HMI) hay tu xa (MQTT/web) - mot nguoi

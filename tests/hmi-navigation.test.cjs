@@ -68,3 +68,17 @@ test('all settings remain reachable exactly once in shorter groups', () => {
   assert.match(vent, /ventAutoEnabled/);
   assert.match(advanced, /SETTINGS\[44U \+ index\]/);
 });
+
+
+test('repeated acknowledged alarms re-open the Alarm screen when the buzzer re-arms', () => {
+  const buzzer = bodyOf('void buzzerUpdate(uint32_t now)');
+  assert.ok((buzzer.match(/alarmPresentedMask\s*&=\s*~bit/g) || []).length >= 2);
+});
+
+test('running Auto Tune short press offers an explicit cancel confirmation', () => {
+  const open = bodyOf('void openAutoTuneConfirm()');
+  const execute = bodyOf('void executeConfirmation(bool accepted)');
+  assert.match(open, /AutoTuneState::Running[\s\S]*?ConfirmAction::AutoTuneCancel/);
+  assert.match(execute, /ConfirmAction::AutoTuneCancel[\s\S]*?HmiCommandType::AutoTuneCancel/);
+  assert.match(config, /BatchOverdueContinue,\s*[\s\S]*?AutoTuneCancel/);
+});
