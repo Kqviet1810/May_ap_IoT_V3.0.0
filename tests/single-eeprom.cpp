@@ -64,7 +64,6 @@ struct FakeWire {
   int read() { return available() ? rx[cursor++] : -1; }
 } Wire;
 #include "actual-single-eeprom.inc"
-#include "notes_store.h"
 
 int main() {
   ExternalEeprom24xx driver;
@@ -127,55 +126,23 @@ int main() {
   ReminderStore vietnamese;
   assert(vietnamese.loadReminders(loaded));
   assert(std::memcmp(&loaded, &updated, sizeof(loaded)) == 0);
-  // Actual reminder persistence and notes share the same production driver.
-  // EEPROM takes 5 ms to program; Core 0 can resume a 1 ms delay after its
-  // 20 ms poll deadline. Core 1 reminder writes remain successful.
-  Wire.memory.fill(0xFF);Wire.writeCycleMs=5;clockMs=1000;Wire.busyUntil=clockMs;pollPauseMs=0;
-  ReminderStore timingReminders;assert(timingReminders.saveReminders(original,loaded));
-  MayapNotes::Store<ExternalEeprom24xx> timingNotes(driver);
-  MayapNotes::Request note;note.operation=MayapNotes::Operation::Upsert;note.note.createdAt=1790000000000ULL;
-  strcpy(note.note.id,"00000000-0000-4000-8000-000000000001");strcpy(note.note.content,"Bảo trì máy");
-  assert(timingNotes.process(note).code==MayapNotes::Code::Ok);
-  const auto protectedRegions=Wire.memory;
-  note.note.id[35]='2';pollPauseMs=25;
-  const auto delayed=timingNotes.process(note);
-  if(delayed.code!=MayapNotes::Code::Ok)fprintf(stderr,"Ack poll regression: reminder OK, notes stage=%s addr=0x%04X reason=%u cycle=5ms scheduler_pause=25ms\n",MayapNotes::stageText(delayed.ioStage),delayed.ioAddress,driver.lastWriteTrace().reason);
-  assert(delayed.code==MayapNotes::Code::Ok&&!delayed.ambiguous);
-  for(size_t i=0;i<MayapNotes::BASE;++i)assert(Wire.memory[i]==protectedRegions[i]);
-  for(size_t i=MayapNotes::END;i<Wire.memory.size();++i)assert(Wire.memory[i]==protectedRegions[i]);
-  for(uint32_t pause:{0U,1U,19U,20U,21U,50U,250U})for(uint32_t start:{1000U,UINT32_MAX-8U}){
-    Wire.memory=protectedRegions;clockMs=start;Wire.busyUntil=start;pollPauseMs=pause;
-    MayapNotes::Store<ExternalEeprom24xx> interrupted(driver);
-    const auto stored=interrupted.process(note);assert(stored.code==MayapNotes::Code::Ok&&!stored.ambiguous);
-    MayapNotes::Store<ExternalEeprom24xx> rebootNotes(driver);MayapNotes::Request list;
-    const auto first=rebootNotes.process(list);assert(first.code==MayapNotes::Code::Ok&&first.hasNote);
-    list.cursor=first.nextCursor;const auto second=rebootNotes.process(list);assert(second.code==MayapNotes::Code::Ok&&second.hasNote&&!strcmp(second.note.id,note.note.id));
+  // ACK polling regression is a driver property, independent of any feature.
+  // A delayed task resume must probe the chip once more before declaring timeout.
+  uint8_t timingPayload[64]{}, timingReadback[64]{};
+  Wire.memory.fill(0xFF);Wire.writeCycleMs=5;clockMs=1000;Wire.busyUntil=clockMs;pollPauseMs=25;
+  const bool delayedWrite=driver.writeBytes(0xF100,timingPayload,sizeof(timingPayload));
+  if(!delayedWrite)fprintf(stderr,"Ack poll regression: driver write addr=0xF100 reason=%u cycle=5ms scheduler_pause=25ms\n",driver.lastWriteTrace().reason);
+  assert(delayedWrite);
+  pollPauseMs=0;assert(driver.readBytes(0xF100,timingReadback,sizeof(timingReadback)));
+  assert(std::memcmp(timingPayload,timingReadback,sizeof(timingPayload))==0);
+  for(uint32_t pause:{0U,1U,19U,20U,21U,50U,250U})for(uint32_t begun:{1000U,UINT32_MAX-8U}){
+    clockMs=begun;Wire.busyUntil=begun;pollPauseMs=pause;
+    assert(driver.writeBytes(0xF180,timingPayload,sizeof(timingPayload)));
   }
-  // Repeated updates with varying Core 0 scheduling delay and real CRC readback.
-  Wire.memory=protectedRegions;clockMs=1000;Wire.busyUntil=clockMs;pollPauseMs=0;
-  MayapNotes::Store<ExternalEeprom24xx> soak(driver);
-  uint32_t random=12345;
-  for(unsigned i=0;i<500;++i){
-    random=random*1664525U+1013904223U;pollPauseMs=random%251U;
-    snprintf(note.note.content,sizeof(note.note.content),"Nhật ký vận hành %u",i);
-    const auto saved=soak.process(note);assert(saved.code==MayapNotes::Code::Ok&&!saved.ambiguous);note.note=saved.note;
-    if(i%50==0){
-      MayapNotes::Store<ExternalEeprom24xx> recovered(driver);MayapNotes::Request read;
-      auto row=recovered.process(read);read.cursor=row.nextCursor;row=recovered.process(read);
-      assert(row.hasNote&&!strcmp(row.note.content,note.note.content)&&row.note.version==note.note.version);
-    }
-  }
-  for(size_t i=0;i<MayapNotes::BASE;++i)assert(Wire.memory[i]==protectedRegions[i]);
-  for(size_t i=MayapNotes::END;i<Wire.memory.size();++i)assert(Wire.memory[i]==protectedRegions[i]);
-  note.note.version=0;
-  // Real write-busy past the deadline remains a failure with bounded probes.
-  for(uint32_t pause:{0U,25U,250U}){
-    Wire.memory=protectedRegions;clockMs=1000;Wire.busyUntil=clockMs;Wire.writeCycleMs=1000;pollPauseMs=pause;Wire.probes=0;
-    MayapNotes::Store<ExternalEeprom24xx> busy(driver);
-    const auto failed=busy.process(note);assert(failed.code==MayapNotes::Code::Eeprom&&failed.ambiguous&&Wire.probes<=22);
-    assert(clockMs-1000<600);
-  }
+  Wire.writeCycleMs=1000;clockMs=1000;Wire.busyUntil=clockMs;pollPauseMs=25;Wire.probes=0;
+  assert(!driver.writeBytes(0xF200,timingPayload,sizeof(timingPayload)));
+  assert(driver.lastWriteTrace().reason==4&&Wire.probes<=22);
   pollPauseMs=0;Wire.writeCycleMs=0;
-  std::puts("C512 ACK polling: actual reminder/notes driver, 5ms write cycle, 0–250ms task suspension, millis wrap, readback/reboot, 500 delayed updates and preserved existing regions PASS");
-  std::puts("C512: page/Wire boundary, 0xFFFF/range, notes readback/reboot/clear/no-op, WP, CRC fallback and 827 byte-cut cases PASS");
+  std::puts("C512 ACK polling: generic driver, 5ms write cycle, delayed task wake-up and millis wrap PASS");
+  std::puts("C512: page/Wire boundary, 0xFFFF/range, reminders reboot/clear/no-op, WP and CRC fallback PASS");
 }

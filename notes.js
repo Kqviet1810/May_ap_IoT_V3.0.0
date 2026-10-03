@@ -167,9 +167,9 @@
         body.append(button('Thử lại','ghost',load));
         return;
       }
-      const create = button('+ Ghi chú mới','primary full',() => form()); create.disabled = records.length >= 16;
+      const create = button('+ Ghi chú mới','primary full',() => form());
       body.append(create);
-      if (!writable()) body.append(el('small','notesNotice','Chế độ xem thử · Kết nối máy để lưu hoặc xóa ghi chú.'));
+      if (!writable()) body.append(el('small','notesNotice','Giao diện Ghi chú đang được giữ nguyên · Kho lưu trữ mới chưa được kết nối.'));
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -181,7 +181,7 @@
       } else items = items.slice(0,4);
       const list = el('div','notesList'); list.id = 'notesList'; body.append(list); drawList(list,items);
       if (!all && records.length > 4) body.append(button('Xem tất cả','ghost full',showAll));
-      body.append(button('Tải lại từ máy','ghost full',load),el('small','notesNotice','Lưu trên máy · Tối đa 16 ghi chú.'));
+      body.append(button('Làm mới','ghost full',load),el('small','notesNotice','Chưa có kho lưu trữ · Dữ liệu hiện không được ghi.'));
     }
     function filtered() { const q = query.trim().toLocaleLowerCase('vi'); return sorted().filter(n => (filter === 'all' || n.type === filter) && `${n.title}\n${n.content}`.toLocaleLowerCase('vi').includes(q)); }
     function drawList(list,items) {
@@ -213,11 +213,11 @@
       original = JSON.stringify(formValues(f));
       f.addEventListener('submit',async event => {
         event.preventDefault(); if (busy || !content.value.trim()) return;
-        if (!writable()) { failure.textContent = 'Kết nối máy để lưu ghi chú.'; return; }
+        if (!writable()) { failure.textContent = 'Chức năng lưu đang tạm tắt trong lúc thay kiến trúc lưu trữ.'; return; }
         // A device switch must never save a draft to another machine.
         if (scope !== currentScope()) { failure.textContent = 'Máy đang chọn đã thay đổi. Hủy bản nháp và mở lại Ghi chú.'; return; }
         if (type.value === 'batch' && !context().batchRunning && note?.type !== 'batch') { failure.textContent = 'Mẻ đã kết thúc. Chọn Máy / bảo trì để lưu.'; return; }
-        const values = formValues(f), value = { ...values, title:values.title.trim(), content:values.content.trim(), id:draftId, createdAt, version:note?.version || 0 };
+        const values = formValues(f), value = { ...values, title:values.title.trim(), content:values.content.trim(), id:draftId, createdAt };
         busy = true; save.disabled = true; cancel.disabled = true;
         try {
           const stored = await storage.save(scope,value);
@@ -231,7 +231,7 @@
     async function remove(note) {
       if (busy || confirmPending) return;
       if (!writable()) {
-        const message = el('p','notesError','Kết nối máy để xóa ghi chú.');
+        const message = el('p','notesError','Chức năng xóa đang tạm tắt trong lúc thay kiến trúc lưu trữ.');
         message.setAttribute('role','alert'); body.prepend(message); return;
       }
       const noteScope = scope;
@@ -242,7 +242,7 @@
       if (!accepted) return;
       if (noteScope !== currentScope()) { load(); return; }
       busy = true;
-      try { await storage.remove(scope,note.id,note.version); records = records.filter(n => n.id !== note.id); render(); }
+      try { await storage.remove(scope,note.id); records = records.filter(n => n.id !== note.id); render(); }
       catch (error) { const message = el('p','notesError',error.message || 'Không thể xóa ghi chú. Thử lại.'); message.setAttribute('role','alert'); body.prepend(message); }
       finally { busy = false; }
     }

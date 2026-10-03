@@ -1,7 +1,6 @@
 #pragma once
 
 #include "config.h"
-#include "notes_store.h"
 #include "network_io_guard.h"
 #include <Arduino.h>
 #include <WiFi.h>
@@ -150,7 +149,6 @@ static PendingConfigSave pendingConfigSave;
 // khong dung chung voi pendingConfigSave (2 loai luu doc lap, khong can
 // chan lan nhau - xem ghi chu ReminderSaveTransaction trong hmi.h).
 static PendingConfigSave pendingReminderSave;
-static uint32_t notesAckRevision = 0U;
 
 // ------------------------------- Hop thu phat ACK -------------------------------
 // mayapWebConfirmCommand/mayapWebConfirmConfigSave chay tren controlTask va
@@ -314,7 +312,6 @@ inline void publishPresence(bool online) {
   doc["fw"] = MAYAP_FIRMWARE_VERSION;
   doc["firmware"] = MAYAP_FIRMWARE_VERSION;
   doc["proto"] = 2;
-  doc["notesVersion"] = 1;
   doc["maxPacket"] = MayapProtocol::FRAME_NORMAL_CAP;
   JsonArray caps = doc["caps"].to<JsonArray>();
   caps.add("transactions"); caps.add("config.patch");
@@ -530,7 +527,6 @@ inline bool publishBootstrap(const MachineRuntime &rt, uint32_t revision) {
 }
 
 struct TerminalResult {
-  uint32_t notesRevision = 0U;
   bool used = false;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
   char operation[40] = "";
@@ -545,7 +541,6 @@ inline bool replayTerminal(const char *id) {
   if (!id || !id[0]) return false;
   for (const auto &item : terminalCache) {
     if (!item.used || strcmp(item.requestId, id)) continue;
-    if (!strncmp(item.operation, "notes.", 6U)) notesAckRevision = item.notesRevision;
     // Replayed terminal result never executes the controller again.
     publishAck(item.requestId, item.result, item.message, item.operation,
                0U, 0U, item.signedAck ? item.ackKey : nullptr);
@@ -555,7 +550,6 @@ inline bool replayTerminal(const char *id) {
 }
 
 inline const char *ackCode(const char *result, const char *message) {
-  if (message && !strncmp(message, "NOTES_", 6U)) return message;
   if (message && !strncmp(message, "HISTORY_", 8U)) return message;
   if (message && !strncmp(message, "CONFIG_", 7U)) return message;
   if (!strcmp(result, "applied")) return "APPLIED";
@@ -621,17 +615,6 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
     {"CONFIG_BATCH_LOCKED", "Thông số này bị khóa khi mẻ đang chạy"},
     {"CONFIG_SAFETY_BLOCK", "Máy đang có lỗi an toàn; chưa thể lưu"},
     {"HISTORY_EEPROM_ERROR", "Không đọc được EEPROM lịch sử"},
-    {"NOTES_BUSY", "Ghi chú đang được xử lý trên máy; thử lại sau"},
-    {"NOTES_EEPROM_ERROR", "Không đọc được bộ nhớ ghi chú; thử lại"},
-    {"NOTES_UNCERTAIN", "Chưa xác nhận được lưu vào máy; đang kiểm tra lại"},
-    {"NOTES_RETRY_EXHAUSTED", "Không xác nhận được ghi chú sau nhiều lần kiểm tra; giao dịch đã được giải phóng, hãy tải lại rồi thử lại"},
-    {"NOTES_CORRUPT", "Bộ nhớ ghi chú không hợp lệ; cần kiểm tra máy"},
-    {"NOTES_FULL", "Đã đủ 16 ghi chú; hãy xóa bớt trước khi thêm"},
-    {"NOTES_CONFLICT", "Ghi chú đã thay đổi; tải lại danh sách trước khi sửa"},
-    {"NOTES_INVALID", "Ghi chú không hợp lệ hoặc chưa có mẻ đang chạy"},
-    {"NOTES_NOT_FOUND", "Ghi chú không còn trên máy; tải lại danh sách"},
-    {"NOTES_STORED", "Máy đã lưu và đọc lại ghi chú"},
-    {"NOTES_DONE", "Đã đọc xong ghi chú trên máy"},
     {"HISTORY_EMPTY", "EEPROM chưa có lịch sử nhiệt"},
     {"HISTORY_DONE", "Đã đọc xong lịch sử nhiệt"},
     {"ALARM_PHYSICAL_ACK_REQUIRED", "Cần xác nhận còi khẩn cấp tại máy"},
@@ -657,7 +640,6 @@ inline bool publishAck(const char *requestId, const char *result,
     TerminalResult *existing = nullptr;
     for (auto &item : terminalCache) if (item.used && !strcmp(item.requestId, requestId)) { existing = &item; break; }
     TerminalResult slot{}; // Separate copy avoids aliasing replayTerminal() input.
-    slot.notesRevision = notesAckRevision;
     slot.used = true;
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", op);
@@ -681,7 +663,7 @@ inline bool publishAck(const char *requestId, const char *result,
   doc["bootId"] = bootId;
   doc["result"] = result;
   doc["message"] = ackFriendlyMessage(code, message);
-  doc["revision"] = !strncmp(op, "notes.", 6U) ? notesAckRevision : !strcmp(op, "reminders.save") ? webRemindersRevision : webConfigRevision;
+  doc["revision"] = !strcmp(op, "reminders.save") ? webRemindersRevision : webConfigRevision;
   doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
   doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
   if (key) {
@@ -1163,7 +1145,6 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
   publishAck(requestId, "accepted", "");
 }
 
-#include "notes_link.h"
 
 // Web da phan tich/xac thuc TOAN BO o phia web (parse ngay thang tu nhien,
 // bao loi trung/khong hop le tren form...) - firmware CHI nhan mang (day,
@@ -1312,8 +1293,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
         const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
             : !strcmp(channel, "config/set") ? "config.save"
             : !strcmp(channel, "reminders/set") ? "reminders.save"
-            : !strcmp(channel, "notes/request") ? "notes.read"
-            : !strcmp(channel, "notes/set") ? (!strcmp(bodyDoc["action"] | "", "delete") ? "notes.delete" : "notes.save") : "history.read";
+            : "history.read";
         char normalized[40];
         snprintf(normalized, sizeof(normalized), "%s", op);
         for (char *c = normalized; *c; ++c) if (*c == '_') *c = '.';
@@ -1329,8 +1309,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
                     : !strcmp(channel, "config/set") ? "config.save"
                     : !strcmp(channel, "reminders/set") ? "reminders.save"
-            : !strcmp(channel, "notes/request") ? "notes.read"
-            : !strcmp(channel, "notes/set") ? (!strcmp(bodyDoc["action"] | "", "delete") ? "notes.delete" : "notes.save") : "history.read";
+            : "history.read";
     snprintf(activeOperation, sizeof(activeOperation), "%s", op);
     for (char *c = activeOperation; *c; ++c) if (*c == '_') *c = '.';
     if (v2 && bodyDoc["bootId"].as<uint32_t>() != bootId) {
@@ -1342,8 +1321,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     if (replayTerminal(id)) { activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
                     (pendingReminderSave.used && !strcmp(id, pendingReminderSave.requestId)) ||
-                    (historyResponsePending && !strcmp(id, historyRequestId)) ||
-                    (notesPending.used && !strcmp(id, notesPending.requestId));
+                    (historyResponsePending && !strcmp(id, historyRequestId));
     for (const auto &pending : pendingCommands)
       if (pending.used && !strcmp(id, pending.requestId)) inFlight = true;
     if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
@@ -1364,10 +1342,6 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
   }
   if (!strcmp(channel, "reminders/set")) {
     verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
-    return;
-  }
-  if (!strcmp(channel, "notes/request") || !strcmp(channel, "notes/set")) {
-    verifyAndDispatch(channel, [&](const JsonDocument &doc) { handleNotesMessage(doc, !strcmp(channel, "notes/request")); });
     return;
   }
   if (!strcmp(channel, "history/request")) {
@@ -1650,7 +1624,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   MayapNetworkBatchOperation batchOperation;
   if (!batchOperation) return;
   serviceSnapshotPublish(postLoopNow); serviceConfigPublish(); serviceReminderPublish();
-  serviceEventLogPublish(); serviceHistoryResponse(); serviceNotes(); serviceNotesAdmission();
+  serviceEventLogPublish(); serviceHistoryResponse();
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------

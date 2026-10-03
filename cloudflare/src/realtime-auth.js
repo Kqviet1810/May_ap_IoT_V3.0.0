@@ -6,9 +6,9 @@ export const CLIENT_ID = /^[A-Za-z0-9_-]{8,39}$/;
 export const TICKET_TTL_SEC = 60;
 export const CONNECTION_LEASE_MS = 300000;
 export const FRAME_CAP = 2048;
-export const WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request', 'notes/request', 'notes/set']);
+export const WRITE_CHANNELS = new Set(['command', 'config/set', 'reminders/set', 'history/request']);
 export const DEVICE_CHANNELS = new Set(['presence', 'bootstrap', 'snapshot', 'config/reported',
-  'reminders/reported', 'notes/reported', 'ack', 'log', 'history/reported']);
+  'reminders/reported', 'ack', 'log', 'history/reported']);
 const encoder = new TextEncoder();
 
 export async function issueTicket(env, claims, now = Date.now()) {

@@ -83,5 +83,5 @@ with tempfile.TemporaryDirectory(prefix='mayap-single-eeprom-') as temporary:
         subprocess.run([args.cxx, *flags, '-I', str(output), '-I', str(root / 'MAYAP_INDUSTRIAL_v1_0_0'),
                         str(root / 'tests/single-eeprom.cpp'), '-o', str(executable)], check=True)
         result = subprocess.run([str(executable)], capture_output=True, text=True)
-        assert result.returncode != 0 and 'Ack poll regression: reminder OK, notes stage=WRITE addr=0x3C00 reason=4' in result.stderr, result.stderr
-        print('Regression proof: original ACK poll falsely rejects notes at 0x3C00 after 25ms task suspension; fixed driver passes')
+        assert result.returncode != 0 and 'Ack poll regression: driver write addr=0xF100 reason=4' in result.stderr, result.stderr
+        print('Regression proof: original ACK poll falsely rejects a completed C512 write after 25ms task suspension; fixed driver passes')
