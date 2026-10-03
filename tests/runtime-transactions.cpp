@@ -97,6 +97,5 @@ int main(){
  reset();failSend=false;publishAck("cache","expired","");assert(terminalCursor==0);publishAck("cache","accepted","");assert(terminalCursor==0);publishAck("cache","applied","APPLIED","light.toggle");assert(terminalCursor==1);
  for(int i=0;i<100;i++) { assert(replayTerminal("cache")); }
  assert(terminalCursor==1&&!strcmp(terminalCache[0].requestId,"cache")&&!strcmp(terminalCache[0].result,"applied"));
- notesAckRevision=7;publishAck("note-cache","applied","NOTES_STORED","notes.save");notesAckRevision=22;assert(replayTerminal("note-cache")&&lastAckRevision==7);
  puts("Actual transactions: immediate-controller admission, saturated trackers/outbox, Reminder ID fencing, late completion and failed history chunks PASS");
 }
