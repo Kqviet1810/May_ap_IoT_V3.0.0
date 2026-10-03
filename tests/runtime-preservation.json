@@ -62,7 +62,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "f2745d7b9a235126ef2774fe38a71c24e4428f73eeefd116239d4b666f565214",
+      "sha256": "6129bf1d5fdbfb7b16152f8e46114c6d4eafe698b26ef61fb4d2ced7240bc69f",
       "signature": "class MachineController {"
     },
     {
@@ -448,5 +448,6 @@
   "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged.",
   "notesUiOnlyResetReviewNote": "2026-10-03: removed the complete legacy Ghi chú persistence path (ESP32 EEPROM store/service/retry, realtime notes channels and persistence tests). notes.js/notes.css remain as UI only. Controller/safety/config/reminder/history storage semantics are unchanged.",
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
-  "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly."
+  "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
+  "autoTuneCancelReviewNote": "2026-10-03: reviewed AutoTune cancellation hardening. Cancel keeps prior PID gains, clears heat demand and scheduler credit via the existing terminal path, applies post-cool/restart lockout, and now emits one bounded AutoTuneEnd/AutoTuneCancelled event outside a batch."
 }
