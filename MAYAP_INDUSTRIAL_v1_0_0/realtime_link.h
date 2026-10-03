@@ -624,6 +624,7 @@ inline const char *ackFriendlyMessage(const char *code, const char *raw) {
     {"NOTES_BUSY", "Ghi chú đang được xử lý trên máy; thử lại sau"},
     {"NOTES_EEPROM_ERROR", "Không đọc được bộ nhớ ghi chú; thử lại"},
     {"NOTES_UNCERTAIN", "Chưa xác nhận được lưu vào máy; đang kiểm tra lại"},
+    {"NOTES_RETRY_EXHAUSTED", "Không xác nhận được ghi chú sau nhiều lần kiểm tra; giao dịch đã được giải phóng, hãy tải lại rồi thử lại"},
     {"NOTES_CORRUPT", "Bộ nhớ ghi chú không hợp lệ; cần kiểm tra máy"},
     {"NOTES_FULL", "Đã đủ 16 ghi chú; hãy xóa bớt trước khi thêm"},
     {"NOTES_CONFLICT", "Ghi chú đã thay đổi; tải lại danh sách trước khi sửa"},

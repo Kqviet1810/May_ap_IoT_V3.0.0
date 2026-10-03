@@ -70,11 +70,13 @@ inline void serviceNotes() {
     if(!result.done){notesPending.job.cursor=result.nextCursor;notesPending.ready=false;return;}
   }
   const bool ok=result.code==Code::Ok;
+  const char *terminalCode=ok?(notesPending.job.operation==Operation::List?"NOTES_DONE":"NOTES_STORED"):
+    (result.retryExhausted?"NOTES_RETRY_EXHAUSTED":codeText(result.code));
   notesAckRevision=result.note.version;
-  if(!publishAck(notesPending.requestId,ok?"applied":"rejected",ok?(notesPending.job.operation==Operation::List?"NOTES_DONE":"NOTES_STORED"):codeText(result.code),notesPending.operation,notesPending.receivedAt,millis(),notesPending.signedAck?notesPending.key:nullptr))return;
-  mayapSerialPrintf(false,"[NOTES] terminal token=%lu op=%s ok=%u version=%lu code=%s\n",
+  if(!publishAck(notesPending.requestId,ok?"applied":"rejected",terminalCode,notesPending.operation,notesPending.receivedAt,millis(),notesPending.signedAck?notesPending.key:nullptr))return;
+  mayapSerialPrintf(false,"[NOTES] terminal token=%lu op=%s ok=%u version=%lu code=%s retries=%u exhausted=%u\n",
     static_cast<unsigned long>(notesPending.token),notesPending.operation,ok?1U:0U,
-    static_cast<unsigned long>(notesAckRevision),ok?(notesPending.job.operation==Operation::List?"NOTES_DONE":"NOTES_STORED"):codeText(result.code));
+    static_cast<unsigned long>(notesAckRevision),terminalCode,result.reconcileAttempts,result.retryExhausted?1U:0U);
   notesPending.used=false;
 }
 inline void serviceNotesAdmission() {

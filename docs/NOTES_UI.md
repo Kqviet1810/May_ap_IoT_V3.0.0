@@ -24,9 +24,11 @@ notes/set dùng cơ chế V2 đang có: ownership, HMAC, bootId, seq, expiry, re
 Web chỉ báo đã lưu sau terminal ACK của ESP32 và đọc lại thành công. Xung đột
 phiên bản yêu cầu tải lại, không ghi đè âm thầm giữa hai trình duyệt.
 
-Nếu kết quả ghi chưa chắc chắn, Web giữ trạng thái chưa xác nhận; owner đọc lại
-và đối chiếu mỗi hai giây, không ghi lặp dữ liệu đã commit. Không phát ACK thành
-công giả hoặc reset controller. Một lỗi EEPROM chỉ chặn thao tác ghi chú tiếp theo.
+Nếu kết quả ghi chưa chắc chắn, Web giữ trạng thái chưa xác nhận; owner đối chiếu
+mỗi hai giây nhưng chỉ tối đa 4 lần và tối đa 12 giây. Nếu EEPROM/I2C vẫn không
+thể xác nhận, firmware gửi terminal ACK `NOTES_RETRY_EXHAUSTED`, giải phóng
+giao dịch và cho phép yêu cầu Ghi chú tiếp theo; không còn `NOTES_BUSY` vô hạn.
+Không ghi lặp dữ liệu đã commit, không phát ACK thành công giả và không reset controller.
 
 ## Kiểm tra tự động
 

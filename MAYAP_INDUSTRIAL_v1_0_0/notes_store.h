@@ -26,7 +26,7 @@ inline const char *stageText(IoStage stage) {
   switch(stage){case IoStage::Write:return "WRITE";case IoStage::Readback:return "READBACK";case IoStage::Verify:return "VERIFY";default:return "NONE";}
 }
 struct Request { uint32_t token = 0; Operation operation = Operation::List; uint8_t cursor = 0; bool allowBatch = false, reconcile = false; Note note{}; };
-struct Response { uint32_t token = 0; Code code = Code::Ok; uint8_t nextCursor = 0; bool done = true, hasNote = false, ambiguous = false; IoStage ioStage = IoStage::None; uint16_t ioAddress = 0; int16_t mismatch = -1; bool blank = false, validReadback = false; uint16_t failedAddress=0; uint8_t writeReason=0, requested=0, written=0, wireError=0; Note note{}; };
+struct Response { uint32_t token = 0; Code code = Code::Ok; uint8_t nextCursor = 0; bool done = true, hasNote = false, ambiguous = false, retryExhausted = false; uint8_t reconcileAttempts = 0; IoStage ioStage = IoStage::None; uint16_t ioAddress = 0; int16_t mismatch = -1; bool blank = false, validReadback = false; uint16_t failedAddress=0; uint8_t writeReason=0, requested=0, written=0, wireError=0; Note note{}; };
 inline uint32_t crc32(const void *data, size_t size) {
   uint32_t crc = 0xFFFFFFFFUL; const auto *p = static_cast<const uint8_t *>(data);
   while (size--) { crc ^= *p++; for (uint8_t bit=0;bit<8;++bit) crc=(crc>>1)^((crc&1U)?0xEDB88320UL:0U); }
