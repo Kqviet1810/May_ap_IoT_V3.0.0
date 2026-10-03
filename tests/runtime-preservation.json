@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "fe18860a8042eea067fda69595e7596eb8ee0c0216937967f8f9ad19456ac952",
+      "sha256": "1c77a42fd58be3ce17feac0d9d6cba664154893cfc227a190a3229129eb22604",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "f2b1ce774c0efd9889e774b3ba642334138022089be9b4eebe03f05c78755575",
+      "sha256": "f2745d7b9a235126ef2774fe38a71c24e4428f73eeefd116239d4b666f565214",
       "signature": "class MachineController {"
     },
     {
@@ -446,5 +446,7 @@
   "adaptiveThermalReviewNote": "2026-10-03: explicit review of new opt-in schema13/runtime diagnostics in config.h and MachineController adaptive orchestration only. Actual requested PID limit comes from a transient config view; PID gains/filter/PDM/AutoTune/safety alarm/OutputArbiter/E115/Frozen bodies unchanged. Background loop owns versioned CRC NVS seeds with fixed mailbox, no control-task flash writes. Schema12 prefix/CRC migration defaults OFF. Frozen b537786 heating-body oracle proves OFF actual GPIO/request/vent equivalence. No blanket fingerprint refresh. Final qualification adds actual-fan validity, 126s robust observer rate after X10 evidence, independent confirmed self-heating confidence, bounded transition events outside batch, and background-only invalid-model diagnostics. Old thermal/safety/AutoTune function hashes remain unchanged. Integration also retains remote 013d931/f9fe684 config-save setpoint correction; its ThermalController hash and dedicated regressions are preserved.",
   "adaptivePostAuditReviewNote": "2026-10-03: reviewed post-audit hardening only. MachineController now offers learned NVS models only from supervisor Qualified/Adaptive states and compile-time locks smart-cooling timing to the existing vent relay minimums. Self-heating recovery/diagnostic changes live in the adaptive module; PID/filter/PDM/safety/OutputArbiter/E115 bodies remain unchanged.",
   "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged.",
-  "notesUiOnlyResetReviewNote": "2026-10-03: removed the complete legacy Ghi chú persistence path (ESP32 EEPROM store/service/retry, realtime notes channels and persistence tests). notes.js/notes.css remain as UI only. Controller/safety/config/reminder/history storage semantics are unchanged."
+  "notesUiOnlyResetReviewNote": "2026-10-03: removed the complete legacy Ghi chú persistence path (ESP32 EEPROM store/service/retry, realtime notes channels and persistence tests). notes.js/notes.css remain as UI only. Controller/safety/config/reminder/history storage semantics are unchanged.",
+  "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
+  "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly."
 }

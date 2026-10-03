@@ -185,8 +185,8 @@
 <form class="settingBody" id="ventForm">
 <p class="settingFootnote" id="ventAvailability" role="status">Kết nối máy để xem và điều chỉnh thông số quạt hút.</p>
 <div class="tempGrid">
-<label class="compactTile"><span>Bật quạt khi nhiệt cao</span><div class="unit"><input id="ventOn" max="50" min="30" step="0.1" type="number" value="38"/><b>°C</b></div></label>
-<label class="compactTile"><span>Tắt quạt khi nhiệt hạ</span><div class="unit"><input id="ventOff" max="50" min="30" step="0.1" type="number" value="37.6"/><b>°C</b></div></label>
+<label class="compactTile"><span>Bật quạt khi nhiệt cao</span><div class="unit"><input id="ventOn" max="42" min="30" step="0.1" type="number" value="38"/><b>°C</b></div></label>
+<label class="compactTile"><span>Tắt quạt khi nhiệt hạ</span><div class="unit"><input id="ventOff" max="42" min="30" step="0.1" type="number" value="37.6"/><b>°C</b></div></label>
 </div>
 <fieldset class="ventProfileFields" id="ventProfileFields" disabled>
 <div class="notificationLine"><div><strong>Thông gió tự động</strong><small>Máy thay đổi thời gian chạy quạt theo ngày ấp. Bảo vệ quá nhiệt luôn được ưu tiên.</small></div><label class="toggle"><input id="ventAutoEnabled" type="checkbox"/><i></i></label></div>
@@ -217,20 +217,20 @@
 <form class="settingBody temperatureFormCompact" id="temperatureForm">
 <div class="tempGrid">
 <label class="compactTile"><span>Nhiệt độ đặt</span><div class="unit"><input id="targetTemp" max="40" min="30" step="0.1" type="number" value="37.5"/><b>°C</b></div></label>
-<label class="compactTile"><span>Cảnh báo thấp</span><div class="unit"><input id="lowAlarm" max="40" min="20" step="0.1" type="number" value="36.5"/><b>°C</b></div></label>
-<label class="compactTile"><span>Cảnh báo cao</span><div class="unit"><input id="highAlarm" max="50" min="30" step="0.1" type="number" value="38.2"/><b>°C</b></div></label>
-<label class="compactTile"><span>Ngắt khẩn cấp</span><div class="unit"><input id="emergencyTemp" max="60" min="31" step="0.1" type="number" value="39"/><b>°C</b></div></label>
+<label class="compactTile"><span>Cảnh báo thấp</span><div class="unit"><input id="lowAlarm" max="39.9" min="25" step="0.1" type="number" value="36.5"/><b>°C</b></div></label>
+<label class="compactTile"><span>Cảnh báo cao</span><div class="unit"><input id="highAlarm" max="42" min="30.1" step="0.1" type="number" value="38.2"/><b>°C</b></div></label>
+<label class="compactTile"><span>Ngắt khẩn cấp</span><div class="unit"><input id="emergencyTemp" max="45" min="30.2" step="0.1" type="number" value="39"/><b>°C</b></div></label>
 </div>
 <div class="notificationLine"><div><strong>Báo nhiệt cao/khẩn cấp ngoài mẻ</strong><small>Bật: cảnh báo nhiệt độ cao/khẩn cấp hoạt động mọi lúc, kể cả khi không có mẻ ấp. Tắt: chỉ kiểm tra khi đang có mẻ ấp.</small></div><label class="toggle"><input checked="" id="highTempAlarmWithoutBatch" type="checkbox"/><i></i></label></div>
 <button class="primary full" type="submit">Lưu nhiệt độ và bảo vệ</button>
 </form>
 </details>
 <details class="settingCard">
-<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · chờ tối đa 10 giây</small></span><span aria-hidden="true" class="disclosure"></span></summary>
+<summary><span class="settingIcon"><svg fill="none" height="22" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" viewBox="0 0 24 24" width="22"><path d="M12 2.7s6 6.5 6 11a6 6 0 1 1-12 0c0-4.5 6-11 6-11Z"/></svg></span><span class="settingSummary"><strong>Cảm biến</strong><small id="sensorSummary">Bù 0,0°C · ngắt nhiệt khi mất cảm biến</small></span><span aria-hidden="true" class="disclosure"></span></summary>
 <form class="settingBody" id="sensorForm">
-<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="10" min="-10" step="0.1" type="number" value="0"/><b>°C</b></div></label>
+<label class="field"><span>Bù nhiệt độ</span><div class="unit"><input id="tempOffset" max="5" min="-5" step="0.1" type="number" value="0"/><b>°C</b></div></label>
 <label class="field"><span>Bù độ ẩm</span><div class="unit"><input id="humidityOffset" max="20" min="-20" step="0.1" type="number" value="0"/><b>%RH</b></div></label>
-<label class="field"><span>Thời gian chờ cảm biến</span><div class="unit"><input id="sensorTimeout" max="120" min="2" type="number" value="10"/><b>Giây</b></div></label>
+<p class="settingFootnote">Mất dữ liệu cảm biến sẽ cắt nhiệt theo chính sách fail-safe cố định. Bù âm không được phép hạ ngưỡng bảo vệ quá nhiệt.</p>
 <button class="primary full" type="submit">Lưu hiệu chỉnh cảm biến</button>
 </form>
 </details>
@@ -264,8 +264,8 @@
 <label class="compactTile"><span>Khung đánh giá tốc độ</span><div class="unit"><input id="advTempRateWindowSec" max="1800" min="30" step="1" type="number"/><b>Giây</b></div></label>
 <label class="compactTile"><span>Số lần dao động cho phép</span><input id="advTempOscillationCrossLimit" max="30" min="2" step="1" type="number"/></label>
 <label class="compactTile"><span>Khung đánh giá dao động</span><div class="unit"><input id="advTempOscillationWindowSec" max="3600" min="60" step="1" type="number"/><b>Giây</b></div></label>
-<label class="compactTile"><span>Ngưỡng nghi kẹt rơ-le</span><div class="unit"><input id="advHeaterStuckMinRiseC" max="5" min="0.05" step="0.05" type="number"/><b>°C</b></div></label>
-<label class="compactTile"><span>Thời gian xác nhận kẹt</span><div class="unit"><input id="advHeaterStuckDurationSec" max="3600" min="60" step="1" type="number"/><b>Giây</b></div></label>
+<label class="compactTile"><span>Mức tăng nhiệt tối thiểu</span><div class="unit"><input id="advHeaterStuckMinRiseC" max="5" min="0.05" step="0.05" type="number"/><b>°C</b></div></label>
+<label class="compactTile"><span>Thời gian xác nhận không tăng nhiệt</span><div class="unit"><input id="advHeaterStuckDurationSec" max="3600" min="60" step="1" type="number"/><b>Giây</b></div></label>
 </div>
 <hr class="settingDivider"/>
 <p class="settingFootnote"><strong>Tự dò PID nâng cao</strong></p>

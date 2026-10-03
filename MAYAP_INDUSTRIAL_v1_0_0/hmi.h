@@ -541,8 +541,8 @@ const SettingItem SETTINGS[] = {
   // Hidden legacy slot 18; preserve fixed indexes used by ventilation menus.
   ITEM_U16("", pidCycleSec, 1, 60, 1, "s"),
   ITEM_U8("Tran cong suat", maxHeaterPower, 10, 100, 5, "%"),                // 19
-  ITEM_FLOAT("Nguong ket dinh", heaterStuckMinRiseC, 0.05f, 5.0f, 0.05f, 2, "C"), // 20
-  ITEM_U16("TG xac nhan ket", heaterStuckDurationSec, 60, 3600, 30, "s"),    // 21
+  ITEM_FLOAT("Muc tang toi thieu", heaterStuckMinRiseC, 0.05f, 5.0f, 0.05f, 2, "C"), // 20
+  ITEM_U16("TG khong tang nhiet", heaterStuckDurationSec, 60, 3600, 30, "s"), // 21
   ITEM_FLOAT("Nguong toc do", tempRateLimitC, 0.1f, 10.0f, 0.1f, 1, "C"),    // 22
   ITEM_U16("Khung toc do", tempRateWindowSec, 30, 1800, 10, "s"),            // 23
   ITEM_U8("So lan doi dau", tempOscillationCrossLimit, 2, 30, 1, "l"),       // 24
@@ -767,8 +767,8 @@ void sanitizeConfig(MachineConfig &cfg) {
   if (!isfinite(cfg.humidityOffset)) cfg.humidityOffset = defaults.humidityOffset;
   cfg.tempOffset = constrain(cfg.tempOffset, -5.0f, 5.0f);
   cfg.humidityOffset = constrain(cfg.humidityOffset, -20.0f, 20.0f);
-  cfg.sensorTimeoutSec = static_cast<uint16_t>(constrain(
-      static_cast<int>(cfg.sensorTimeoutSec), 5, 30));
+  // Legacy slot only; runtime sensor freshness is fixed fail-safe policy.
+  cfg.sensorTimeoutSec = defaults.sensorTimeoutSec;
   if (static_cast<uint8_t>(cfg.nextDirection) >
       static_cast<uint8_t>(TurnDirection::Right)) {
     cfg.nextDirection = defaults.nextDirection;

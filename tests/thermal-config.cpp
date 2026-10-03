@@ -78,10 +78,29 @@ int main(){
     verifyLegacy<ConfigRecordLegacyV10>(10,cycle);
     verifyLegacy<ConfigRecordLegacyV11>(11,cycle);
   }
-  MachineConfig low;low.targetTemp=30;sanitizeMachineConfig(low);
-  assert(low.highTempAlarm==38.2f && low.emergencyTemp==39.0f);
-  low.highTempAlarm=29;low.emergencyTemp=29;sanitizeMachineConfig(low);
-  assert(low.highTempAlarm>=low.targetTemp+HIGH_ALARM_GAP_C);
-  assert(low.emergencyTemp>=low.highTempAlarm+EMERGENCY_ABOVE_HIGH_C);
-  std::puts("Actual EEPROM schemas 3..13: legacy cycle 1/10/60 loads, CRC rejected, constant timing; SP30 retains 38.2/39 safety thresholds PASS");
+  // Stale pre-fix config: SV changed but all thermal thresholds remained the
+  // exact 37.5 C defaults. Sanitization must re-anchor the entire envelope.
+  MachineConfig low; low.targetTemp=30; sanitizeMachineConfig(low);
+  assert(std::fabs(low.lowTempAlarm-29.0f)<0.001f);
+  assert(std::fabs(low.highTempAlarm-30.7f)<0.001f);
+  assert(std::fabs(low.emergencyTemp-31.5f)<0.001f);
+  assert(std::fabs(low.ventOnTemp-30.5f)<0.001f);
+  assert(std::fabs(low.ventOffTemp-30.1f)<0.001f);
+
+  // A customized envelope must never be silently rewritten by that repair.
+  MachineConfig custom;
+  custom.targetTemp=30; custom.lowTempAlarm=28.5f; custom.highTempAlarm=32.0f;
+  custom.emergencyTemp=33.0f; custom.ventOnTemp=31.0f; custom.ventOffTemp=30.5f;
+  sanitizeMachineConfig(custom);
+  assert(std::fabs(custom.lowTempAlarm-28.5f)<0.001f);
+  assert(std::fabs(custom.highTempAlarm-32.0f)<0.001f);
+  assert(std::fabs(custom.emergencyTemp-33.0f)<0.001f);
+  assert(std::fabs(custom.ventOnTemp-31.0f)<0.001f);
+  assert(std::fabs(custom.ventOffTemp-30.5f)<0.001f);
+
+  MachineConfig invalid; invalid.targetTemp=30; invalid.highTempAlarm=29;
+  invalid.emergencyTemp=29; sanitizeMachineConfig(invalid);
+  assert(invalid.highTempAlarm>=invalid.targetTemp+HIGH_ALARM_GAP_C);
+  assert(invalid.emergencyTemp>=invalid.highTempAlarm+EMERGENCY_ABOVE_HIGH_C);
+  std::puts("Actual EEPROM schemas 3..13: legacy cycle 1/10/60 loads, CRC rejected, constant timing; stale default thermal envelope re-anchors to SP while custom thresholds are preserved PASS");
 }

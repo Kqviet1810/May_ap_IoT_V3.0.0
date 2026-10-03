@@ -921,6 +921,17 @@
     }
     if ($('batchTarget')) $('batchTarget').readOnly = !device?.config;
 
+    // Safety thresholds are immutable during a running/resume-pending batch.
+    // SV remains editable; buildConfig() re-anchors the full thermal envelope.
+    const thermalSafetyLocked = Boolean(device?.snapshot?.runtime?.batchRunning ||
+                                        device?.snapshot?.runtime?.resumeConfirmationRequired);
+    for (const id of ['lowAlarm', 'highAlarm', 'emergencyTemp']) {
+      const input = $(id);
+      if (input) input.readOnly = !device?.config || thermalSafetyLocked;
+    }
+    const outsideBatchAlarm = $('highTempAlarmWithoutBatch');
+    if (outsideBatchAlarm) outsideBatchAlarm.disabled = !device?.config || thermalSafetyLocked;
+
     const ssid = device?.presence?.ssid || '';
     $('wifiSettingSummary').textContent = connection === 'online'
       ? (ssid ? `Đang kết nối: ${ssid}` : 'Wi‑Fi đã kết nối')
@@ -1331,7 +1342,7 @@
     $('turningSummary').textContent = $('turningEnabled').checked
       ? `Tự động · mỗi ${$('turnInterval').value || '—'} phút`
       : 'Đang tắt đảo tự động';
-    $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · chờ tối đa ${$('sensorTimeout').value || '—'} giây`;
+    $('sensorSummary').textContent = `Bù ${numberVi($('tempOffset').value)}°C · ngắt nhiệt khi mất cảm biến`;
     $('humidifierSummary').textContent = `Bật ≤${$('humidifierOnHumidity').value || '—'}% · tắt ≥${$('humidifierOffHumidity').value || '—'}%RH`;
   }
 
@@ -1518,7 +1529,6 @@
 
     assign('sensorForm', 'tempOffset', config.tempOffset);
     assign('sensorForm', 'humidityOffset', config.humidityOffset);
-    assign('sensorForm', 'sensorTimeout', config.sensorTimeoutSec);
 
     check('lightAlarmForm', 'lightAfterBatchAlarmEnabled', config.lightAfterBatchAlarmEnabled);
     check('lightAlarmForm', 'sirenSelfTestEnabled', config.sirenSelfTestEnabled);
@@ -1599,11 +1609,22 @@
       config.totalIncubationDays = Number($('totalDays').value);
       config.autoResumeAfterPower = $('resumeAfterPowerLoss').checked;
     } else if (group === 'temperature') {
-      config.targetTemp = Number($('targetTemp').value);
-      config.lowTempAlarm = Number($('lowAlarm').value);
-      config.highTempAlarm = Number($('highAlarm').value);
-      config.emergencyTemp = Number($('emergencyTemp').value);
-      config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
+      const newTarget = Number($('targetTemp').value);
+      const thermalSafetyLocked = Boolean(device.snapshot?.runtime?.batchRunning ||
+                                          device.snapshot?.runtime?.resumeConfirmationRequired);
+      if (thermalSafetyLocked) {
+        // Trong me/resume, safety thresholds khong duoc sua truc tiep. Re-anchor
+        // ca envelope theo SV moi de MachineController co the chap nhan dung
+        // invariant thay vi de nguong cu cach SV hang nhieu do C.
+        shiftTempThresholds(config, config.targetTemp, newTarget);
+        config.targetTemp = newTarget;
+      } else {
+        config.targetTemp = newTarget;
+        config.lowTempAlarm = Number($('lowAlarm').value);
+        config.highTempAlarm = Number($('highAlarm').value);
+        config.emergencyTemp = Number($('emergencyTemp').value);
+        config.highTempAlarmWithoutBatch = $('highTempAlarmWithoutBatch').checked;
+      }
     } else if (group === 'vent') {
       config.ventOnTemp = Number($('ventOn').value);
       config.ventOffTemp = Number($('ventOff').value);
@@ -1623,7 +1644,6 @@
     } else if (group === 'sensor') {
       config.tempOffset = Number($('tempOffset').value);
       config.humidityOffset = Number($('humidityOffset').value);
-      config.sensorTimeoutSec = Number($('sensorTimeout').value);
     } else if (group === 'lightAlarm') {
       config.lightAfterBatchAlarmEnabled = $('lightAfterBatchAlarmEnabled').checked;
       config.sirenSelfTestEnabled = $('sirenSelfTestEnabled').checked;
@@ -2131,6 +2151,7 @@
     'AUTO TUNE DANG CHAY': 'Tự dò đang chạy, không thể thực hiện',
     'HAY CHUYEN SANG AUTO': 'Hãy chuyển công tắc trên máy sang chế độ Tự động trước',
     'CAM BIEN CHUA SAN SANG': 'Cảm biến nhiệt độ/độ ẩm chưa sẵn sàng',
+    'INVALID_PID_GAINS': 'PID không hợp lệ: Kp, Ki và Kd không được đồng thời bằng 0.',
     'RTC CHUA HOP LE': 'Đồng hồ thời gian thực (RTC) chưa hợp lệ',
     'LOI 2 HANH TRINH': 'Lỗi cả 2 công tắc hành trình cùng tác động',
     'DANG CO LOI DAO': 'Đang có lỗi cơ cấu đảo trứng, cần xử lý trước',
@@ -3167,9 +3188,9 @@
     const high = Number($('highAlarm').value);
     const emergency = Number($('emergencyTemp').value);
     if (!(target >= 30 && target <= 40)) return invalidate('temperatureForm', 'targetTemp', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
-    if (!(low < target)) return invalidate('temperatureForm', 'lowAlarm', 'Cảnh báo thấp phải nhỏ hơn nhiệt độ đặt.');
-    if (!(high > target)) return invalidate('temperatureForm', 'highAlarm', 'Cảnh báo cao phải lớn hơn nhiệt độ đặt.');
-    if (!(emergency > high)) return invalidate('temperatureForm', 'emergencyTemp', 'Ngắt khẩn cấp phải cao hơn cảnh báo cao.');
+    if (!(low >= 25 && low <= target - 0.1 + 0.0005)) return invalidate('temperatureForm', 'lowAlarm', 'Cảnh báo thấp phải từ 25,0°C và thấp hơn nhiệt độ đặt ít nhất 0,1°C.');
+    if (!(high >= target + 0.1 - 0.0005 && high <= 42)) return invalidate('temperatureForm', 'highAlarm', 'Cảnh báo cao phải cao hơn nhiệt độ đặt ít nhất 0,1°C và không vượt 42,0°C.');
+    if (!(emergency >= high + 0.1 - 0.0005 && emergency <= 45)) return invalidate('temperatureForm', 'emergencyTemp', 'Ngắt khẩn cấp phải cao hơn cảnh báo cao ít nhất 0,1°C và không vượt 45,0°C.');
     return true;
   }
 
@@ -3213,10 +3234,8 @@
     clearInvalid('sensorForm');
     const temperature = Number($('tempOffset').value);
     const humidity = Number($('humidityOffset').value);
-    const timeout = Number($('sensorTimeout').value);
-    if (!(temperature >= -10 && temperature <= 10)) return invalidate('sensorForm', 'tempOffset', 'Bù nhiệt độ phải từ −10,0 đến 10,0°C.');
+    if (!(temperature >= -5 && temperature <= 5)) return invalidate('sensorForm', 'tempOffset', 'Bù nhiệt độ phải từ −5,0 đến 5,0°C.');
     if (!(humidity >= -20 && humidity <= 20)) return invalidate('sensorForm', 'humidityOffset', 'Bù độ ẩm phải từ −20 đến 20%RH.');
-    if (!(timeout >= 2 && timeout <= 120)) return invalidate('sensorForm', 'sensorTimeout', 'Timeout cảm biến phải từ 2 đến 120 giây.');
     return true;
   }
 
@@ -3237,6 +3256,7 @@
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
     if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
     if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
+    if (kp === 0 && ki === 0 && kd === 0) return invalidate('advancedForm', 'advKp', 'Kp, Ki và Kd không được đồng thời bằng 0.');
     if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
     if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
     if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');
