@@ -216,7 +216,7 @@ async function main() {
       await page.waitForFunction(()=>window.__qa.state.devices[0].remindersLoaded);
       await page.evaluate(()=>window.__qa.showPage('device'));
       await page.evaluate(()=>window.__qa.handlePresence(window.__qa.state.devices[0],{online:false,bootId:123}));
-      assert.equal(await page.locator('#onlinePill').innerText(), 'MÁY NGOẠI TUYẾN');
+      assert.equal(await page.locator('#onlinePill').innerText(), 'NGOẠI TUYẾN');
       await page.evaluate(()=> {
         const h=window.__qa,d=h.state.devices[0]; h.handlePresence(d,{online:true,bootId:123,proto:2});
         d.snapshotAt=Date.now()-40000; h.handleBootstrap(d,{v:1,bootId:1,temperature:99,machineState:'OLD'});
