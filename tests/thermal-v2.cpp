@@ -26,7 +26,7 @@ static void sensorFormats() {
     assert(decoder.format() == locked);
     for (unsigned n = 0; n < 20; ++n) assert(!decoder.accept(wrong, 600));
     assert(decoder.accept(registers[i], 600) && decoder.format() == locked);
-    decoder.rejectSample(); // CRC error or UART loss: invalidate but keep format.
+    decoder.rejectSample(); // Rejected measurement: invalidate but keep format.
     assert(!decoder.valid() && decoder.locked());
     assert(decoder.accept(registers[i], 600));
     const uint16_t hotRegisters[]={600U,6000U,39321U};

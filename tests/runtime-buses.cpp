@@ -147,8 +147,13 @@ int main() {
   assert(precise.temperatureFormat()==SensorTemperatureFormat::TempX100);
   replyTemperature=3751; run(precise,4000);
   assert(precise.dataValid());
+  const uint32_t goodBeforeCrc=precise.goodFrames();
   replyMode=2; run(precise,2200);
-  assert(!precise.dataValid() && precise.formatLocked()); // one CRC fault cannot re-use an old control sample
+  assert(precise.dataValid() && precise.formatLocked()); // CRC rejects the packet, retaining bounded last-good data.
+  assert(precise.goodFrames()==goodBeforeCrc);
+  run(precise,5000);
+  assert(!precise.dataValid() && precise.formatLocked()); // persistent errors still expire data and cut heat.
+  replyMode=1;run(precise,6000);assert(precise.dataValid());
   replyMode=1; replyTemperature=30902;
   SHT485Industrial native;
   native.begin(); run(native,13000);

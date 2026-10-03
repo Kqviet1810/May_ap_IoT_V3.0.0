@@ -3182,8 +3182,10 @@ class SHT485Industrial {
     mayapSerialPrintf(false, "[UART-RECOVERY] RS485 reinit=%u isolate=%u\n", uartRecoveryCount_, uartRecoveryCount_ >= 3U);
   }
   void failAttempt(uint32_t now) {
-    decoder_.rejectSample();
-    newData_ = true;
+    // CRC/transport failure breaks boot verification, but must not publish a
+    // bogus new measurement. Once locked, keep the old bounded freshness/retry
+    // policy; decoded wrong-format/range samples are invalidated in decodeFrame.
+    if (!decoder_.locked()) decoder_.rejectSample();
     digitalWrite(SHT485Config::PIN_DE_RE, LOW);
     resetParser();
     if (attempt_ < SHT485Config::ATTEMPTS_PER_CYCLE) {
