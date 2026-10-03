@@ -363,7 +363,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/sensor_format.h",
-      "sha256": "94ce0598fe45222e40d46db29ba225bab0d039d718ca9dff33357d0a1bb62dc1"
+      "sha256": "1e53bebbea97cba799d716f25d97e3b852c8c43389eb9a5549bd9deffbc4f3ea"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/heater_burst_scheduler.h",

@@ -29,6 +29,9 @@ static void sensorFormats() {
     decoder.rejectSample(); // CRC error or UART loss: invalidate but keep format.
     assert(!decoder.valid() && decoder.locked());
     assert(decoder.accept(registers[i], 600));
+    const uint16_t hotRegisters[]={600U,6000U,39321U};
+    assert(decoder.accept(hotRegisters[i],600));
+    assert(decoder.valid() && decoder.temperature()>59.99f); // Emergency must see upward raw jumps.
   }
   SensorFormatDecoder interrupted;
   for (unsigned n = 0; n < 5; ++n) interrupted.accept(375,600);

@@ -154,5 +154,10 @@ int main() {
   native.begin(); run(native,13000);
   assert(native.dataValid() && native.temperatureFormat()==SensorTemperatureFormat::Sht30Raw16);
   assert(std::fabs(native.rawTemperatureC()-(-45.0f+175.0f*30902/65535.0f))<0.00001f);
+  replyTemperature=3751;
+  SHT485Industrial hot;
+  hot.begin();run(hot,13000);assert(hot.dataValid());
+  replyTemperature=6000;run(hot,2500);
+  assert(hot.dataValid() && hot.rawTemperatureC()>59.99f); // Raw EmergencyHigh path remains immediate.
   std::puts("Actual I2C/UART: mutex, correlated errors, cooldown, <=9 clocks, stuck lines, CRC, reinit, isolate, reconnect and stale samples PASS");
 }

@@ -45,10 +45,12 @@ class SensorFormatDecoder {
     }
     const float t = decodeTemperature(rawTemperature, format_);
     if (!isfinite(t) || t < -40.0f || t > 60.0f ||
-        (hasLast_ && fabsf(t - lastTemperature_) > 20.0f)) {
+        (hasLast_ && lastTemperature_ - t > 20.0f)) {
       rejectSample();
       return false; // Never change scale, even through loss/recovery of UART.
     }
+    // Never suppress a plausible upward raw step: EmergencyHigh must see it
+    // immediately, independently of median/IIR lag or PID plausibility gates.
     temperature_ = lastTemperature_ = t;
     hasLast_ = valid_ = true;
     return true;

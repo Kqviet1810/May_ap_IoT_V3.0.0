@@ -62,7 +62,7 @@ At 120 s, 0.5% requires only 0.6 whole single-output quanta, so zero delivery is
 
 Temperature decoding supports signed TEMP_X10, signed TEMP_X100 and unsigned SHT30_RAW16. Native conversion matches [Sensirion's official Arduino implementation](https://github.com/Sensirion/arduino-i2c-sht3x/blob/e3a55be28ac6fcf357645eab1bd5f9485254fd6c/src/SensirionI2cSht3x.cpp#L47): `-45 + 175*raw/65535`. Manufacturer source was checked during this audit; direct datasheet download was blocked by the cloud network proxy.
 
-AUTO locks only after six consecutive CRC-valid polls identify the same unique candidate. Heater permission stays unavailable throughout verification and the existing sensor recovery gate. Detection uses raw register magnitude and declared plausibility limits, never decimal digits. It never changes scale after lock, including UART recovery. Wrong range, a >20°C raw jump or a bad CRC makes the sample unusable; the existing Sensor Fault path cuts heater. Valid data can recover using the same locked format and existing controller recovery gate.
+AUTO locks only after six consecutive CRC-valid polls identify the same unique candidate. Heater permission stays unavailable throughout verification and the existing sensor recovery gate. Detection uses raw register magnitude and declared plausibility limits, never decimal digits. It never changes scale after lock, including UART recovery. Wrong range, a >20°C downward raw jump or a bad CRC makes the sample unusable; the existing Sensor Fault path cuts heater. Plausible upward raw jumps remain valid so the existing EmergencyHigh path sees hot raw PV immediately. Valid data can recover using the same locked format and existing controller recovery gate. A large downward jump after prolonged sensor loss can require operator verification/reboot rather than automatic acceptance.
 
 **Raw-only universal autodetection is impossible.** For example raw 500 can be 50°C X10 or 5°C X100; a stale value can also be valid under a wrong format. AUTO therefore has an explicit commissioning assumption: actual startup temperature **10–60°C**. In this envelope the three raw bands are disjoint. Outside this envelope AUTO is not a trustworthy universal detector: it may reject the sample or select an in-envelope interpretation of an out-of-envelope physical value. Use a verified explicit profile and still verify six samples on every boot. No EEPROM schema/cache was added.
 
@@ -124,7 +124,7 @@ Local verification:
 - Existing thermal/autotune tests and new raw format, 2-DOF, anti-windup, bumpless, low-duty, actual GPIO/controller cuts, jitter, variable demand and millis-wrap tests PASS.
 - Chromium connection/experience/notes tests and actual workerd/browser round trips PASS.
 - Adaptive boot/runtime recovery tests PASS.
-- ESP32-S3 Arduino 3.3.11 / IDF 5.5.5 DEV and PROD builds PASS, PSRAM disabled. DEV: 1,399,537 bytes flash, 198,184 bytes static RAM; PROD: 1,377,105 bytes flash, 196,288 bytes static RAM. Tiny/encoder handlers/callees/shared data pass linked IRAM/DRAM audit.
+- ESP32-S3 Arduino 3.3.11 / IDF 5.5.5 DEV and PROD builds PASS, PSRAM disabled. DEV: 1,399,533 bytes flash, 198,184 bytes static RAM; PROD: 1,377,101 bytes flash, 196,288 bytes static RAM. Tiny/encoder handlers/callees/shared data pass linked IRAM/DRAM audit.
 - Web assets staging and Worker bundle **dry-run** PASS; no deployment performed.
 
 Reliability CI now runs the thermal driver and uploads OLD/NEW metrics as an artifact. Missing model targets are printed explicitly and surfaced as a CI warning. Regression correctness is a distinct gate from the thermal experiment targets. To enforce all experiment targets as a failing gate, use `--require-targets`; thresholds are unchanged and that gate currently fails.
@@ -156,7 +156,7 @@ Preservation hashes were updated only for the explicit thermal/sensor/output/con
 ## REMAINING RISKS
 
 - Physical SSR B GPIO, independent group wiring, actual single-channel installed power and SSR zero-cross/rating are unproved.
-- The RS485 module scale, register order and RH scale are unproved for alternative profiles. AUTO cannot universally distinguish formats outside its declared boot envelope, or detect every plausible wrong-scale value after lock.
+- The RS485 module scale, register order and RH scale are unproved for alternative profiles. AUTO cannot universally distinguish formats outside its declared boot envelope, or detect every plausible wrong-scale value after lock. A real >20°C downward change across a long sensor outage can conservatively hold Sensor Fault until operator verification/reboot.
 - Current default gains fail the simulation acceptance targets; one important low-temperature case is materially worse with PDM. Real stored gains and plant coefficients must be measured before selecting a production tune.
 - The model is lumped and uncalibrated, and omits automatic firmware alarms, absolute sensor error, fast local hot spots and spatial gradients. Chamber air alone has much less heat capacity than the modeled loaded plants.
 - 1 s SSR bursts can still cause excessive local ripple with very low effective thermal mass. Cloud tests cannot prove mains zero-cross timing, EMC, SSR heating, electrical loading or control-task timing under real faults.
