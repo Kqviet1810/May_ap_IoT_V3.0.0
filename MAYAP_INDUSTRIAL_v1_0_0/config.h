@@ -280,6 +280,29 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 // ----------------------------- GPIO ------------------------------------------
 // Output HIGH = ON.
 constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
+// No second SSR GPIO is proved by the repository pinmap. Single-output fallback
+// remains production default. Define ONLY after verifying Group B wiring.
+#if defined(MAYAP_HEATER_SSR_B_PIN)
+static_assert(MAYAP_HEATER_SSR_B_PIN >= 0 && MAYAP_HEATER_SSR_B_PIN <= 48,
+              "SSR B GPIO out of range");
+constexpr uint8_t PIN_OUT_HEATER_SSR_B = MAYAP_HEATER_SSR_B_PIN;
+constexpr uint8_t HEATER_GROUP_COUNT = 2U;
+#else
+constexpr uint8_t HEATER_GROUP_COUNT = 1U;
+#endif
+
+// Module temperature profile: 0=raw-register autodetection, 1=X10, 2=X100,
+// 3=native SHT30 RAW16. An explicit profile is still verified every boot.
+#ifndef MAYAP_SENSOR_TEMP_FORMAT
+#define MAYAP_SENSOR_TEMP_FORMAT 0
+#endif
+// Existing Modbus RH register is X10. Change only with a verified module map.
+#ifndef MAYAP_SENSOR_HUMIDITY_RAW16
+#define MAYAP_SENSOR_HUMIDITY_RAW16 0
+#endif
+static_assert(MAYAP_SENSOR_TEMP_FORMAT >= 0 && MAYAP_SENSOR_TEMP_FORMAT <= 3,
+              "Invalid RS485 temperature format");
+constexpr float THERMAL_PID_BETA = 1.0f;
 // Chan 2 truoc day du phong (PULSE_SPARE), sau do gan LED xanh bao "dang co
 // me ap" - nay bo han tinh nang LED nay, chan 2 chuyen thanh coi HMI (xem
 // PIN_BUZZER ben duoi). GPIO41 (coi HMI cu) tung de trong, nay da dung lai
@@ -378,6 +401,9 @@ constexpr bool BUZZER_ACTIVE_HIGH = true;
 // Kiem tra toan bo GPIO tai compile-time.
 constexpr uint8_t MAYAP_USED_PINS[] = {
   PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
+#if defined(MAYAP_HEATER_SSR_B_PIN)
+  PIN_OUT_HEATER_SSR_B,
+#endif
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
   PIN_OUT_HUMIDIFIER, PIN_STATUS_RGB, PIN_ATTINY_BUS,
@@ -818,7 +844,8 @@ constexpr uint32_t RELAY_LIGHT_MIN_SWITCH_MS = 150UL;
 constexpr uint32_t DIAGNOSTIC_FAST_STATUS_MS = 1000UL;
 constexpr uint16_t MAX_RELAY_TRANSITIONS_PER_HOUR = 1800U;
 
-// SSR zero-cross: cua so cham, co xung toi thieu de tranh dap lien tuc.
+// Legacy SSR-window limits retained for regression/config compatibility.
+// Production uses pulse-density quanta >= 1 s, without low-duty pulse clipping.
 constexpr uint32_t SSR_MIN_ON_MS = 300UL;
 constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 

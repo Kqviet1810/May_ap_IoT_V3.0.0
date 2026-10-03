@@ -45,6 +45,7 @@ struct FakeWire {
 #include "actual-i2c.inc"
 static unsigned uartBegins=0, uartEnds=0, uartWrites=0;
 static int replyMode=0;
+static uint16_t replyTemperature=375, replyHumidity=600;
 static std::deque<uint8_t> uartRx;
 static uint16_t crc16(const uint8_t *data, size_t length) {
   uint16_t crc=0xFFFF;
@@ -70,6 +71,8 @@ class HardwareSerial {
     ++uartWrites;
     if (replyMode) {
       uint8_t frame[]={1,3,4,0x02,0x58,0x01,0x77,0,0}; // 60% RH, 37.5 C
+      frame[3]=replyHumidity>>8; frame[4]=replyHumidity & 255;
+      frame[5]=replyTemperature>>8; frame[6]=replyTemperature & 255;
       const uint16_t crc=crc16(frame,7);
       frame[7]=static_cast<uint8_t>(crc); frame[8]=static_cast<uint8_t>(crc>>8);
       if (replyMode==2) frame[8]^=1;
@@ -78,6 +81,10 @@ class HardwareSerial {
     return length;
   }
 };
+using std::isfinite;
+#define MAYAP_SENSOR_TEMP_FORMAT 0
+#define MAYAP_SENSOR_HUMIDITY_RAW16 0
+#include "../MAYAP_INDUSTRIAL_v1_0_0/sensor_format.h"
 #include "actual-uart.inc"
 static void run(SHT485Industrial &sensor, uint32_t duration) {
   for (uint32_t i=0; i<duration; ++i) { ++clockMs; sensor.update(); }
@@ -117,11 +124,35 @@ int main() {
   run(sensor,29999); assert(uartWrites==beforeWrites); // Isolated but still scheduled.
   replyMode=2; run(sensor,3000);
   assert(sensor.crcErrors()>0 && !sensor.dataValid());
-  replyMode=1; run(sensor,7000);
+  replyMode=1; run(sensor,15000);
   assert(sensor.online() && sensor.dataValid() && sensor.goodFrames()>=3);
   assert(std::fabs(sensor.temperatureC()-37.5f)<0.01f);
   replyMode=0; run(sensor,7000);
   assert(!sensor.online() && !sensor.dataValid());
   assert(clockMs-recoveredAt>30000 && levels[PIN_RS485_DE_RE]==LOW);
+  replyMode=1; replyTemperature=3751;
+  SHT485Industrial precise;
+  precise.begin();
+  run(precise,9000);
+  assert(precise.online() && !precise.dataValid()); // boot heater gate before sixth sample
+  run(precise,4000);
+  assert(precise.dataValid() && precise.formatLocked());
+  assert(precise.temperatureFormat()==SensorTemperatureFormat::TempX100);
+  assert(std::fabs(precise.rawTemperatureC()-37.51f)<0.00001f);
+  assert(std::fabs(precise.temperatureC()-37.51f)<0.00001f);
+  replyTemperature=3752; run(precise,6000);
+  assert(precise.temperatureC()>37.51f && precise.temperatureC()<37.52f);
+  replyTemperature=375; run(precise,2500);
+  assert(!precise.dataValid() && std::isnan(precise.rawTemperatureC()));
+  assert(precise.temperatureFormat()==SensorTemperatureFormat::TempX100);
+  replyTemperature=3751; run(precise,4000);
+  assert(precise.dataValid());
+  replyMode=2; run(precise,2200);
+  assert(!precise.dataValid() && precise.formatLocked()); // one CRC fault cannot re-use an old control sample
+  replyMode=1; replyTemperature=30902;
+  SHT485Industrial native;
+  native.begin(); run(native,13000);
+  assert(native.dataValid() && native.temperatureFormat()==SensorTemperatureFormat::Sht30Raw16);
+  assert(std::fabs(native.rawTemperatureC()-(-45.0f+175.0f*30902/65535.0f))<0.00001f);
   std::puts("Actual I2C/UART: mutex, correlated errors, cooldown, <=9 clocks, stuck lines, CRC, reinit, isolate, reconnect and stale samples PASS");
 }

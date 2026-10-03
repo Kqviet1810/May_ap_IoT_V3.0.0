@@ -4,8 +4,6 @@
 // constants and sanitizeMachineConfig; the host test runs these SAME classes.
 class ThermalController {
  public:
-  explicit ThermalController(float beta = THERMAL_PID_BETA)
-      : beta_(clampFloat(beta, 0.0f, 1.0f)) {}
   void reset() {
     initialized_ = false;
     integral_ = 0.0f;
@@ -26,9 +24,8 @@ class ThermalController {
     lastComputeAt_ = now;
     filteredDerivative_ = 0.0f;
     if (cfg.controlMode == ControlMode::Pid) {
-      const float integralLimit = maxOut + fabsf(cfg.kp * (1.0f - beta_) * setpoint);
-      integral_ = clampFloat(output_ - cfg.kp * (beta_ * setpoint - input),
-                            -integralLimit, integralLimit);
+      const float error = setpoint - input;
+      integral_ = clampFloat(output_ - cfg.kp * error, -maxOut, maxOut);
     } else {
       integral_ = 0.0f;
     }
@@ -52,7 +49,7 @@ class ThermalController {
       lastInput_ = input;
       lastComputeAt_ = now;
       integral_ = 0.0f;
-      output_ = clampFloat(cfg.kp * (beta_ * setpoint - input), 0.0f, maxOut);
+      output_ = clampFloat(cfg.kp * (setpoint - input), 0.0f, maxOut);
       return output_;
     }
 
@@ -64,18 +61,14 @@ class ThermalController {
     const float dInput = (input - lastInput_) / dt;
     lastInput_ = input;
 
-    const float p = cfg.kp * (beta_ * setpoint - input);
+    const float p = cfg.kp * error;
     // First-order derivative filter: sensor noise must not command full SSR
     // swings. Derivative stays on PV, avoiding setpoint derivative kick.
     filteredDerivative_ += (dt / (PID_D_FILTER_TAU_SEC + dt)) *
                            (dInput - filteredDerivative_);
     const float d = -cfg.kd * filteredDerivative_;
-    // Weighted absolute Celsius P has a DC offset. Permit I to cancel it:
-    // the old +/-maxOut bound alone can prevent beta<1 reaching the setpoint.
-    // Conditional anti-windup still uses the ACTUAL 0..maxOut actuator limits.
-    const float integralLimit = maxOut + fabsf(cfg.kp * (1.0f - beta_) * setpoint);
     const float candidateIntegral = clampFloat(
-        integral_ + cfg.ki * error * dt, -integralLimit, integralLimit);
+        integral_ + cfg.ki * error * dt, -maxOut, maxOut);
     const float unsaturated = p + candidateIntegral + d;
     // Tich phan co dieu kien: chi tich khi chua bao hoa hoac dang keo khoi bao hoa.
     if ((unsaturated >= 0.0f && unsaturated <= maxOut) ||
@@ -90,7 +83,6 @@ class ThermalController {
   float output() const { return output_; }
 
  private:
-  const float beta_;
   bool initialized_ = false;
   float integral_ = 0.0f;
   float filteredDerivative_ = 0.0f;

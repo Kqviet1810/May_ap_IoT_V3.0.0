@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "fb2b5828ccdd8997736f9618ae32f3635370c7253f2d1b8efbbd763002d15354"
+      "sha256": "5dc4be50d163b026e697ebbffd17017caf8d107f4f1a1eeca86f6d87a0d50d37"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "fe565f0ef434cc5fef4a35ed89136b378ca8bc2f3271025264627b129a5c740f",
+      "sha256": "0aa4f7ee401d7c0b3c64c5584fb6a42034f1ffe899514545ffcbd9ac521d08f2",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "bcff5d09b4efc8f3504d5c72067a03ac3f2711901f696ea0d38a7e2e5a107f8d",
+      "sha256": "d0a1832901295ddc74cb101d9421b67b496b2f659ab9ebc388dbb7040b0e99b5",
       "signature": "class MachineController {"
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "eb5ce93e37b747cdccc93d338e422989892fec9bf59efafa3cb9ac7a4be4e564",
+      "sha256": "c0ca6ac61cd852e54abac326da2bb013763c6f9838b5e5cec0faee7ccbfbbbb4",
       "signature": "class OutputArbiter {"
     },
     {
@@ -87,7 +87,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "8589843192a60be132de36a1b91694099eb2ef10af772a91059be26daae39985",
+      "sha256": "0a83c34a404309dd6861d09f07bfb376c40a660ede8d41a31c44fdb9b74d52a9",
       "signature": "bool decodeFrame("
     },
     {
@@ -360,10 +360,69 @@
           "'MQTT chưa kết nối'"
         ]
       ]
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/sensor_format.h",
+      "sha256": "94ce0598fe45222e40d46db29ba225bab0d039d718ca9dff33357d0a1bb62dc1"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/heater_burst_scheduler.h",
+      "sha256": "4dd8f85b4d4ede7edc5fd84a09545be1c74b571840a335c110a4e80e1a3fceac"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
+      "signature": "class RelayAutoTune {",
+      "sha256": "39600908294bd66df57080fca5b561af504de76c8ad9b9d38da90fa1a6c579ea"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "bool startBatch(",
+      "sha256": "7e00efa7b7ece772676498c3819f185555d402b7b129da238a85eabf24ec5041"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "bool stopBatch(",
+      "sha256": "15c6b9063e1b4f2027e05dd32c9ba86b943966f2a3a786bc2becc8cd8b1446d7"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "bool startAutoTune(",
+      "sha256": "307020000654cf68cb0cf41ab3901dbf118a0d36d6d602c5d3b0d70494144dc8"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "void updateAutoTune(",
+      "sha256": "0dedf0e804fdce52cd7810e953afca7370fd3db5e72d98f6bacb0ad58262efef"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "void updateTurning(",
+      "sha256": "f273133813a60c4b2c11661fb3471b4265fe30c8708005220a2f733a9ee766a7"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "void updateManualTurning(",
+      "sha256": "bc405c2153a510b4081291b9a549679cd47a6685bc30f5fd7977fbbab15f0f76"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "void updateBatchTime(",
+      "sha256": "41c9560af317085ee9383adbb079d08f3c3bfade7007443e6b47783fca049980"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "void updateAttinyLink(",
+      "sha256": "6c3082e7f1c4ff2e90acb8b8c45b249a9a340118e3b3b822cb294644f7d61ffc"
+    },
+    {
+      "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
+      "signature": "bool saveBatchRecord(",
+      "sha256": "f5ac9f3bc0071ed0acb367f5fbd4567b1e4050066dd00ab5f5afb78f29149d16"
     }
   ],
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
   "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
   "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed.",
-  "transactionHardeningReviewNote": "2026-10-02: reviewed retrySameRequest, moveToUncertain, sweepUncertain, sendConfig, sendCommand and handleAck. Retain signed envelope before receipt; bounded reconnect/UNCERTAIN retries never re-sign or cross boot/device/expiry; terminal ACK cancels retries and incomplete history cannot settle. All controller, safety, storage, HMI display, ATtiny, boot/recovery/OTA preservation entries unchanged."
+  "transactionHardeningReviewNote": "2026-10-02: reviewed retrySameRequest, moveToUncertain, sweepUncertain, sendConfig, sendCommand and handleAck. Retain signed envelope before receipt; bounded reconnect/UNCERTAIN retries never re-sign or cross boot/device/expiry; terminal ACK cancels retries and incomplete history cannot settle. All controller, safety, storage, HMI display, ATtiny, boot/recovery/OTA preservation entries unchanged.",
+  "thermalV2ReviewNote": "2026-10-03: explicit thermal scope reviewed from main 9569fcc. Only config pin/profile/beta declarations, ThermalController 2-DOF weighting, MachineController sensor/filter/thermal scheduling gates and energy-equivalent heater watchdog, OutputArbiter A/B routing and mechanical-only relay wear count, and decodeFrame fingerprints changed. Single SSR GPIO 1 is the unchanged production default; B has no default GPIO. PID beta remains 1. Gains, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New raw decoder and burst scheduler are fingerprinted. No blanket baseline refresh."
 }
