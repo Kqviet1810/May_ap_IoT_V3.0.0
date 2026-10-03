@@ -10,6 +10,7 @@ enum class ControlMode : uint8_t { OnOff, Pid };
 enum class AutoTuneState : uint8_t { Idle, Running, Success, Failed };
 struct MachineConfig {
   ControlMode controlMode = ControlMode::Pid;
+  float targetTemp = 37.5f;
   float kp = 20, ki = 0.04f, kd = 60;
   uint8_t maxHeaterPower = 100, autotuneRelayPowerPercent = 30;
   float tempHysteresis = 0.2f, autotuneBandC = 0.2f;

@@ -66,6 +66,36 @@ static void sensorFormats() {
 }
 
 static void pidWeightsAndPermits() {
+  // Saving SV is not a gain/actuator-shape change: it must not reset the
+  // derivative state or back-calculate I to cancel the next P response.
+  MachineConfig policyA, policyB = policyA;
+  policyB.targetTemp = 35.0f;
+  assert(!thermalPidRuntimeConfigChanged(policyA, policyB));
+  policyB = policyA; policyB.autotuneBandC += 0.1f;
+  assert(!thermalPidRuntimeConfigChanged(policyA, policyB));
+  policyB = policyA; policyB.kp += 1.0f;
+  assert(thermalPidRuntimeConfigChanged(policyA, policyB));
+  policyB = policyA; policyB.ki += 0.1f;
+  assert(thermalPidRuntimeConfigChanged(policyA, policyB));
+  policyB = policyA; policyB.kd += 1.0f;
+  assert(thermalPidRuntimeConfigChanged(policyA, policyB));
+  policyB = policyA; policyB.maxHeaterPower = 50;
+  assert(thermalPidRuntimeConfigChanged(policyA, policyB));
+
+  // Regression for the production config-save bug: a real SV increase must
+  // retain the existing I state and let P respond on the next sensor sample.
+  // The old call-site treated the new SV as "bumpless config", projected a
+  // large negative I term, and delayed this response.
+  {
+    MachineConfig cfg;
+    cfg.kp = 18.0f; cfg.ki = 0.8f; cfg.kd = 0.0f; cfg.maxHeaterPower = 100;
+    ThermalController pid;
+    assert(std::fabs(pid.updateOnNewSample(1000, 30.0f, 29.0f, cfg, true) - 18.0f) < 0.001f);
+    const float beforeStep = pid.updateOnNewSample(3000, 30.0f, 29.0f, cfg, true);
+    assert(std::fabs(beforeStep - 19.6f) < 0.001f);
+    assert(pid.updateOnNewSample(5000, 37.5f, 29.0f, cfg, true) == 100.0f);
+  }
+
   for (float beta : {1.0f,0.7f,0.5f,0.35f}) {
     MachineConfig cfg;
     cfg.kp=10; cfg.ki=0; cfg.kd=100;

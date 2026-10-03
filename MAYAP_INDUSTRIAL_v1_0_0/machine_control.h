@@ -4466,6 +4466,7 @@ class MachineController {
           requested.sirenSelfTestEnabled != config_.sirenSelfTestEnabled ||
           (requested.connectivityMode == ConnectivityMode::Online &&
            config_.connectivityMode != ConnectivityMode::Online));
+      const MachineConfig previousConfig = config_;
       MachineConfig readback{};
       const bool saveAllowed = !batchClearPending_ &&
           !safetyJournalFaultLatched_ && !protectedBatchChange;
@@ -4479,11 +4480,16 @@ class MachineController {
         eventLog_.push(now, EventType::ConfigSaved,
                        static_cast<uint16_t>(EventCode::ConfigSaved));
 
-        // Khong reset PID/khong khoa nhiet khi luu. Chi can tinh lai noi bo theo
-        // cach bumpless; contactor contactor tong nhiet tiep tuc giu neu cac dieu kien an toan
-        // van hop le. Neu nguong moi tao qua nhiet, updateAlarms() se cat ngay.
-        pid_.applyConfigBumpless(now, config_.targetTemp, temperature_, config_);
-        pidPower_ = pid_.output();
+        // Chi re-project I khi hinh dang PID/actuator thuc su doi. SV la lenh
+        // dieu khien: khong duoc back-calculate I de huy P-response cua buoc SV.
+        // Cac thay doi khong lien quan (dao, am, thong gio...) cung khong duoc
+        // reset derivative/timestamp cua PID. Neu gain/cap va SV cung doi, giu
+        // bumpless tai SV cu; sample cam bien ke tiep se ap dung buoc SV moi.
+        if (thermalPidRuntimeConfigChanged(previousConfig, config_)) {
+          pid_.applyConfigBumpless(now, previousConfig.targetTemp,
+                                   temperature_, config_);
+          pidPower_ = pid_.output();
+        }
 
       } else if (saveAllowed) {
         latchStorageFault("CONFIG SAVE");

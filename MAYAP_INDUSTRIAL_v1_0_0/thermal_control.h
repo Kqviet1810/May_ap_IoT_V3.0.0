@@ -2,6 +2,19 @@
 
 // Pure thermal algorithms. Including code provides MachineConfig, timing,
 // constants and sanitizeMachineConfig; the host test runs these SAME classes.
+//
+// targetTemp is deliberately NOT part of this predicate. A setpoint edit is a
+// control command and must reach the P term on the next sensor sample; treating
+// it as a "bumpless config" change would back-calculate I to cancel that P step.
+inline bool thermalPidRuntimeConfigChanged(const MachineConfig &before,
+                                           const MachineConfig &after) {
+  return before.controlMode != after.controlMode ||
+         before.kp != after.kp ||
+         before.ki != after.ki ||
+         before.kd != after.kd ||
+         before.maxHeaterPower != after.maxHeaterPower;
+}
+
 class ThermalController {
  public:
   explicit ThermalController(float beta = THERMAL_PID_BETA)
