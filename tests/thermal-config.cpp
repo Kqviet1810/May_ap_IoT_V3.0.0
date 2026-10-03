@@ -22,6 +22,9 @@ struct ConfigStore {
   template<class T> bool readRecord(uint16_t addr,T &r) const {
     assert(addr+sizeof(r)<=sizeof(bytes));std::memcpy(&r,bytes+addr,sizeof(r));return true;
   }
+  template<class T> bool writeRecord(uint16_t addr,const T &r) {
+    assert(addr+sizeof(r)<=sizeof(bytes));std::memcpy(bytes+addr,&r,sizeof(r));return true;
+  }
 #include "actual-config-load.inc"
 };
 static std::vector<bool> waveform(const MachineConfig &loaded) {

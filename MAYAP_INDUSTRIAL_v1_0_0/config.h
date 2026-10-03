@@ -851,7 +851,11 @@ constexpr uint32_t SSR_MIN_OFF_MS = 300UL;
 constexpr uint8_t AUTOTUNE_REQUIRED_CYCLES = 3;
 constexpr float AUTOTUNE_STABILITY_FRACTION = 0.20f;
 constexpr float PID_D_FILTER_TAU_SEC = 5.0f;
-constexpr uint32_t AUTOTUNE_MAX_MS = 2700000UL; // 45 phut
+// Bounded commissioning candidates; no power escalation or timeout extension.
+constexpr uint8_t AUTOTUNE_PREHEAT_POWER_PERCENT = 30U; // Provisional 4.8 kW average, capped by maxHeaterPower
+constexpr uint32_t AUTOTUNE_PREHEAT_MAX_MS = 900000UL; // 15 min separate preheat limit
+constexpr uint32_t AUTOTUNE_TOTAL_MAX_MS = 2700000UL; // 45 min INCLUDING preheat
+constexpr uint32_t AUTOTUNE_MAX_MS = AUTOTUNE_TOTAL_MAX_MS; // legacy host comparison alias
 constexpr uint32_t AUTOTUNE_PHASE_MAX_MS = 900000UL; // moi pha toi da 15 phut
 constexpr uint32_t AUTOTUNE_MIN_PERIOD_MS = 10000UL;
 constexpr float AUTOTUNE_MIN_AMPLITUDE_C = 0.10f;

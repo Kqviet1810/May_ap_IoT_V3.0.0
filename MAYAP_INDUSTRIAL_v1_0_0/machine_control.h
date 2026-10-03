@@ -232,8 +232,7 @@ class EventLog {
     return clockEpoch_ + elapsedMs(now, clockSyncedAtMs_) / 1000UL;
   }
 
-  // Nhat ky chi co y nghia trong pham vi mot me. Ngoai me (may ranh, chua
-  // bat dau, da dung han) thi khong ghi gi ca - tranh nhieu su kien khong
+  // Nhat ky chi co y nghia trong pham vi mot me. Ngoai me chi giu Boot va AutoTune start/end; khong ghi su kien thuong - tranh nhieu su kien khong
   // lien quan lam loang lich su thao tac cua me that su.
   void setLoggingEnabled(bool enabled) { loggingEnabled_ = enabled; }
   bool loggingEnabled() const { return loggingEnabled_; }
@@ -247,7 +246,10 @@ class EventLog {
     // som hon, luc loggingEnabled_ con mac dinh false) - neu khong co ngoai
     // le nay, su kien Boot se LUON bi mat ngay tu dau, khong bao gio thay
     // duoc ly do reset that su tren man Nhat Ky.
-    if (!loggingEnabled_ && type != EventType::Boot) return;
+    // AutoTune is commissioning outside a batch: retain only its start/end,
+    // plus Boot. Regular input/output/network events remain disabled.
+    if (!loggingEnabled_ && type != EventType::Boot &&
+        type != EventType::AutoTuneStart && type != EventType::AutoTuneEnd) return;
     EventEntry &entry = entries_[head_];
     entry.sequence = ++sequence_;
     entry.atMs = now;
@@ -4898,6 +4900,10 @@ class MachineController {
     if (!mayapBootOperationsReady()) { message = "DANG KHOI DONG"; return false; }
     if (mayapFirmwareMaintenanceActive()) { message = "DANG CAP NHAT FIRMWARE"; return false; }
     const InputState &in = inputs_.state();
+    if (mayapSystemTripLatched() || faults_.masterDropRequired() || faults_.ssrInhibited()) {
+      message = "DUONG NHIET DANG BI KHOA"; return false;
+    }
+    if (autotune_.running()) { message = "AUTO TUNE DANG CHAY"; return false; }
     if (testModeActive_) { message = "HAY THOAT TEST TRUOC"; return false; }
     if (batchRunning_ || resumePending_) { message = "DUNG ME TRUOC"; return false; }
     if (batchClearPending_) { message = "DANG XOA DU LIEU ME CU"; return false; }
@@ -4906,7 +4912,7 @@ class MachineController {
     if (abnormalResetLatched_) { message = "HAY XAC NHAN RESET LOI"; return false; }
     if (!in.autoMode) { message = "HAY CHUYEN SANG AUTO"; return false; }
     if (!in.heaterEnable) { message = "HAY BAT CONG TAC NHIET"; return false; }
-    if (!sensorUsable_) { message = "CAM BIEN CHUA SAN SANG"; return false; }
+    if (!sensorUsable_ || !isfinite(temperature_) || !isfinite(rawTemperature_)) { message = "CAM BIEN CHUA SAN SANG"; return false; }
     if (!rtc_.valid()) { message = "RTC CHUA HOP LE"; return false; }
     if (highTemperatureActive_ || emergencyActive_) { message = "NHIET DANG QUA CAO"; return false; }
     if (config_.targetTemp + config_.autotuneBandC >= config_.highTempAlarm) {
@@ -4915,12 +4921,15 @@ class MachineController {
     autotune_.configure(config_.targetTemp);
     autotune_.start(now, temperature_);
     pid_.reset();
+    heaterBurst_.reset();
     postCoolUntil_ = 0;
     message = "AUTO TUNE DA BAT DAU";
     eventLog_.push(now, EventType::AutoTuneStart,
                    static_cast<uint16_t>(EventCode::AutoTuneStarted));
-    mayapSerialPrintf(false, "[TUNE] START power=%u%% band=%.2fC\n",
-                     config_.autotuneRelayPowerPercent, config_.autotuneBandC);
+    mayapSerialPrintf(false, "[TUNE] PREHEAT power=%u%% PV=%.3f relay=%u%% band=%.2fC\n",
+                     std::min<uint8_t>(AUTOTUNE_PREHEAT_POWER_PERCENT, config_.maxHeaterPower),
+                     temperature_, std::min<uint8_t>(config_.autotuneRelayPowerPercent, config_.maxHeaterPower),
+                     config_.autotuneBandC);
     return true;
   }
 
@@ -5444,30 +5453,48 @@ class MachineController {
   void updateAutoTune(uint32_t now) {
     if (!autotune_.running()) return;
     const InputState &in = inputs_.state();
-    if (!in.autoMode || !in.heaterEnable || !sensorUsable_ ||
-        highTemperatureActive_ || emergencyActive_ || batchRunning_ ||
+    const AutoTunePhase previousPhase = autotune_.phase();
+    const uint32_t previousCycle = autotune_.cycleSerial();
+    const uint32_t previousValidation = autotune_.validationSerial();
+    AutoTuneReason abortReason = AutoTuneReason::None;
+    if (!sensorUsable_ || !isfinite(temperature_) || !isfinite(rawTemperature_))
+      abortReason = AutoTuneReason::SensorAbort;
+    else if (highTemperatureActive_ || emergencyActive_ ||
+        std::max(rawTemperature_, temperature_) >= config_.highTempAlarm ||
         storageFaultLatched_ || storageDegraded_ || abnormalResetLatched_ ||
-        faults_.masterDropRequired() || faults_.ssrInhibited()) {
-      autotune_.abort();
+        safetyJournalFaultLatched_ || batchClearPending_ ||
+        faults_.masterDropRequired() || faults_.ssrInhibited() ||
+        mayapFirmwareMaintenanceActive() || mayapSystemTripLatched() ||
+        !mayapBootOperationsReady()) abortReason = AutoTuneReason::SafetyAbort;
+    else if (!in.autoMode || !in.heaterEnable || batchRunning_)
+      abortReason = AutoTuneReason::ModeAbort;
+    if (abortReason != AutoTuneReason::None) autotune_.abort(abortReason);
+    autotune_.checkTimeout(now);
+    MachineConfig tuned{};
+    const bool tunedReady = autotune_.running() && newSensorSample_ &&
+        autotune_.update(now, temperature_, config_, tuned);
+    if (autotune_.cycleSerial() != previousCycle) {
+      const auto &cycle = autotune_.lastCycle();
+      mayapSerialPrintf(false, "[TUNE] CYCLE n=%lu high=%.3f low=%.3f A=%.3f Pu=%.1f heat_s=%.1f cool_s=%.1f\n",
+          static_cast<unsigned long>(autotune_.cycleSerial()), cycle.high, cycle.low, cycle.amplitude,
+          cycle.periodMs * 0.001f, cycle.heatMs * 0.001f, cycle.coolMs * 0.001f);
+    }
+    if (autotune_.validationSerial() != previousValidation)
+      mayapSerialPrintf(false, "[TUNE] VALIDATING cycles=%u quality=%s\n",
+          autotune_.cycleCount(), autoTuneReasonName(autotune_.rejection()));
+    if (autotune_.phase() != previousPhase && autotune_.running())
+      mayapSerialPrintf(false, "[TUNE] %s power=%.1f%% PV=%.3f\n",
+          autoTunePhaseName(autotune_.phase()), autotune_.power(), temperature_);
+    if (!tunedReady && autotune_.state() == AutoTuneState::Failed) {
+      heaterBurst_.reset();
       pid_.reset();
       postCoolUntil_ = now + POST_COOL_MS;
       heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
       eventLog_.push(now, EventType::AutoTuneEnd,
                      static_cast<uint16_t>(EventCode::AutoTuneFailed),
-                     0, 1U);
-      mayapSerialPrintf(false, "[TUNE] ABORT safety/mode\n");
-      return;
-    }
-    if (!newSensorSample_) return;
-    MachineConfig tuned{};
-    const bool tunedReady = autotune_.update(now, temperature_, config_, tuned);
-    if (!tunedReady && autotune_.state() == AutoTuneState::Failed) {
-      pid_.reset();
-      postCoolUntil_ = now + POST_COOL_MS;
-      heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
-      eventLog_.push(now, EventType::AutoTuneEnd,
-                     static_cast<uint16_t>(EventCode::AutoTuneFailed), 0, 2U);
-      mayapSerialPrintf(false, "[TUNE] FAIL timeout/invalid oscillation\n");
+                     static_cast<int16_t>(autotune_.reason()), 1U);
+      mayapSerialPrintf(false, "[TUNE] FAIL reason=%s quality=%s\n",
+          autoTuneReasonName(autotune_.reason()), autoTuneReasonName(autotune_.rejection()));
       return;
     }
     if (tunedReady) {
@@ -5481,16 +5508,19 @@ class MachineController {
         eventLog_.push(now, EventType::AutoTuneEnd,
                        static_cast<uint16_t>(EventCode::AutoTuneSuccess),
                        static_cast<int16_t>(lroundf(config_.kp * 10.0f)));
-        mayapSerialPrintf(false, "[TUNE] SUCCESS Kp=%.3f Ki=%.3f Kd=%.3f\n",
-                         config_.kp, config_.ki, config_.kd);
+        mayapSerialPrintf(false, "[TUNE] RESULT phase=SUCCESS Ku=%.3f Pu=%.1f Kp=%.3f Ki=%.5f Kd=%.3f scale=%.3f\n",
+                         autotune_.result().ku, autotune_.result().periodSec,
+                         config_.kp, config_.ki, config_.kd, autotune_.result().gainScale);
       } else {
-        autotune_.abort();
+        autotune_.abort(AutoTuneReason::SaveFailed);
         latchStorageFault("AUTOTUNE SAVE");
         eventLog_.push(now, EventType::AutoTuneEnd,
                        static_cast<uint16_t>(EventCode::AutoTuneFailed),
-                       1, 1U);
-        mayapSerialPrintf(false, "[TUNE] FAIL SAVE\n");
+                       static_cast<int16_t>(AutoTuneReason::SaveFailed), 1U);
+        mayapSerialPrintf(false, "[TUNE] FAIL reason=SAVE_FAILED\n");
       }
+      heaterBurst_.reset();
+      pid_.reset();
       postCoolUntil_ = now + POST_COOL_MS;
       heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
     }

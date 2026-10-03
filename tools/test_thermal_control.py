@@ -36,6 +36,8 @@ def body_end(text, start):
 
 with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     out = Path(directory)
+    tune_constants = [m[0] for m in re.finditer(r'constexpr [^;\n]*\bAUTOTUNE_\w+\s*=[^;]*;', config)]
+    (out / 'actual-autotune-constants.inc').write_text('\n'.join(tune_constants))
     pin_start = config.index('constexpr uint8_t MAYAP_USED_PINS[]')
     pin_end = config.index('static_assert(mayapPinsValidAndUnique()',pin_start)
     pin_end = config.index(';',pin_end)+1
@@ -115,9 +117,21 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     (out / 'actual-config.inc').write_text('\n'.join(cfg_constants)+'\n'+enums+'\n'+cfg_struct+'\n'
         +sanitize+'\n#pragma pack(push,1)\n'+records+'\n#pragma pack(pop)\n'+schemas+'\n'
         +method('inline uint32_t mcCrc32(')+'\n'+method('inline PackedMachineConfigV1 packConfig(')+'\n'
-        +method('inline MachineConfig unpackConfig(')+'\n')
-    (out / 'actual-config-load.inc').write_text(method('  bool loadConfig(')+'\n'
+        +method('inline MachineConfig unpackConfig(')+'\n'+method('inline uint8_t ventProfileDutyPercent(')+'\n')
+    (out / 'actual-config-load.inc').write_text(method('  bool loadConfig(')+'\n'+method('  bool saveConfig(')+'\n'
         +method('  static bool newer(')+'\n'+validators+'\n'+method('  bool refreshConfigCache('))
+    extra_constants = ['THERMAL_PID_BETA','PID_D_FILTER_TAU_SEC','HEAT_RESTART_LOCKOUT_MS','POST_COOL_MS',
+        'EVENT_LOG_RAM_SIZE','HMI_EVENT_DISPLAY_CAPACITY','CIRC_FAN_BATCH_START_STAGGER_MS','FAN_PRESTART_MS',
+        'MANUAL_FAN_CAN_DISABLE_HEATING']
+    (out / 'actual-tune-extra.inc').write_text('\n'.join(re.search(r'constexpr [^;\n]*\b'+n+r'\s*=[^;]*;', config)[0] for n in extra_constants))
+    event_types = ''
+    for name in ['HmiEventItem','HmiEventSnapshot']:
+        start=config.index('struct '+name+' {');event_types+=config[start:body_end(config,start)+1]+'\n'
+    start=machine.index('enum class EventType :')
+    end=body_end(machine,machine.index('class EventLog {',start))+1
+    (out / 'actual-event.inc').write_text(event_types+machine[start:end])
+    for name, signature in [('start','  bool startAutoTune('),('update','  void updateAutoTune(')]:
+        (out / ('actual-tune-'+name+'.inc')).write_text(method(signature))
     (out / 'actual-safety-thresholds.inc').write_text('\n'.join(
         'constexpr double MODEL_'+name.upper()+' = '+re.search(r'float '+name+r'\s*=\s*([\d.]+)f;',config)[1]+';'
         for name in ['highTempAlarm','emergencyTemp']))
@@ -127,7 +141,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         if actual != expected: raise ValueError('Update documented simulator defaults: ' + name)
     common = ['g++', '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out)]
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
-    for test in ['thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
+    plant_source=(ROOT / 'tests/thermal-plant.cpp').read_text()
+    (out / 'actual-plants.inc').write_text(re.search(r'const Plant plants\[\]=[^;]+;', plant_source)[0])
+    for test in ['thermal-autotune','thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
         variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
@@ -147,6 +163,18 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                 with (args.report_dir / 'low-duty.csv').open('w') as bank_report:
                     bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
                     bank_report.writelines(line[5:]+'\n' for line in result.stdout.splitlines() if line.startswith('BANK,'))
+    executable = out / 'thermal-autotune-plant'
+    subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-plant.cpp'), '-o', str(executable)], check=True)
+    with (args.report_dir / 'autotune-plant.csv').open('w') as report:
+        subprocess.run([str(executable), str(args.report_dir / 'autotune-cycles.csv')], stdout=report, check=True)
+    tune_rows=list(csv.DictReader((args.report_dir / 'autotune-plant.csv').open()))
+    assert len(tune_rows)==864
+    for preheat in [30,40,50]:
+        subset=[r for r in tune_rows if float(r['preheat_power'])==preheat and r['start_condition']=='COLD']
+        print(f'AUTOTUNE preheat {preheat}%: '+str(sum(r['success']=='1' for r in subset))+'/216 SUCCESS; failures bounded and gains retained')
+    for relay in [20,30,40]:
+        subset=[r for r in tune_rows if float(r['preheat_power'])==30 and float(r['relay_power'])==relay and r['start_condition']=='COLD']
+        print(f'AUTOTUNE candidate preheat30/relay{relay}: '+str(sum(r['success']=='1' for r in subset))+'/72 SUCCESS')
     executable = out / 'thermal-plant'
     subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-plant.cpp'), '-o', str(executable)], check=True)
     with (args.report_dir / 'plant.csv').open('w') as report:

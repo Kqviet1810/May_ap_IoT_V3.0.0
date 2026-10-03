@@ -27,6 +27,7 @@ int main() {
   cfg.controlMode = ControlMode::OnOff;
   tune.configure(37.5f);
   tune.start(1000, 36.9f);
+  tune.update(1000, 37.3f, cfg, result);
   bool done = false;
   for (uint32_t ms = 41000; ms <= 401000; ms += 40000) {
     const float input = ((ms - 41000) / 40000) % 2 == 0 ? 38.1f : 36.9f;
@@ -43,6 +44,7 @@ int main() {
   assert(!tune.update(AUTOTUNE_PHASE_MAX_MS + 1000, 25, cfg, result));
   assert(tune.state() == AutoTuneState::Failed && tune.power() == 0);
   tune.start(1000, 36.9f);
+  tune.update(1000, 37.3f, cfg, result);
   for (uint32_t i = 0; i < 16; ++i) {
     // Alternating large/small excursions never form three repeatable cycles.
     float input = i % 2 ? (i % 4 == 1 ? 35.5f : 37.2f) : (i % 4 == 0 ? 39.5f : 37.8f);

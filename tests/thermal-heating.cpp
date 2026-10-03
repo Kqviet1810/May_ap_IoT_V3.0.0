@@ -110,9 +110,9 @@ int main(){
   h.cycle(16000);assert(h.runtime_.heaterPower>0 && h.runtime_.heaterPower<100);
   assert(std::fabs(h.runtime_.heaterPower-h.pid_.output())<0.001f); // requested %, not instantaneous SSR
   // Autotune actual controller route: 30% total passes through the scheduler.
-  Harness tune;tune.batchRunning_=false;tune.autotune_.configure(37.5f);tune.autotune_.start(1000,35);
-  MachineConfig result;tune.temperature_=35;
-  tune.autotune_.update(1000,35,tune.config_,result);tune.warm();
+  Harness tune;tune.batchRunning_=false;tune.autotune_.configure(37.5f);tune.autotune_.start(1000,37.4f);
+  MachineConfig result;tune.temperature_=37.4f;
+  tune.autotune_.update(1000,37.4f,tune.config_,result);tune.warm();
   unsigned energy=0;
   for(uint32_t t=16000;t<616000;t+=50){
     tune.cycle(t,false);
@@ -123,9 +123,9 @@ int main(){
   assert(std::fabs(delivered-30)<0.2);
   tune.faults_.inhibit=true;tune.cycle(616001,false);assertOff(tune);
   for(unsigned reason=0;reason<15;++reason){
-    Harness guarded;guarded.batchRunning_=false;guarded.temperature_=35;
-    guarded.autotune_.configure(37.5f);guarded.autotune_.start(1000,35);
-    guarded.autotune_.update(1000,35,guarded.config_,result);guarded.warm();
+    Harness guarded;guarded.batchRunning_=false;guarded.temperature_=37.4f;
+    guarded.autotune_.configure(37.5f);guarded.autotune_.start(1000,37.4f);
+    guarded.autotune_.update(1000,37.4f,guarded.config_,result);guarded.warm();
     // Advance until a 30% burst is physically ON, then cut inside that burst.
     uint32_t at=15000;
     while(!guarded.outputs_.state().heaterSsr && at<25000)guarded.cycle(at+=50,false);

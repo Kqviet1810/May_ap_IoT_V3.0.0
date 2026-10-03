@@ -68,6 +68,70 @@ The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C
 
 `python3 tools/test_thermal_control.py --sanitize --report-dir /tmp/mayap-thermal-report` runs all hard thermal tests and generates plant, low-duty, safety-qualification and filter-compatibility CSVs. `--require-targets` intentionally fails while uncalibrated performance targets are missed. Reliability CI runs the hard suite and uploads metrics, with a warning for experimental misses. All existing Node/account/protocol, actual runtime buses, EEPROM/notes, browser/workerd and firmware DEV/PROD builds must remain green before merge. No real ESP32 temperature-control test is claimed.
 
+## AUTOTUNE QUALIFICATION
+
+### ALGORITHM VERIFIED
+
+The existing public AutoTune state values, GPIO1 full 16 kW bank, PID defaults 18/0.8/45 with beta=1, 300 ms scheduler, RS485/filter cadence, safety policies and EEPROM schemas remain unchanged. This qualification changes only AutoTune and its outside-batch diagnostic events.
+
+Flow: START/preconditions → PREHEAT → fresh relay measurement → discard startup cycle → three repeatable cycles → Ku/Pu → Tyreus-Luyben → gain validation → existing atomic save. PREHEAT requests **30% average total bank power (4.8 kW)**, capped by `maxHeaterPower`; it does not request 100% or escalate. At SP minus band, peak/period measurement starts fresh. PREHEAT samples never contribute to Ku/Pu. Relay high is the configured relay power capped by `maxHeaterPower`, relay low is zero. All power goes through the existing scheduler and OutputArbiter; neither AutoTune nor PID writes GPIO.
+
+Deadlines remain bounded: **PREHEAT 900 s; each HEATING/COOLING phase 900 s; total including PREHEAT 2700 s**. They are checked every control cycle, even without a new sensor sample. No extension was made to rescue slow plants. Numerical minimum amplitude/period, the discarded warmup cycle, three-cycle ±20% repeatability and rolling qualification remain. The relay is intentionally not biased: successful cycles show heat/cool ratios 0.222–2.37, but this matrix does not justify a new relay algorithm.
+
+Terminal reasons are SAFETY_ABORT, SENSOR_ABORT, MODE_ABORT, PREHEAT_TIMEOUT, PHASE_TIMEOUT, TOTAL_TIMEOUT, INVALID_KU, INVALID_GAINS, SAVE_FAILED and SUCCESS. AMPLITUDE_TOO_SMALL, PERIOD_TOO_SMALL and NON_REPEATABLE are exposed as measurement rejection diagnostics while qualification continues within the original bounded deadline; if it expires, the terminal reason is the appropriate timeout and the rejection is retained separately. Serial prints only start, phase transitions, completed cycles, validation and final result. Diagnostics include actual relay high/low, extrema, amplitude, heat/cool duration, Pu, Ku, common gain scale and failure reason. No per-control-tick serial stream was added.
+
+Ku uses `4 * ((actualHigh - actualLow) / 2) / (pi * amplitude)`, never PREHEAT power. Tyreus-Luyben coefficients 2.2/6.3 are unchanged. A common gain scale preserves Ti/Td; it is rounded upward one float ULP to avoid falsely rejecting a mathematically exact Kd=200 boundary as 200.000015. Finite, positive, range and sanitizer-preservation checks precede saving. RAM gains are assigned only after existing verified `saveConfig` succeeds. No EEPROM layout, migration or write algorithm changed.
+
+Hard tests exercise max heater 20/30/50/100%, actual capped relay swing, invalid gains, wrap including an upper crossing at millis zero, phase/total/preheat timeouts, 34 safety/mode/sensor cuts across PREHEAT and relay, restart/reset and every partial ConfigRecord byte cut. Abort and save failure clear scheduler credit, turn heating OFF at the next control tick and retain old RAM gains. Partial records fail CRC and preserve the old valid EEPROM bank. As with the existing atomic store, a fully committed record followed by lost verification acknowledgement can leave a complete new bank on reboot; atomicity prevents mixed gains, rather than proving an acknowledged outcome after every possible power loss.
+
+Outside a batch, EventLog now retains **Boot, AutoTuneStart and AutoTuneEnd only**. Normal network/input/output events remain suppressed. This is the existing bounded RAM event log; no new persistent sink or high-rate EEPROM logging was added.
+
+### SIMULATION VERIFIED — qualification, not physical performance
+
+[autotune-plant.csv](thermal-v2/autotune-plant.csv) contains **864 actual plant-in-loop runs**; [autotune-cycles.csv](thermal-v2/autotune-cycles.csv) records each measured cycle. The plant capacities/losses are extracted from the existing model, with its same 8 s actuator lag: actual AutoTune → PDM/arbiter → 0/16 kW → plant → 5/15/30/60 s dead time → 2 s sensor poll → 0.1/0.01°C quantization → actual median-3 and IIR-3/8. No alternating PV was supplied to these plant tests.
+
+648 COLD runs test PREHEAT 30/40/50%, three plants, ambient 20/25/28°C, four delays, two resolutions and relay 20/30/40%, SP37.5. Another 216 separately labeled NEAR_SP runs start the same physical model at 37.0°C using PREHEAT30 to qualify relay behavior where cold-start deadlines are insufficient. They are warm-start tests, not proof of cold-start tuning. Six additional real-loop disturbance cases cover invalid PV, confirmed sensor loss and safety inhibit, in cold/preheated conditions; all abort cleanly without saved gains. Existing bad-packet/staleness policies are unchanged.
+
+| Cold PREHEAT candidate | SUCCESS / 216 | PREHEAT_TIMEOUT | SAFETY_ABORT | TOTAL_TIMEOUT | Model High / Emergency, including coast |
+|---|---:|---:|---:|---:|---:|
+| 30% | 25 | 156 | 35 | 0 | 31 / 6 |
+| 40% | 20 | 144 | 52 | 0 | 48 / 18 |
+| 50% | 29 | 120 | 63 | 4 | 60 / 24 |
+
+**30% is the safety-oriented candidate**, not the fastest or the candidate with most successes. A stronger PREHEAT increases safety aborts and modeled residual overheating. Default PREHEAT30 qualification is:
+
+| Relay power | COLD SUCCESS / FAIL (72) | NEAR_SP SUCCESS / FAIL (72) |
+|---|---:|---:|
+| 20% | 12 / 60 | 26 / 46 |
+| 30% | 9 / 63 | 32 / 40 |
+| 40% | 4 / 68 | 27 / 45 |
+
+COLD: Light 25 successes, Medium/Heavy zero; 156 PREHEAT_TIMEOUT and 35 SAFETY_ABORT. NEAR_SP: Light 27, Medium 56, Heavy 2 successes; 48 SAFETY_ABORT, 32 TOTAL_TIMEOUT, 27 PHASE_TIMEOUT, 24 PREHEAT_TIMEOUT. Successful durations are 1182–1864 s cold and 626–2626 s near-SP. Across the 432 default candidate cases, 83 safety aborts save no gains. They include excessive lag/residual heat and insufficient margin from SP+band to the stored High alarm. Safety remains an abort, never a normal oscillation peak.
+
+For Heavy/ambient20, loss at SP is `300 W/°C * (37.5-20) = 5.25 kW`, greater than 30% of 16 kW = 4.8 kW. That power is physically insufficient **in this model**; all eight COLD and eight NEAR_SP default30/relay30 cases end PREHEAT_TIMEOUT, retaining old gains. Other Medium/Heavy cold starts can have sufficient eventual power yet still exceed the 900 s PREHEAT deadline because of thermal inertia. This limitation is reported, not hidden by changing the model or deadline.
+
+The loop checks actual AutoTune raw/filtered High/sensor guards and turns power OFF; after completion it also models 120 s passive coast. Vent cooling physics are not modeled. High/Emergency counts refer to model temperature, including residual heat after OFF, not a production alarm timing replay. None of the successful tuning runs crosses High/Emergency during tune or coast. An abort cannot instantly remove already stored thermal energy.
+
+### Post-tune qualification
+
+Every SUCCESS is atomically saved in the byte-backed real-store harness, then DEFAULT and TUNED PID are compared from identical cold ambient initial conditions for three hours. These follow-up runs are explicitly **CONTROL-ONLY POST VALIDATION / NO PRODUCTION SAFETY INTERVENTION**: crossing an alarm threshold means intervention would be required, not permission to operate the real machine through it. BAD means Emergency crossing, no settling or ripple above 1°C; the softer original performance targets remain reported and were not relaxed.
+
+Representative NEAR_SP results (ambient / dead time / resolution / relay shown to avoid mixing conditions):
+
+| Plant / condition | Kp / Ki / Kd | Common scale | TUNED MAE / P95 / ripple / overshoot °C | Qualification |
+|---|---|---:|---|---|
+| Light / 20°C / 5s / 0.1°C / 20% | 6.406779 / 0.014808 / 199.999985 | 2.586713 | 0.046612 / 0.047213 / 0.001630 / 2.160800 | BAD |
+| Medium / 20°C / 5s / 0.1°C / 30% | 3.641618 / 0.004784 / 199.999985 | 7.954444 | 0.049453 / 0.051508 / 0.005893 / 3.700734 | BAD |
+| Heavy / 28°C / 5s / 0.01°C / 40% | 2.617728 / 0.002472 / 199.999985 | 19.697268 | 0.324878 / 0.757232 / 0.939185 / 2.362475 | BAD |
+
+Default PREHEAT30 yields 110 SUCCESS gain sets; **92/110 are BAD in cold-start post-validation, all with modeled Emergency crossing**. Mean steady MAE across them is DEFAULT 0.165214 versus TUNED 0.049169°C; this average does not cancel cold-start overshoot. Heavy's two near-SP successes are worse than DEFAULT: mean MAE 0.523371 versus 0.074237°C. Large common gain scales and small Ki can slow recovery. Do not treat a software AutoTune SUCCESS as physical gain acceptance. The original 1536-case comparison and its 0/1536 joint target passes remain unchanged.
+
+### PHYSICAL UNVERIFIED / controlled commissioning
+
+First tune must be outside a batch, with no live eggs, door closed, circulation fan in its intended state, sensor in the intended position and an independent reference probe. Begin with low 20–30% relay power; do not automatically raise it to rescue a timeout. Check raw/filtered temperature, sensor format lock, SSR temperatures, actual electrical power, High/Emergency margin, phase/cycle logs and post-OFF coast. A failed or aborted tune requires operator investigation before restarting. A successful tune requires supervised response/soak qualification before use with eggs.
+
+Software hard gates and simulation failure behavior qualify the code for this supervised step only: **AUTOTUNE READY FOR CONTROLLED PHYSICAL COMMISSIONING.** No hardware tune, merge, deploy or OTA was performed.
+
 ## REMAINING RISKS
 
 - Confirm GPIO1 drives both SSR inputs on the physical board as specified, their zero-cross behavior, rating, heatsinking, contactor and 16 kW electrical loading. High burst transition rates make this a commissioning blocker until measured.
@@ -76,3 +140,5 @@ The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C
 - High/emergency thresholds saved for 37.5°C can remain too high at SP30°C; operator configuration review is required. This PR deliberately does not change the safety policy.
 - A single probe's stable reading does not prove ±0.1°C absolute accuracy or spatial uniformity throughout the chamber. Independent calibrated probes and a long soak are needed.
 - 300 ms is provisional; verify real control task jitter and SSR temperature over a long soak before accepting final actuator timing.
+
+- AutoTune PREHEAT30 can be insufficient or exceed the fixed deadline; High/Emergency residual coast and 92/110 BAD cold-start post-validations prevent unattended acceptance. Commissioning must validate power, margin, generated gains and recovery on the real chamber.

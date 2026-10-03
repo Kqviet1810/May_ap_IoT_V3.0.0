@@ -159,8 +159,8 @@ static void burstEnergy() {
   assert(equivalent==500 && remainder==0);
   MachineConfig cfg,result;
   RelayAutoTune tune;
-  tune.configure(37.5f); tune.start(1000,36);
-  tune.update(1000,36,cfg,result);
+  tune.configure(37.5f); tune.start(1000,37.4f);
+  tune.update(1000,37.4f,cfg,result);
   scheduler.reset(); units=0;
   for (unsigned n=0;n<600;++n) {
     d=scheduler.update(1000U+n*1000U,tune.power(),true); units+=d.groupA+d.groupB;

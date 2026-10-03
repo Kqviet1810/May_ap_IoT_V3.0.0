@@ -107,151 +107,175 @@ class ThermalController {
   float output_ = 0.0f;
 };
 
+// These phases/reasons are service diagnostics, not changes to public state codes.
+enum class AutoTunePhase : uint8_t { Idle, Preheat, Heating, Cooling, Validating, Success, Failed };
+enum class AutoTuneReason : uint8_t {
+  None, SafetyAbort, SensorAbort, ModeAbort, PreheatTimeout, PhaseTimeout,
+  TotalTimeout, NonRepeatable, AmplitudeTooSmall, PeriodTooSmall,
+  InvalidKu, InvalidGains, SaveFailed, Success
+};
+inline const char *autoTunePhaseName(AutoTunePhase phase) {
+  switch(phase) {
+    case AutoTunePhase::Idle:return "IDLE";case AutoTunePhase::Preheat:return "PREHEAT";
+    case AutoTunePhase::Heating:return "HEATING";case AutoTunePhase::Cooling:return "COOLING";
+    case AutoTunePhase::Validating:return "VALIDATING";case AutoTunePhase::Success:return "SUCCESS";
+    case AutoTunePhase::Failed:return "FAILED";
+  }
+  return "UNKNOWN";
+}
+inline const char *autoTuneReasonName(AutoTuneReason reason) {
+  switch(reason) {
+    case AutoTuneReason::None:return "NONE";case AutoTuneReason::SafetyAbort:return "SAFETY_ABORT";
+    case AutoTuneReason::SensorAbort:return "SENSOR_ABORT";case AutoTuneReason::ModeAbort:return "MODE_ABORT";
+    case AutoTuneReason::PreheatTimeout:return "PREHEAT_TIMEOUT";case AutoTuneReason::PhaseTimeout:return "PHASE_TIMEOUT";
+    case AutoTuneReason::TotalTimeout:return "TOTAL_TIMEOUT";case AutoTuneReason::NonRepeatable:return "NON_REPEATABLE";
+    case AutoTuneReason::AmplitudeTooSmall:return "AMPLITUDE_TOO_SMALL";case AutoTuneReason::PeriodTooSmall:return "PERIOD_TOO_SMALL";
+    case AutoTuneReason::InvalidKu:return "INVALID_KU";case AutoTuneReason::InvalidGains:return "INVALID_GAINS";
+    case AutoTuneReason::SaveFailed:return "SAVE_FAILED";case AutoTuneReason::Success:return "SUCCESS";
+  }
+  return "UNKNOWN";
+}
 class RelayAutoTune {
  public:
-  void start(uint32_t now, float input) {
-    state_ = AutoTuneState::Running;
-    startedAt_ = now;
-    phaseHeat_ = input < target_;
-    phaseStartedAt_ = now;
-    lastUpperCrossAt_ = 0;
-    currentLow_ = input;
-    currentHigh_ = input;
-    capturedHigh_ = NAN;
-    cycleCount_ = 0;
-    warmupDiscarded_ = false;
-    power_ = 0.0f;
-    progress_ = 1;
+  struct Cycle { float high=NAN,low=NAN,amplitude=0; uint32_t periodMs=0,heatMs=0,coolMs=0; };
+  struct Result { float amplitude=0,periodSec=0,heatSec=0,coolSec=0,ku=0,gainScale=1; };
+  explicit RelayAutoTune(uint8_t preheatPercent=AUTOTUNE_PREHEAT_POWER_PERCENT)
+      : preheatPercent_(preheatPercent) {}
+  void configure(float target) { target_=target; }
+  void start(uint32_t now,float input) {
+    state_=AutoTuneState::Running;phase_=AutoTunePhase::Preheat;reason_=AutoTuneReason::None;
+    rejection_=AutoTuneReason::None;startedAt_=phaseStartedAt_=now;preheatMs_=firstUpperMs_=0;
+    hasUpper_=false;cycleCount_=0;cycleSerial_=validationSerial_=0;warmupDiscarded_=false;
+    currentLow_=currentHigh_=input;capturedHigh_=NAN;lastCycle_=Cycle{};result_=Result{};
+    power_=relayHigh_=relayLow_=0;levelsLocked_=false;progress_=1;
+    if(!isfinite(input) || !isfinite(target_))abort(AutoTuneReason::SensorAbort);
   }
-  void configure(float target) { target_ = target; }
-  void abort() { state_ = AutoTuneState::Failed; power_ = 0.0f; progress_ = 0; }
-
-  bool update(uint32_t now, float input, const MachineConfig &cfg,
-              MachineConfig &tunedOut) {
-    if (state_ != AutoTuneState::Running || !isfinite(input)) return false;
-    if (elapsedMs(now, startedAt_) >= AUTOTUNE_MAX_MS ||
-        elapsedMs(now, phaseStartedAt_) >= AUTOTUNE_PHASE_MAX_MS) {
-      abort();
+  void abort(AutoTuneReason reason=AutoTuneReason::SafetyAbort) {
+    state_=AutoTuneState::Failed;phase_=AutoTunePhase::Failed;reason_=reason;power_=0;progress_=0;
+  }
+  // Called every control cycle; timeout enforcement cannot wait for a sensor sample.
+  void checkTimeout(uint32_t now) {
+    if(!running())return;
+    if(elapsedMs(now,startedAt_)>=AUTOTUNE_TOTAL_MAX_MS)abort(AutoTuneReason::TotalTimeout);
+    else if(phase_==AutoTunePhase::Preheat && elapsedMs(now,phaseStartedAt_)>=AUTOTUNE_PREHEAT_MAX_MS)
+      abort(AutoTuneReason::PreheatTimeout);
+    else if(phase_!=AutoTunePhase::Preheat && elapsedMs(now,phaseStartedAt_)>=AUTOTUNE_PHASE_MAX_MS)
+      abort(AutoTuneReason::PhaseTimeout);
+  }
+  bool update(uint32_t now,float input,const MachineConfig &cfg,MachineConfig &tunedOut) {
+    if(!running())return false;
+    if(!isfinite(input)){abort(AutoTuneReason::SensorAbort);return false;}
+    checkTimeout(now);if(!running())return false;
+    if(!levelsLocked_) {
+      relayHigh_=static_cast<float>(std::min<uint8_t>(cfg.autotuneRelayPowerPercent,cfg.maxHeaterPower));
+      relayLow_=0;levelsLocked_=true;
+    }
+    // Changing relay configuration during a measurement invalidates its swing.
+    if(relayHigh_!=std::min<uint8_t>(cfg.autotuneRelayPowerPercent,cfg.maxHeaterPower)) {
+      abort(AutoTuneReason::ModeAbort);return false;
+    }
+    if(!isfinite(cfg.autotuneBandC) || cfg.autotuneBandC<=0 || relayHigh_<=relayLow_) {
+      abort(AutoTuneReason::InvalidKu);return false;
+    }
+    if(phase_==AutoTunePhase::Preheat) {
+      power_=static_cast<float>(std::min<uint8_t>(preheatPercent_,cfg.maxHeaterPower));
+      if(input<target_-cfg.autotuneBandC)return false;
+      preheatMs_=elapsedMs(now,startedAt_);
+      // No preheat peaks/periods enter measurement. Start fresh near lower band.
+      phase_=input>=target_+cfg.autotuneBandC?AutoTunePhase::Cooling:AutoTunePhase::Heating;
+      phaseStartedAt_=now;currentLow_=currentHigh_=input;capturedHigh_=NAN;
+      power_=phase_==AutoTunePhase::Heating?relayHigh_:relayLow_;progress_=5;
       return false;
     }
-
-    if (phaseHeat_) {
-      if (input < currentLow_) currentLow_ = input;
-      power_ = static_cast<float>(std::min<uint8_t>(cfg.autotuneRelayPowerPercent,
-                                               cfg.maxHeaterPower));
-      if (input >= target_ + cfg.autotuneBandC) {
-        if (isfinite(capturedHigh_) && lastUpperCrossAt_ != 0U) {
-          const float amplitude = (capturedHigh_ - currentLow_) * 0.5f;
-          const uint32_t period = elapsedMs(now, lastUpperCrossAt_);
-          if (amplitude >= AUTOTUNE_MIN_AMPLITUDE_C &&
-              period >= AUTOTUNE_MIN_PERIOD_MS) {
-            // The first complete oscillation still contains startup transient.
-            if (!warmupDiscarded_) {
-              warmupDiscarded_ = true;
-            } else {
-              amplitudes_[cycleCount_] = amplitude;
-              periodsMs_[cycleCount_] = period;
-              ++cycleCount_;
-              const uint16_t percent = static_cast<uint16_t>(
-                  (static_cast<uint16_t>(cycleCount_) * 90U) /
-                  AUTOTUNE_REQUIRED_CYCLES);
-              progress_ = static_cast<uint8_t>(
-                  std::min<uint16_t>(95U, percent));
-            }
-          }
-        }
-        lastUpperCrossAt_ = now;
-        phaseHeat_ = false;
-        phaseStartedAt_ = now;
-        currentHigh_ = input;
-        power_ = 0.0f;
+    if(phase_==AutoTunePhase::Heating) {
+      currentLow_=std::min(currentLow_,input);power_=relayHigh_;
+      if(input<target_+cfg.autotuneBandC)return false;
+      if(hasUpper_ && isfinite(capturedHigh_)) {
+        lastCycle_.high=capturedHigh_;lastCycle_.low=currentLow_;
+        lastCycle_.amplitude=(capturedHigh_-currentLow_)*0.5f;
+        lastCycle_.periodMs=elapsedMs(now,lastUpperCrossAt_);
+        lastCycle_.heatMs=elapsedMs(now,phaseStartedAt_);
+        lastCycle_.coolMs=capturedCoolMs_;++cycleSerial_;
+        if(lastCycle_.amplitude<AUTOTUNE_MIN_AMPLITUDE_C)rejection_=AutoTuneReason::AmplitudeTooSmall;
+        else if(lastCycle_.periodMs<AUTOTUNE_MIN_PERIOD_MS)rejection_=AutoTuneReason::PeriodTooSmall;
+        else if(!warmupDiscarded_)warmupDiscarded_=true;
+        else {cycles_[cycleCount_++]=lastCycle_;progress_=static_cast<uint8_t>(cycleCount_*90U/AUTOTUNE_REQUIRED_CYCLES);}
       }
-    } else {
-      if (input > currentHigh_) currentHigh_ = input;
-      power_ = 0.0f;
-      if (input <= target_ - cfg.autotuneBandC) {
-        capturedHigh_ = currentHigh_;
-        phaseHeat_ = true;
-        phaseStartedAt_ = now;
-        currentLow_ = input;
+      if(!hasUpper_)firstUpperMs_=elapsedMs(now,startedAt_);
+      hasUpper_=true;lastUpperCrossAt_=now;
+      phase_=AutoTunePhase::Cooling;phaseStartedAt_=now;currentHigh_=input;power_=relayLow_;
+    } else if(phase_==AutoTunePhase::Cooling) {
+      currentHigh_=std::max(currentHigh_,input);power_=relayLow_;
+      if(input>target_-cfg.autotuneBandC)return false;
+      capturedHigh_=currentHigh_;capturedCoolMs_=elapsedMs(now,phaseStartedAt_);
+      phase_=AutoTunePhase::Heating;phaseStartedAt_=now;currentLow_=input;power_=relayHigh_;
+    }
+    if(cycleCount_<AUTOTUNE_REQUIRED_CYCLES)return false;
+    phase_=AutoTunePhase::Validating;++validationSerial_;result_=Result{};
+    for(uint8_t i=0;i<AUTOTUNE_REQUIRED_CYCLES;++i) {
+      result_.amplitude+=cycles_[i].amplitude/AUTOTUNE_REQUIRED_CYCLES;
+      result_.periodSec+=cycles_[i].periodMs*0.001f/AUTOTUNE_REQUIRED_CYCLES;
+      result_.heatSec+=cycles_[i].heatMs*0.001f/AUTOTUNE_REQUIRED_CYCLES;
+      result_.coolSec+=cycles_[i].coolMs*0.001f/AUTOTUNE_REQUIRED_CYCLES;
+    }
+    for(uint8_t i=0;i<AUTOTUNE_REQUIRED_CYCLES;++i) {
+      if(fabsf(cycles_[i].amplitude-result_.amplitude)>result_.amplitude*AUTOTUNE_STABILITY_FRACTION ||
+         fabsf(cycles_[i].periodMs*0.001f-result_.periodSec)>result_.periodSec*AUTOTUNE_STABILITY_FRACTION) {
+        // Preserve rolling-window qualification; expose the rejected quality.
+        rejection_=AutoTuneReason::NonRepeatable;
+        for(uint8_t n=1;n<AUTOTUNE_REQUIRED_CYCLES;++n)cycles_[n-1]=cycles_[n];
+        cycleCount_=AUTOTUNE_REQUIRED_CYCLES-1;phase_=AutoTunePhase::Cooling;return false;
       }
     }
-
-    if (cycleCount_ >= AUTOTUNE_REQUIRED_CYCLES) {
-      float amplitude = 0.0f;
-      float periodSec = 0.0f;
-      for (uint8_t i = 0; i < AUTOTUNE_REQUIRED_CYCLES; ++i) {
-        amplitude += amplitudes_[i];
-        periodSec += static_cast<float>(periodsMs_[i]) * 0.001f;
-      }
-      amplitude /= AUTOTUNE_REQUIRED_CYCLES;
-      periodSec /= AUTOTUNE_REQUIRED_CYCLES;
-      bool repeatable = true;
-      for (uint8_t i = 0U; i < AUTOTUNE_REQUIRED_CYCLES; ++i) {
-        repeatable = repeatable &&
-            fabsf(amplitudes_[i] - amplitude) <= amplitude * AUTOTUNE_STABILITY_FRACTION &&
-            fabsf(periodsMs_[i] * 0.001f - periodSec) <= periodSec * AUTOTUNE_STABILITY_FRACTION;
-      }
-      if (!repeatable) {
-        // Keep a rolling window; never save gains from drifting/noisy cycles.
-        for (uint8_t i = 1U; i < AUTOTUNE_REQUIRED_CYCLES; ++i) {
-          amplitudes_[i - 1U] = amplitudes_[i];
-          periodsMs_[i - 1U] = periodsMs_[i];
-        }
-        cycleCount_ = AUTOTUNE_REQUIRED_CYCLES - 1U;
-        return false;
-      }
-      const float relayAmplitude = static_cast<float>(
-          std::min<uint8_t>(cfg.autotuneRelayPowerPercent, cfg.maxHeaterPower)) * 0.5f;
-      const float ku = (4.0f * relayAmplitude) /
-                       (static_cast<float>(PI) * amplitude);
-      if (!isfinite(ku) || ku <= 0.0f || periodSec <= 0.0f) {
-        abort(); return false;
-      }
-      tunedOut = cfg;
-      // Tyreus-Luyben PID: it gay vuot lo hon Ziegler-Nichols, hop he nhiet cham.
-      const float kp = ku / 2.2f;
-      const float ti = 2.2f * periodSec;
-      const float td = periodSec / 6.3f;
-      const float ki = kp / ti;
-      const float kd = kp * td;
-      // If gain limits are reached, reduce ALL gains proportionally. Preserve
-      // Ti/Td instead of silently clipping only Kd and changing the controller.
-      const float gainScale = fmaxf(1.0f, fmaxf(kp / 100.0f,
-          fmaxf(ki / 20.0f, kd / 200.0f)));
-      if (!isfinite(gainScale) || kp / gainScale < 0.1f) { abort(); return false; }
-      tunedOut.controlMode = ControlMode::Pid;
-      tunedOut.kp = kp / gainScale;
-      tunedOut.ki = ki / gainScale;
-      tunedOut.kd = kd / gainScale;
-      sanitizeMachineConfig(tunedOut);
-      state_ = AutoTuneState::Success;
-      power_ = 0.0f;
-      progress_ = 100;
-      return true;
+    const float d=(relayHigh_-relayLow_)*0.5f; // Actual locked commanded swing, NEVER preheat.
+    result_.ku=4*d/(static_cast<float>(PI)*result_.amplitude);
+    if(!isfinite(result_.ku) || result_.ku<=0 || !isfinite(result_.periodSec) || result_.periodSec<=0) {
+      abort(AutoTuneReason::InvalidKu);return false;
     }
-    return false;
+    // Preserve Tyreus-Luyben coefficients and proportional gain scaling.
+    const float kp=result_.ku/2.2f,ki=kp/(2.2f*result_.periodSec),kd=kp*result_.periodSec/6.3f;
+    result_.gainScale=fmaxf(1.0f,fmaxf(kp/100.0f,fmaxf(ki/20.0f,kd/200.0f)));
+    // Round the common scale UP by one float ULP, so an exact boundary (e.g.
+    // Kd=200) cannot divide to 200.000015 and be rejected/clipped by sanitize.
+    if(result_.gainScale>1.0f && isfinite(result_.gainScale))
+      result_.gainScale=nextafterf(result_.gainScale, INFINITY);
+    if(!isfinite(kp) || !isfinite(ki) || !isfinite(kd) || !isfinite(result_.gainScale) ||
+       kp/result_.gainScale<0.1f || ki<=0 || kd<=0) {abort(AutoTuneReason::InvalidGains);return false;}
+    MachineConfig candidate=cfg;candidate.controlMode=ControlMode::Pid;
+    candidate.kp=kp/result_.gainScale;candidate.ki=ki/result_.gainScale;candidate.kd=kd/result_.gainScale;
+    if(candidate.kp>100 || candidate.ki>20 || candidate.kd>200) {abort(AutoTuneReason::InvalidGains);return false;}
+    const float p=candidate.kp,i=candidate.ki,dGain=candidate.kd;
+    sanitizeMachineConfig(candidate);
+    if(candidate.kp!=p || candidate.ki!=i || candidate.kd!=dGain) {abort(AutoTuneReason::InvalidGains);return false;}
+    tunedOut=candidate;state_=AutoTuneState::Success;phase_=AutoTunePhase::Success;
+    reason_=AutoTuneReason::Success;power_=0;progress_=100;return true;
   }
-
-  AutoTuneState state() const { return state_; }
-  uint8_t progress() const { return progress_; }
-  float power() const { return power_; }
-  bool running() const { return state_ == AutoTuneState::Running; }
-
+  AutoTuneState state()const{return state_;}
+  AutoTunePhase phase()const{return phase_;}
+  AutoTuneReason reason()const{return reason_;}
+  AutoTuneReason rejection()const{return rejection_;}
+  uint8_t progress()const{return progress_;}
+  float power()const{return power_;}
+  float relayHigh()const{return relayHigh_;}
+  float relayLow()const{return relayLow_;}
+  uint8_t cycleCount()const{return cycleCount_;}
+  uint32_t cycleSerial()const{return cycleSerial_;}
+  uint32_t validationSerial()const{return validationSerial_;}
+  uint32_t preheatMs()const{return preheatMs_;}
+  uint32_t firstUpperMs()const{return firstUpperMs_;}
+  const Cycle &lastCycle()const{return lastCycle_;}
+  const Result &result()const{return result_;}
+  bool running()const{return state_==AutoTuneState::Running;}
  private:
-  AutoTuneState state_ = AutoTuneState::Idle;
-  float target_ = 37.5f;
-  uint32_t startedAt_ = 0;
-  uint32_t phaseStartedAt_ = 0;
-  bool phaseHeat_ = false;
-  uint32_t lastUpperCrossAt_ = 0;
-  float currentLow_ = NAN;
-  float currentHigh_ = NAN;
-  float capturedHigh_ = NAN;
-  float amplitudes_[AUTOTUNE_REQUIRED_CYCLES]{};
-  uint32_t periodsMs_[AUTOTUNE_REQUIRED_CYCLES]{};
-  uint8_t cycleCount_ = 0;
-  bool warmupDiscarded_ = false;
-  uint8_t progress_ = 0;
-  float power_ = 0.0f;
+  const uint8_t preheatPercent_;
+  AutoTuneState state_=AutoTuneState::Idle;
+  AutoTunePhase phase_=AutoTunePhase::Idle;
+  AutoTuneReason reason_=AutoTuneReason::None,rejection_=AutoTuneReason::None;
+  float target_=37.5f,power_=0,relayHigh_=0,relayLow_=0;
+  uint32_t startedAt_=0,phaseStartedAt_=0,lastUpperCrossAt_=0,capturedCoolMs_=0;
+  uint32_t preheatMs_=0,firstUpperMs_=0,cycleSerial_=0,validationSerial_=0;
+  bool hasUpper_=false,levelsLocked_=false,warmupDiscarded_=false;
+  float currentLow_=NAN,currentHigh_=NAN,capturedHigh_=NAN;
+  Cycle cycles_[AUTOTUNE_REQUIRED_CYCLES]{};Cycle lastCycle_{};Result result_{};
+  uint8_t cycleCount_=0,progress_=0;
 };
