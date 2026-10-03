@@ -59,6 +59,9 @@ struct Harness {
   unsigned testCalls=0;
   uint32_t elapsedBatchSec(uint32_t)const{return 0;}
   void updateTestModeOutputs(uint32_t now){++testCalls;outputs_.forceSafe(now);}
+  void trackAdaptiveEnergy(uint32_t){}
+  float updateAdaptiveBalance(uint32_t,bool,bool,bool){return config_.maxHeaterPower;}
+  bool adaptiveCoolingRequested()const{return false;}
 #include "actual-heating.inc"
   void cycle(uint32_t now,bool newSample=true){clockMs=now;newSensorSample_=newSample;updateHeatingAndOutputs(now);}
   void warm(){outputs_.begin();for(uint32_t t=1000;t<=15000;t+=50)cycle(t,t%2000==0);}

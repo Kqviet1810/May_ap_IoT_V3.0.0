@@ -45,15 +45,17 @@ template<class Record> void verifyLegacy(uint16_t schema,uint16_t cycle) {
   MachineConfig loaded;assert(store.loadConfig(loaded));
   assert(loaded.pidCycleSec==cycle && loaded.targetTemp==input.targetTemp);
   assert(packConfig(loaded).pidCycleSec==cycle);
+  assert(!loaded.adaptiveThermalBalanceEnabled);
   MachineConfig reference;assert(waveform(loaded)==waveform(reference));
   // Corrupt CRC must not admit a configuration.
   store.bytes[offsetof(Record,crc)]^=1;assert(!store.loadConfig(loaded));
 }
 int main(){
-  static_assert(CONFIG_SCHEMA==12,"Do not change EEPROM schema");
+  static_assert(CONFIG_SCHEMA==13,"Append-only adaptive opt-in schema");
   static_assert(HEATER_BURST_QUANTUM_MS==300,"Commissioning candidate stays 300 ms");
   for(uint16_t cycle:{1U,10U,60U}) {
-    verifyLegacy<ConfigRecordV1>(12,cycle);
+    verifyLegacy<ConfigRecordV1>(13,cycle);
+    verifyLegacy<ConfigRecordLegacyV12>(12,cycle);
     verifyLegacy<ConfigRecordLegacyV3>(3,cycle);
     verifyLegacy<ConfigRecordLegacyV4>(4,cycle);
     verifyLegacy<ConfigRecordLegacyV5>(5,cycle);
@@ -69,5 +71,5 @@ int main(){
   low.highTempAlarm=29;low.emergencyTemp=29;sanitizeMachineConfig(low);
   assert(low.highTempAlarm>=low.targetTemp+HIGH_ALARM_GAP_C);
   assert(low.emergencyTemp>=low.highTempAlarm+EMERGENCY_ABOVE_HIGH_C);
-  std::puts("Actual EEPROM schemas 3..12: legacy cycle 1/10/60 loads, CRC rejected, constant timing; SP30 retains 38.2/39 safety thresholds PASS");
+  std::puts("Actual EEPROM schemas 3..13: legacy cycle 1/10/60 loads, CRC rejected, constant timing; SP30 retains 38.2/39 safety thresholds PASS");
 }

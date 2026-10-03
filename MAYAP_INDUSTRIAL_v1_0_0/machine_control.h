@@ -1,6 +1,8 @@
 #pragma once
 
 #include "config.h"
+#include "adaptive_thermal_balance.h"
+#include "adaptive_persistence.h"
 #include "firmware_update_guard.h"
 #include "boot_diagnostic.h"
 #include "startup_output_policy.h"
@@ -162,7 +164,8 @@ class FixedRing {
 enum class EventType : uint8_t {
   Boot = 1, InputChanged, OutputChanged, FaultRaised, FaultCleared, FaultAck,
   BatchStart, BatchStop, ModeChanged, ConfigSaved, SensorLost, SensorRestored,
-  AutoTuneStart, AutoTuneEnd, StorageError, Recovery, Turning, System, Network
+  AutoTuneStart, AutoTuneEnd, StorageError, Recovery, Turning, System, Network,
+  Adaptive = 250
 };
 
 enum class EventCode : uint16_t {
@@ -185,7 +188,8 @@ enum class EventCode : uint16_t {
   SirenSelfTest = 81,
   InputBase = 100,
   OutputBase = 200,
-  FaultBase = 1000
+  FaultBase = 1000,
+  AdaptiveChanged = 450
 };
 
 struct EventEntry {
@@ -1506,6 +1510,7 @@ struct PackedMachineConfigV1 {
   uint8_t ventDutyDay12To15;
   uint8_t ventDutyDay16To18;
   uint8_t ventDutyDay19To21;
+  uint8_t adaptiveThermalBalanceEnabled; // schema 13, append-only
 };
 struct ConfigRecordV1 {
   uint32_t magic;
@@ -1659,7 +1664,7 @@ struct ConfigRecordLegacyV10 {
 };
 constexpr size_t CONFIG_V11_PAYLOAD_BYTES =
     offsetof(PackedMachineConfigV1, ventAutoEnabled);
-static_assert(CONFIG_V11_PAYLOAD_BYTES + 9U == sizeof(PackedMachineConfigV1),
+static_assert(CONFIG_V11_PAYLOAD_BYTES + 9U == offsetof(PackedMachineConfigV1, adaptiveThermalBalanceEnabled),
               "9 truong profile thong gio phai nam cuoi schema 12");
 struct ConfigRecordLegacyV11 {
   uint32_t magic;
@@ -1668,6 +1673,11 @@ struct ConfigRecordLegacyV11 {
   uint32_t sequence;
   uint8_t payload[CONFIG_V11_PAYLOAD_BYTES];
   uint32_t crc;
+};
+constexpr size_t CONFIG_V12_PAYLOAD_BYTES = offsetof(PackedMachineConfigV1, adaptiveThermalBalanceEnabled);
+struct ConfigRecordLegacyV12 {
+  uint32_t magic; uint16_t schema; uint16_t size; uint32_t sequence;
+  uint8_t payload[CONFIG_V12_PAYLOAD_BYTES]; uint32_t crc;
 };
 // Schema batch v3 bo sung moc bat dau me va lan dao thanh cong gan nhat.
 struct PackedBatchV1 {
@@ -1730,7 +1740,8 @@ constexpr uint32_t CONFIG_MAGIC = 0x4D415943UL; // MAYC
 constexpr uint32_t BATCH_MAGIC  = 0x4D415942UL; // MAYB
 constexpr uint32_t REMINDER_MAGIC = 0x4D415952UL; // MAYR
 constexpr uint16_t REMINDER_SCHEMA = 1;
-constexpr uint16_t CONFIG_SCHEMA = 12;
+constexpr uint16_t CONFIG_SCHEMA = 13;
+constexpr uint16_t CONFIG_SCHEMA_LEGACY_V12 = 12;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY = 3;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V4 = 4;
 constexpr uint16_t CONFIG_SCHEMA_LEGACY_V5 = 5;
@@ -1800,6 +1811,7 @@ inline PackedMachineConfigV1 packConfig(const MachineConfig &c) {
   p.ventScheduleHour4 = c.ventScheduleHour4;
   p.ventScheduleHour5 = c.ventScheduleHour5;
   p.ventScheduleHour6 = c.ventScheduleHour6;
+  p.adaptiveThermalBalanceEnabled = c.adaptiveThermalBalanceEnabled ? 1U : 0U;
   p.ventAutoEnabled = c.ventAutoEnabled ? 1U : 0U;
   p.ventProfileLevel = c.ventProfileLevel;
   p.ventCycleMinutes = c.ventCycleMinutes;
@@ -1867,6 +1879,7 @@ inline MachineConfig unpackConfig(const PackedMachineConfigV1 &p) {
   c.ventScheduleHour4 = p.ventScheduleHour4;
   c.ventScheduleHour5 = p.ventScheduleHour5;
   c.ventScheduleHour6 = p.ventScheduleHour6;
+  c.adaptiveThermalBalanceEnabled = p.adaptiveThermalBalanceEnabled != 0U;
   c.ventAutoEnabled = p.ventAutoEnabled != 0U;
   c.ventProfileLevel = p.ventProfileLevel;
   c.ventCycleMinutes = p.ventCycleMinutes;
@@ -2354,6 +2367,10 @@ class PersistentStore {
            r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r),
                             offsetof(ConfigRecordLegacyV10, crc));
   }
+  static bool validConfigLegacyV12(const ConfigRecordLegacyV12 &r) {
+    return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V12 &&
+      r.size == sizeof(r) && r.crc == mcCrc32(reinterpret_cast<const uint8_t *>(&r), offsetof(ConfigRecordLegacyV12, crc));
+  }
   static bool validConfigLegacyV11(const ConfigRecordLegacyV11 &r) {
     return r.magic == CONFIG_MAGIC && r.schema == CONFIG_SCHEMA_LEGACY_V11 &&
            r.size == sizeof(r) &&
@@ -2391,6 +2408,18 @@ class PersistentStore {
       configSequence_ = best.sequence;
       configPayload_ = best.payload;
       return true;
+    }
+
+    // Schema 12 keeps its exact prefix and CRC. New opt-in remains OFF.
+    ConfigRecordLegacyV12 a12{}, b12{};
+    const bool va12=readRecord(EEPROM_ADDR_CONFIG_A,a12)&&validConfigLegacyV12(a12);
+    const bool vb12=readRecord(EEPROM_ADDR_CONFIG_B,b12)&&validConfigLegacyV12(b12);
+    if(va12||vb12){
+      const bool useA=!vb12||(va12&&newer(a12.sequence,b12.sequence));
+      const auto &best=useA?a12:b12;
+      configPayload_=packConfig(MachineConfig{});
+      memcpy(&configPayload_,best.payload,sizeof(best.payload));
+      configCacheValid_=true;configCurrentIsA_=useA;configSequence_=best.sequence;return true;
     }
 
     // Fallback schema 11: giu nguyen config cu, them profile moi mac dinh TAT.
@@ -5931,8 +5960,82 @@ class MachineController {
     return true;
   }
 
+  uint32_t adaptiveCompatibility() const {
+    const float signature[]={config_.targetTemp,config_.kp,config_.ki,config_.kd,
+      static_cast<float>(config_.maxHeaterPower),config_.tempOffset,
+      static_cast<float>(sensor_.sensorProfile()),static_cast<float>(MAYAP_SENSOR_PROFILE),
+      MayapAdaptive::Policy::BankWatts,static_cast<float>(HEATER_BURST_QUANTUM_MS),1.0f};
+    return mcCrc32(reinterpret_cast<const uint8_t *>(signature),sizeof(signature));
+  }
+  void trackAdaptiveEnergy(uint32_t now) {
+    adaptiveThermal_.tick(now, outputs_.state().heaterSsr);
+    if(testModeActive_ || resumeConfirmationRequired_){
+      MayapAdaptive::Observation o; o.test=testModeActive_;o.recovery=resumeConfirmationRequired_;
+      adaptiveThermal_.update(now,config_.adaptiveThermalBalanceEnabled,config_.maxHeaterPower,o);
+    }
+  }
+  bool adaptiveCoolingRequested() const {return adaptiveThermal_.decision().cooling;}
+  float updateAdaptiveBalance(uint32_t now,bool permit,bool fanStable,bool vent) {
+    const uint32_t signature=adaptiveCompatibility();
+    if(adaptiveSignatureSeen_ && signature!=adaptiveSignature_)adaptiveThermal_.invalidate();
+    adaptiveSignature_=signature;adaptiveSignatureSeen_=true;
+    MayapAdaptive::Observation o;
+    o.pv=temperature_;o.raw=rawTemperature_;o.sp=config_.targetTemp;o.high=config_.highTempAlarm;
+    o.requested=pidPower_;o.effective=adaptiveThermal_.decision().effective;
+    o.sensor=sensorUsable_;o.fanStable=fanStable;
+    o.vent=vent || (outputs_.state().ventFan && !adaptiveCoolingRequested());
+    o.cooling=adaptiveCoolingRequested();o.tune=autotune_.running();
+    o.safety=highTemperatureActive_||emergencyActive_||ventTemperatureActive_||
+      faults_.ssrInhibited()||faults_.masterDropRequired()||mayapSystemTripLatched()||
+      storageFaultLatched_||storageDegraded_||safetyJournalFaultLatched_;
+    o.recovery=!mayapBootOperationsReady()||abnormalResetLatched_||resumeConfirmationRequired_||
+      !timeReached(now,sensorStartupGraceUntil_);
+    o.test=testModeActive_;o.maintenance=mayapFirmwareMaintenanceActive();
+    // AutoTune must see the unmodified bank. No sample is learned without heat context.
+    if(newSensorSample_ && config_.adaptiveThermalBalanceEnabled){
+      if(!permit&&!o.cooling)o.recovery=true;
+      adaptiveThermal_.sample(now,o);
+    }
+    const auto d=adaptiveThermal_.update(now,config_.adaptiveThermalBalanceEnabled,config_.maxHeaterPower,o);
+    if(newSensorSample_ && sensorUsable_ && rtc_.valid()){
+      MayapAdaptive::Model seed{};
+      if(MayapAdaptive::modelStorage.takeSeed(seed)){
+        if(MayapAdaptive::compatibleModel(seed,signature,rtc_.epoch(),abnormalResetLatched_))
+          adaptiveThermal_.observer().seed(seed.load,seed.coast,seed.coastSec,seed.hold);
+        else {
+          eventLog_.push(now,EventType::Adaptive,static_cast<uint16_t>(EventCode::AdaptiveChanged),static_cast<int16_t>(MayapAdaptive::Reason::SeedInvalid));
+          mayapSerialPrintf(false,"[THERMAL-ADAPT] seed discarded\n");
+        }
+      }
+      const auto &estimate=adaptiveThermal_.observer().estimates();
+      if(config_.adaptiveThermalBalanceEnabled && estimate.learningValid &&
+         estimate.confidence>=MayapAdaptive::Policy::HighConfidence && estimate.windows>=5)
+        MayapAdaptive::modelStorage.offer(MayapAdaptive::makeModel(estimate,signature,rtc_.epoch(),0));
+    }
+    if(adaptiveThermal_.changedEnabled())heaterBurst_.reset();
+    const auto &e=adaptiveThermal_.observer().estimates();
+    runtime_.adaptiveEnabled=config_.adaptiveThermalBalanceEnabled;
+    runtime_.adaptiveState=static_cast<uint8_t>(d.state);runtime_.lastAdaptiveReason=static_cast<uint8_t>(d.reason);
+    runtime_.adaptiveConfidence=e.confidence;runtime_.adaptiveLoadIndex=e.load;
+    runtime_.adaptiveCoastRiseC=e.coast;runtime_.adaptiveCoastTimeSec=e.coastSec;
+    runtime_.adaptiveHoldPowerPct=e.hold;runtime_.effectiveMaxPowerPct=d.effective;
+    runtime_.adaptiveApproachBandC=d.approach;runtime_.adaptiveSelfHeating=d.selfHeating;
+    runtime_.adaptiveCoolingDemand=d.coolingDemand;runtime_.observerValidWindows=e.windows;
+    if(d.state!=adaptiveLoggedState_){
+      eventLog_.push(now,EventType::Adaptive, static_cast<uint16_t>(EventCode::AdaptiveChanged),static_cast<int16_t>(d.state));
+      adaptiveLoggedState_=d.state;
+    }
+    if(config_.adaptiveThermalBalanceEnabled && elapsedMs(now,adaptiveDiagnosticAt_)>=MayapAdaptive::Policy::DiagnosticMs){
+      adaptiveDiagnosticAt_=now;
+      mayapSerialPrintf(false,"[THERMAL-ADAPT] state=%s conf=%.0f load=%.3f coast=%.3f hold=%.1f max=%.1f approach=%.3f selfheat=%u cool=%u\n",
+        MayapAdaptive::stateName(d.state),e.confidence,e.load,e.coast,e.hold,d.effective,d.approach,d.selfHeating,d.cooling);
+    }
+    return d.effective;
+  }
+
   // ----------------------------- Heating/Output -------------------------------
   void updateHeatingAndOutputs(uint32_t now) {
+    trackAdaptiveEnergy(now);
     if (testModeActive_) { heaterBurst_.reset(); updateTestModeOutputs(now); return; }
     const InputState &in = inputs_.state();
     OutputRequest req{};
@@ -6089,15 +6192,19 @@ class MachineController {
     const bool actuatorReady = outputs_.heaterReady(now) && mayapBootOperationsReady() &&
         !mayapSystemTripLatched() && !mayapFirmwareMaintenanceActive();
 
+    const float effectiveLimit = updateAdaptiveBalance(now, normalSsrPermit && actuatorReady, fanStable, req.ventFan);
+    req.ventFan = req.ventFan || adaptiveCoolingRequested();
     float commandedPower = 0.0f;
     if (autotune_.running()) {
       commandedPower = autotune_.power();
     } else if (normalSsrPermit && actuatorReady) {
       if (newSensorSample_) {
+        MachineConfig actuatorConfig = config_;
+        actuatorConfig.maxHeaterPower = static_cast<uint8_t>(effectiveLimit);
         pidPower_ = pid_.updateOnNewSample(now, config_.targetTemp,
-                                           temperature_, config_, true);
+                                           temperature_, actuatorConfig, true);
       }
-      commandedPower = pidPower_;
+      commandedPower = std::min(pidPower_, effectiveLimit);
     } else {
       pid_.reset();
       pidPower_ = 0.0f;
@@ -7732,6 +7839,10 @@ class MachineController {
   bool networkStatusInitialized_ = false;
 
   float pidPower_ = 0.0f;
+  MayapAdaptive::AdaptiveThermalSupervisor adaptiveThermal_;
+  uint32_t adaptiveDiagnosticAt_=0, adaptiveSignature_=0;
+  bool adaptiveSignatureSeen_=false;
+  MayapAdaptive::State adaptiveLoggedState_=MayapAdaptive::State::Disabled;
   HeaterBurstScheduler heaterBurst_{HEATER_GROUP_COUNT, HEATER_BURST_QUANTUM_MS};
   bool previousFanCommand_ = false;
   uint32_t fanOnSince_ = 0;

@@ -98,6 +98,9 @@ struct TuneHarness {
   void latchStorageFault(const char *){storageFaultLatched_=true;}
 #include "actual-tune-start.inc"
 #include "actual-tune-update.inc"
+  void trackAdaptiveEnergy(uint32_t){}
+  float updateAdaptiveBalance(uint32_t,bool,bool,bool){return config_.maxHeaterPower;}
+  bool adaptiveCoolingRequested()const{return false;}
 #include "actual-heating.inc"
   explicit TuneHarness(uint8_t preheat=AUTOTUNE_PREHEAT_POWER_PERCENT):autotune_(preheat){outputs_.begin();MachineConfig back;assert(store_.saveConfig(config_,back));store_.saves=0;}
   void cycle(uint32_t now,bool sample=true){clockMs=now;newSensorSample_=sample;updateAutoTune(now);updateHeatingAndOutputs(now);}

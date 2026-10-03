@@ -576,18 +576,19 @@ const SettingItem SETTINGS[] = {
   ITEM_U8("Ngay 8-11", ventDutyDay8To11, 5, 90, 1, "%"),                     // 47
   ITEM_U8("Ngay 12-15", ventDutyDay12To15, 5, 90, 1, "%"),                   // 48
   ITEM_U8("Ngay 16-18", ventDutyDay16To18, 5, 90, 1, "%"),                   // 49
-  ITEM_U8("Ngay 19-21", ventDutyDay19To21, 5, 90, 1, "%")                    // 50
+  ITEM_U8("Ngay 19-21", ventDutyDay19To21, 5, 90, 1, "%"),                    // 50
+  ITEM_BOOL("Tu can bang nhiet", adaptiveThermalBalanceEnabled)               // 51
 };
 
 constexpr uint8_t SETTING_COUNT = sizeof(SETTINGS) / sizeof(SETTINGS[0]);
-static_assert(SETTING_COUNT == 51, "Bang SETTINGS phai co 51 thong so");
+static_assert(SETTING_COUNT == 52, "Bang SETTINGS phai co 52 thong so");
 
 const uint8_t GROUP_SETTING_INDEXES[] = {
   0,1,2,3,                             // Cai dat me
   4,5,6,7,8,                           // Nhiet do
   11,12,13,28,                         // Dao trung
   14,29,32,                            // He thong
-  15,16,17,19,                         // PID / SSR
+  15,16,17,19,51,                      // PID / SSR
   20,21,22,23,24,25,26,27,             // Bao ve nhiet
   9,10,                                // Quat hut; Thong gio la menu con
   30,31                                // Tao am
@@ -606,14 +607,14 @@ const SettingGroup GROUPS[] = {
   // la cai dat mang - gom ca ma QR, dat lai PIN, cap nhat firmware... nen
   // "He thong" mo ta dung hon la cai dat chung cua may.
   {"HE THONG", 13, 3},
-  {"PID / SSR", 16, 4},
-  {"BAO VE NHIET", 20, 8},
-  {"QUAT HUT", 28, 2},
-  {"TAO AM", 30, 2}
+  {"PID / SSR", 16, 5},
+  {"BAO VE NHIET", 21, 8},
+  {"QUAT HUT", 29, 2},
+  {"TAO AM", 31, 2}
 };
 constexpr uint8_t GROUP_COUNT = sizeof(GROUPS) / sizeof(GROUPS[0]);
 static_assert(GROUP_COUNT == 8, "Bang GROUPS phai co 8 nhom");
-static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == 32U,
+static_assert(sizeof(GROUP_SETTING_INDEXES) / sizeof(GROUP_SETTING_INDEXES[0]) == 33U,
               "Sai so luong setting hien trong menu chinh");
 
 // Dong phu (khong phai setting gia tri) duoc gan them vao cuoi mot so nhom.

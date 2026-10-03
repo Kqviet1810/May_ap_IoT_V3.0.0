@@ -60,7 +60,7 @@
     'tempOscillationWindowSec', 'autotuneRelayPowerPercent', 'autotuneBandC',
     'manualTurnReanchorsSchedule', 'sirenSelfTestEnabled'
   ]);
-  const CONFIG_KEYS = Object.freeze([...REQUIRED_CONFIG_KEYS, ...VENT_PROFILE_KEYS]);
+  const CONFIG_KEYS = Object.freeze([...REQUIRED_CONFIG_KEYS, ...VENT_PROFILE_KEYS, 'adaptiveThermalBalanceEnabled']);
 
   const DEFAULT_BATCH_META = Object.freeze({
     name: 'Mẻ ấp 01',
@@ -1515,6 +1515,12 @@
     assign('advancedForm', 'advKi', config.ki);
     assign('advancedForm', 'advKd', config.kd);
     assign('advancedForm', 'advMaxHeaterPower', config.maxHeaterPower);
+    const adaptiveSupported = typeof config.adaptiveThermalBalanceEnabled === 'boolean';
+    $('adaptiveThermalBalanceEnabled').disabled = !adaptiveSupported;
+    check('advancedForm', 'adaptiveThermalBalanceEnabled', config.adaptiveThermalBalanceEnabled === true);
+    $('adaptiveThermalStatus').textContent = adaptiveSupported
+      ? (config.adaptiveThermalBalanceEnabled ? 'Bật · máy sẽ học trước khi điều chỉnh.' : 'Tắt · sử dụng PID hiện tại.')
+      : 'Firmware hiện tại chưa hỗ trợ Tự cân bằng nhiệt.';
     assign('advancedForm', 'advTempRateLimitC', config.tempRateLimitC);
     assign('advancedForm', 'advTempRateWindowSec', config.tempRateWindowSec);
     assign('advancedForm', 'advTempOscillationCrossLimit', config.tempOscillationCrossLimit);
@@ -1621,6 +1627,8 @@
       config.ki = Number($('advKi').value);
       config.kd = Number($('advKd').value);
       config.maxHeaterPower = Number($('advMaxHeaterPower').value);
+      if (typeof device.config.adaptiveThermalBalanceEnabled === 'boolean')
+        config.adaptiveThermalBalanceEnabled = $('adaptiveThermalBalanceEnabled').checked;
       config.tempRateLimitC = Number($('advTempRateLimitC').value);
       config.tempRateWindowSec = Number($('advTempRateWindowSec').value);
       config.tempOscillationCrossLimit = Number($('advTempOscillationCrossLimit').value);

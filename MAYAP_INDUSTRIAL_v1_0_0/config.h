@@ -1078,6 +1078,7 @@ struct MachineConfig {
   // Legacy reserved EEPROM/protocol field; runtime uses HEATER_BURST_QUANTUM_MS.
   uint16_t pidCycleSec = 10;
   uint8_t maxHeaterPower = 100;
+  bool adaptiveThermalBalanceEnabled = false; // opt-in; old schema defaults OFF
 
   // Nang cao (schema 8): nguong chan doan nhiet + tham so Auto Tune, truoc
   // day la hang so cung trong config.h (xem ghi chu cu o khu "HANG SO AN
@@ -1279,6 +1280,12 @@ struct MachineRuntime {
   bool batchLogAvailable = false;
   uint8_t currentDay = 0;
   float heaterPower = 0.0f;
+  bool adaptiveEnabled = false, adaptiveSelfHeating = false;
+  uint8_t adaptiveState = 0, lastAdaptiveReason = 0;
+  float adaptiveConfidence = 0, adaptiveLoadIndex = 0.5f, adaptiveCoastRiseC = 0;
+  float adaptiveCoastTimeSec = 0, adaptiveHoldPowerPct = 0;
+  float effectiveMaxPowerPct = 100, adaptiveApproachBandC = 0, adaptiveCoolingDemand = 0;
+  uint32_t observerValidWindows = 0;
   bool heaterOn = false;
   bool circulationFanOn = false;
   bool ventFanOn = false;
