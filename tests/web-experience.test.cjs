@@ -612,10 +612,10 @@ test('running-batch target edit re-anchors safety and ventilation envelope inste
   h.elements.set('targetTemp', { value:30 });
   const cfg = h.buildConfig('temperature');
   assert.equal(cfg.targetTemp, 30);
-  assert.equal(cfg.lowTempAlarm, 29.0);
-  assert.equal(cfg.highTempAlarm, 30.7);
-  assert.equal(cfg.emergencyTemp, 31.5);
-  assert.equal(cfg.ventOnTemp, 30.5);
-  assert.equal(cfg.ventOffTemp, 30.1);
+  assert.ok(Math.abs(cfg.lowTempAlarm - 29.0) < 1e-9);
+  assert.ok(Math.abs(cfg.highTempAlarm - 30.7) < 1e-9);
+  assert.ok(Math.abs(cfg.emergencyTemp - 31.5) < 1e-9);
+  assert.ok(Math.abs(cfg.ventOnTemp - 30.5) < 1e-9);
+  assert.ok(Math.abs(cfg.ventOffTemp - 30.1) < 1e-9);
   assert.equal(cfg.highTempAlarmWithoutBatch, true);
 });
