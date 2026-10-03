@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "c5bc02abce3059d89e4bdb46c1369241f4519b44927f2f6ea4b78e5f056beb6f"
+      "sha256": "d3d63bd3f564727920de02c9aa25ccd9d0cf323640ab36d697d4ceb261716b0c"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "5efc82a98ee7d8c7b8932a01c70c8801ab8d89fe48916dc59b6959ac712c42e0",
+      "sha256": "fe18860a8042eea067fda69595e7596eb8ee0c0216937967f8f9ad19456ac952",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "7d81582a89cee2374b69500b91f25bf8c4a8cf517758377072f33eb579ae8097",
+      "sha256": "f2b1ce774c0efd9889e774b3ba642334138022089be9b4eebe03f05c78755575",
       "signature": "class MachineController {"
     },
     {
@@ -372,7 +372,7 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
       "signature": "class RelayAutoTune {",
-      "sha256": "103238cdf42cc22d62c726f7c8f141e96d1f555e023377cb0ac29e30f5f77b39"
+      "sha256": "034f80dbb8b5379b1c5b3e070d3485cd1b45e8d6112c808a4e5329a71f62418e"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",

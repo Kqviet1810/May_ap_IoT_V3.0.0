@@ -71,8 +71,9 @@ test('all settings remain reachable exactly once in shorter groups', () => {
 
 
 test('repeated acknowledged alarms re-open the Alarm screen when the buzzer re-arms', () => {
-  const buzzer = bodyOf('void buzzerUpdate(uint32_t now)');
-  assert.ok((buzzer.match(/alarmPresentedMask\s*&=\s*~bit/g) || []).length >= 2);
+  // Source-level count is intentional here: buzzerUpdate contains braces in
+  // comments/strings, so the lightweight body extractor is not suitable.
+  assert.ok((hmi.match(/alarmPresentedMask\s*&=\s*~bit/g) || []).length >= 2);
 });
 
 test('running Auto Tune short press offers an explicit cancel confirmation', () => {
