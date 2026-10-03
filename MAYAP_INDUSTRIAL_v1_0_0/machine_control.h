@@ -1326,6 +1326,27 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   if (!isfinite(cfg.humidityOffset)) cfg.humidityOffset = defaults.humidityOffset;
 
   cfg.targetTemp = clampFloat(cfg.targetTemp, TARGET_TEMP_MIN_C, TARGET_TEMP_MAX_C);
+
+  // Legacy repair duy nhat cho truong hop doi SV nhung TOAN BO envelope nhiet
+  // van con y nguyen bo mac dinh cua SV 37.5 C. Chi sua khi ca 5 nguong van
+  // dung mac dinh; neu nguoi dung da tuy chinh bat ky nguong nao thi giu
+  // nguyen va chi ap dung cac invariant/clamp ben duoi.
+  const bool legacyDefaultEnvelope =
+      fabsf(cfg.targetTemp - defaults.targetTemp) > 0.0005f &&
+      fabsf(cfg.lowTempAlarm - defaults.lowTempAlarm) <= 0.0005f &&
+      fabsf(cfg.highTempAlarm - defaults.highTempAlarm) <= 0.0005f &&
+      fabsf(cfg.emergencyTemp - defaults.emergencyTemp) <= 0.0005f &&
+      fabsf(cfg.ventOnTemp - defaults.ventOnTemp) <= 0.0005f &&
+      fabsf(cfg.ventOffTemp - defaults.ventOffTemp) <= 0.0005f;
+  if (legacyDefaultEnvelope) {
+    const float delta = cfg.targetTemp - defaults.targetTemp;
+    cfg.lowTempAlarm += delta;
+    cfg.highTempAlarm += delta;
+    cfg.emergencyTemp += delta;
+    cfg.ventOnTemp += delta;
+    cfg.ventOffTemp += delta;
+  }
+
   cfg.tempHysteresis = clampFloat(cfg.tempHysteresis, 0.1f, 1.0f);
   cfg.lowTempAlarm = clampFloat(cfg.lowTempAlarm, 25.0f,
                                 cfg.targetTemp - LOW_ALARM_GAP_C);
