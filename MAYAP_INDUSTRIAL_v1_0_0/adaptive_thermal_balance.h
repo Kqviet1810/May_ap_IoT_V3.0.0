@@ -1,0 +1,61 @@
+#pragma once
+#include "thermal_observer.h"
+
+namespace MayapAdaptive {
+enum class State:uint8_t {Disabled,Learning,Qualified,Adaptive,SelfHeating,Degraded,FaultBypass};
+enum class Reason:uint8_t {Disabled,Learning,Qualified,Limited,InvalidWindow,SensorSafety,ConfigChanged,SelfHeating,Cooling,SeedInvalid};
+inline const char *stateName(State state){
+  static const char *const names[]={"Disabled","Learning","Qualified","Adaptive","SelfHeating","Degraded","FaultBypass"};
+  return names[static_cast<uint8_t>(state)];
+}
+struct Decision {
+  State state=State::Disabled;Reason reason=Reason::Disabled;
+  float effective=100,approach=0,coolingDemand=0;bool cooling=false,selfHeating=false;
+};
+class AdaptiveThermalSupervisor {
+ public:
+  void reset(){*this=AdaptiveThermalSupervisor{};}
+  void invalidate(){observer_.degrade();d_.reason=Reason::ConfigChanged;ready_=false;}
+  ThermalObserver &observer(){return observer_;}
+  const ThermalObserver &observer()const{return observer_;}
+  const Decision &decision()const{return d_;}
+  bool changedEnabled()const{return changedEnabled_;}
+  void tick(uint32_t now,bool actualOn){observer_.tick(now,actualOn);}
+  void sample(uint32_t now,const Observation &o){observer_.sample(now,o);}
+  Decision update(uint32_t now,bool enabled,float configured,const Observation &o){
+    changedEnabled_=enabled!=enabled_;const uint32_t dt=seen_?since(now,at_):0;seen_=true;at_=now;
+    if(changedEnabled_){observer_.reset();ready_=false;enabled_=enabled;}
+    if(!enabled){d_=Decision{};d_.effective=configured;return d_;}
+    if(!std::isfinite(configured)||configured<0||configured>100||!o.sensor||
+       !std::isfinite(o.pv)||!std::isfinite(o.raw)||o.safety||o.tune||o.test||o.maintenance||o.recovery){
+      d_=Decision{};d_.state=State::FaultBypass;d_.reason=Reason::SensorSafety;
+      d_.effective=std::isfinite(configured)?bound(configured,0,100):0;ready_=false;return d_;
+    }
+    const auto &e=observer_.estimates();
+    if(!e.learningValid || e.confidence<Policy::MediumConfidence || e.validMs<Policy::LearnMinMs || e.windows<5){
+      d_=Decision{};d_.state=e.windows?State::Degraded:State::Learning;
+      d_.reason=e.learningValid?Reason::Learning:Reason::InvalidWindow;
+      d_.effective=configured;ready_=false;return d_;
+    }
+    const bool high=e.confidence>=Policy::HighConfidence && e.coastWindows>=2;
+    const float floor=std::min(configured,std::max(Policy::MinAuthorityPct,e.hold*1.5f+10));
+    // Medium evidence may reduce at most 20%. High evidence allows a wider
+    // envelope; this is an authority ceiling, never a second PID demand.
+    float target=std::max(floor,configured*(high?(0.5f+0.5f*e.load):0.8f));
+    d_.approach=bound(e.coast+std::max(0.0f,e.rate)*e.coastSec,Policy::ApproachMinC,Policy::ApproachMaxC);
+    if(o.pv>o.sp-d_.approach && e.rate>0){
+      const float remaining=bound((o.sp-o.pv)/d_.approach,0,1);
+      target=std::max(floor,target*(high?(0.5f+0.5f*remaining):(0.8f+0.2f*remaining)));
+    }
+    if(!ready_){d_.effective=configured;ready_=true;d_.state=State::Qualified;}
+    const float delta=std::min<uint32_t>(dt,1000)*.001f/60;
+    d_.effective=bound(target,d_.effective-Policy::FallPctPerMin*delta,d_.effective+Policy::RisePctPerMin*delta);
+    d_.effective=bound(d_.effective,0,configured);d_.coolingDemand=0;d_.cooling=d_.selfHeating=false;
+    d_.state=d_.effective<configured-0.01f?State::Adaptive:State::Qualified;
+    d_.reason=d_.state==State::Adaptive?Reason::Limited:Reason::Qualified;return d_;
+  }
+ private:
+  ThermalObserver observer_;Decision d_{};uint32_t at_=0;
+  bool enabled_=false,seen_=false,ready_=false,changedEnabled_=false;
+};
+}
