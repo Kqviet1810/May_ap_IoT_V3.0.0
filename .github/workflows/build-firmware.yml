@@ -125,9 +125,7 @@ jobs:
           node tools/test_web_experience.cjs /tmp/mayap-web-qa
 
       - name: Actual PID and autotune host tests
-        run: |
-          g++ -std=c++11 -Wall -Wextra -fsanitize=address,undefined tests/thermal-control.cpp -o /tmp/mayap-thermal-test
-          /tmp/mayap-thermal-test
+        run: python3 tools/test_thermal_control.py --sanitize
 
       - name: Adaptive staged boot policy host tests
         run: |
