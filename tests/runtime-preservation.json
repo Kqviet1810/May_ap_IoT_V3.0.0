@@ -421,11 +421,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_observer.h",
-      "sha256": "9b8e7b5bd91000d3ed2ef02c38760e6c5fc06f570aa812ce825601b4725e4019"
+      "sha256": "4f4cc0e1c978cae4eaed6df4a10169990900766fba756d821345f27e5cddc058"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_thermal_balance.h",
-      "sha256": "de11aa26b421d05e5319c8d0ec176c6f3f45c6424ae8a50f5d36689f15ed47a0"
+      "sha256": "d20320b730c9c838c170d848372e96d0a009a96f4ccef51f26f66947b94e04f7"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_model.h",
