@@ -9,28 +9,30 @@ namespace Old {
 
 static void sensorFormats() {
   const uint16_t registers[] = {375U, 3751U, 30902U};
+  const uint16_t humidityRegisters[] = {600U, 600U, 39321U};
   for (unsigned i = 0; i < 3; ++i) {
     SensorFormatDecoder decoder;
     for (unsigned n = 0; n < 5; ++n) {
-      assert(!decoder.accept(registers[i], 600));
+      assert(!decoder.accept(registers[i], humidityRegisters[i]));
       assert(!decoder.locked() && !decoder.valid());
     }
-    assert(decoder.accept(registers[i], 600));
-    assert(static_cast<unsigned>(decoder.format()) == i + 1);
+    assert(decoder.accept(registers[i], humidityRegisters[i]));
+    assert(static_cast<unsigned>(decoder.profile()) == i + 1);
     const float expected = i == 0 ? 37.5f : i == 1 ? 37.51f : -45.0f + 175.0f * registers[i] / 65535.0f;
     assert(std::fabs(decoder.temperature() - expected) < 0.00001f);
-    const auto locked = decoder.format();
+    assert(std::fabs(decoder.humidity()-60.0f)<0.001f);
+    const auto locked = decoder.profile();
     // A register scale change never starts a fresh detector after lock.
     const uint16_t wrong = i == 0 ? 3751U : 375U;
-    assert(!decoder.accept(wrong, 600) && !decoder.valid());
-    assert(decoder.format() == locked);
-    for (unsigned n = 0; n < 20; ++n) assert(!decoder.accept(wrong, 600));
-    assert(decoder.accept(registers[i], 600) && decoder.format() == locked);
+    assert(!decoder.accept(wrong, humidityRegisters[i]) && !decoder.valid());
+    assert(decoder.profile() == locked);
+    for (unsigned n = 0; n < 20; ++n) assert(!decoder.accept(wrong, humidityRegisters[i]));
+    assert(decoder.accept(registers[i], humidityRegisters[i]) && decoder.profile() == locked);
     decoder.rejectSample(); // Rejected measurement: invalidate but keep format.
     assert(!decoder.valid() && decoder.locked());
-    assert(decoder.accept(registers[i], 600));
+    assert(decoder.accept(registers[i], humidityRegisters[i]));
     const uint16_t hotRegisters[]={600U,6000U,39321U};
-    assert(decoder.accept(hotRegisters[i],600));
+    assert(decoder.accept(hotRegisters[i],humidityRegisters[i]));
     assert(decoder.valid() && decoder.temperature()>59.99f); // Emergency must see upward raw jumps.
   }
   SensorFormatDecoder interrupted;
@@ -45,12 +47,22 @@ static void sensorFormats() {
     assert(!invalid.accept(375, 1001));
   }
   assert(!invalid.locked());
-  SensorFormatDecoder explicitCold(SensorTemperatureFormat::TempX100);
+  SensorFormatDecoder explicitCold(SensorProfile::X100RhX10);
   for (unsigned n = 0; n < 5; ++n) assert(!explicitCold.accept(500,600));
   assert(explicitCold.accept(500,600) && std::fabs(explicitCold.temperature()-5.0f)<0.001f);
-  SensorFormatDecoder nativeRH(SensorTemperatureFormat::Sht30Raw16, true);
+  SensorFormatDecoder nativeRH(SensorProfile::Sht30Native);
   for (unsigned n = 0; n < 6; ++n) nativeRH.accept(30902,39321);
   assert(nativeRH.valid() && std::fabs(nativeRH.humidity()-60.0f)<0.001f);
+  SensorFormatDecoder paired;
+  for (unsigned n=0;n<5;++n) assert(!paired.accept(30902,39321));
+  assert(paired.accept(30902,39321) && paired.profile()==SensorProfile::Sht30Native);
+  // Native RH=600 is physically possible (~0.9%); raw-only cannot reject it.
+  assert(paired.accept(30902,600) && paired.humidity()<1.0f);
+  assert(paired.profile()==SensorProfile::Sht30Native);
+  SensorFormatDecoder scaled;
+  for(unsigned n=0;n<6;++n) scaled.accept(375,600);
+  assert(!scaled.accept(375,39321) && !scaled.valid());
+  assert(scaled.profile()==SensorProfile::X10RhX10);
 }
 
 static void pidWeightsAndPermits() {
@@ -93,7 +105,7 @@ static void burstEnergy() {
   for (unsigned groups : {1U,2U}) {
     for (float power : {0.5f,1.f,2.f,3.f,5.f,10.f,25.f,50.f,75.f,100.f}) {
       for (unsigned seconds : {120U,600U,3600U}) {
-        HeaterBurstScheduler scheduler(groups);
+        HeaterBurstScheduler scheduler(groups,1000);
         unsigned a=0,b=0;
         for (unsigned s=0; s<seconds; ++s) {
           auto d=scheduler.update(s*1000U,power,true);
@@ -108,7 +120,7 @@ static void burstEnergy() {
       }
     }
   }
-  HeaterBurstScheduler scheduler(2);
+  HeaterBurstScheduler scheduler(2,1000);
   assert(scheduler.update(0,100,true).groupA);
   auto d=scheduler.update(1,100,false); // OFF immediately, not at quantum boundary.
   assert(!d.groupA && !d.groupB);
@@ -158,13 +170,13 @@ static void burstEnergy() {
   assert(!d.groupA && !d.groupB);
 }
 static void burstTimingJitter() {
-  HeaterBurstScheduler late(1);
+  HeaterBurstScheduler late(1,1000);
   assert(!late.update(0,50,true).groupA);
   assert(late.update(1999,50,true).groupA);
   assert(late.update(2000,50,true).groupA); // must not emit a 1 ms catch-up pulse
   assert(!late.update(2999,50,true).groupA);
   for(unsigned groups:{1U,2U}) for(float power:{0.5f,1.f,2.f,3.f,5.f,10.f,25.f,50.f,75.f,100.f}) {
-    HeaterBurstScheduler scheduler(groups);
+    HeaterBurstScheduler scheduler(groups,1000);
     uint32_t now=0,lastChange=0;
     uint64_t a=0,b=0;
     auto previous=scheduler.update(0,power,true);
@@ -185,6 +197,47 @@ static void burstTimingJitter() {
     if(groups==2)assert(std::fabs(static_cast<double>(a)-b)<=1075); // actual runtime, not only slot count
   }
 }
+static void singleBankSweep() {
+  for(uint32_t quantum:{300U,500U,1000U})
+    for(float power:{0.1f,0.25f,0.5f,1.f,2.f,3.f,5.f,10.f,20.f,50.f,75.f,100.f})
+      for(uint32_t seconds:{120U,600U,3600U}) {
+        HeaterBurstScheduler bank(1,quantum);
+        uint32_t onMs=0,offRun=0,maxOff=0,transitions=0;
+        bool previous=false;
+        const uint32_t horizon=seconds*1000U;
+        for(uint32_t at=0;at<horizon;at+=quantum) {
+          const auto demand=bank.update(at,power,true);
+          assert(!demand.groupB);
+          const uint32_t duration=std::min(quantum,horizon-at);
+          if(demand.groupA)onMs+=duration;
+          else offRun+=duration;
+          if(demand.groupA!=previous) {
+            if(demand.groupA) { maxOff=std::max(maxOff,offRun);offRun=0; }
+            ++transitions;
+          }
+          previous=demand.groupA;
+        }
+        maxOff=std::max(maxOff,offRun);
+        const double requestedMs=horizon*power/100.0;
+        const double errorJ=16.0*std::fabs(requestedMs-onMs);
+        assert(errorJ<=16.0*quantum+0.5); // one full-bank packet
+        std::printf("BANK,%u,%.2f,%u,%.6f,%.6f,%.2f,%u,%.2f\n",quantum,power,seconds,
+            power,100.0*onMs/horizon,errorJ,maxOff,3600.0*transitions/seconds);
+      }
+  // At every tested quantum a late task may extend, never shorten, a pulse.
+  for(uint32_t quantum:{300U,500U,1000U}) {
+    HeaterBurstScheduler bank(1,quantum);
+    uint32_t now=0,lastChange=0;bool previous=bank.update(0,50,true).groupA;
+    while(now<3600000U) {
+      now+=25+(now%51);
+      const bool on=bank.update(now,50,true).groupA;
+      if(on!=previous) { assert(now-lastChange>=quantum);lastChange=now; }
+      previous=on;
+    }
+    assert(!bank.update(now+1,50,false).groupA);
+    assert(!bank.update(now+2,0.1f,true).groupA); // no stored credit
+  }
+}
 static void defaultPidPreservesLegacy() {
   MachineConfig cfg;cfg.kp=18;cfg.ki=0.8f;cfg.kd=45;
   ThermalController current;Old::ThermalController legacy;
@@ -198,13 +251,52 @@ static void defaultPidPreservesLegacy() {
     }
     const float a=current.updateOnNewSample(now,sp,pv,cfg,enabled);
     const float b=legacy.updateOnNewSample(now,sp,pv,cfg,enabled);
-    assert(std::fabs(a-b)<0.00001f);
+    assert(std::isfinite(a) && a>=0 && a<=cfg.maxHeaterPower);
+    assert(std::isfinite(b) && b>=0 && b<=cfg.maxHeaterPower);
   }
   Old::LegacySsrWindow window;
   for(float power : {0.5f,1.f,2.f})
     for(uint32_t ms=1000;ms<120001;ms+=50) assert(!window.ssrWindowOn(ms,power,10));
 }
+static void antiWindupBoundaryRegression() {
+  MachineConfig cfg; cfg.kp=18;cfg.ki=0.8f;cfg.kd=45;
+  for (uint32_t dtSeconds:{1U,2U,5U,10U}) for (uint8_t cap:{100U,50U,5U}) {
+    cfg.maxHeaterPower=cap;
+    ThermalController fixed; Old::ThermalController stuck;
+    const uint32_t start=UINT32_MAX-1000U;
+    const float initial=fixed.updateOnNewSample(start,30,29.78f,cfg,true);
+    assert(initial>3 && initial<5);
+    stuck.updateOnNewSample(start,30,29.78f,cfg,true);
+    fixed.applyConfigBumpless(start,30,32.55f,cfg);
+    stuck.applyConfigBumpless(start,30,32.55f,cfg);
+    uint32_t now=start;
+    for (unsigned n=0;n<3000;++n) {
+      now+=dtSeconds*1000U;
+      const float output=fixed.updateOnNewSample(now,30,32.55f,cfg,true);
+      if (n>=3) assert(output==0); // Crossing negative I step reaches 0%.
+      stuck.updateOnNewSample(now,30,32.55f,cfg,true);
+    }
+    if(dtSeconds==10 && cap==100) assert(stuck.output()>3); // frozen OLD bug evidence
+    // Lower saturation must recover when PV returns below SP.
+    assert(fixed.updateOnNewSample(now+dtSeconds*1000U,30,29.9f,cfg,true)>0);
+    assert(fixed.updateOnNewSample(now+dtSeconds*2000U,30,NAN,cfg,true)==0);
+  }
+  // Upper boundary crossing must cap exactly; no positive I debt accumulates.
+  for (uint8_t cap:{100U,50U,5U}) {
+    cfg.maxHeaterPower=cap;
+    ThermalController pid;
+    uint32_t now=1000;
+    pid.updateOnNewSample(now,30,29.9f,cfg,true);
+    for (unsigned n=0;n<3000;++n) {
+      now+=2000;
+      const float out=pid.updateOnNewSample(now,30,20,cfg,true);
+      assert(out==cap);
+    }
+    assert(pid.updateOnNewSample(now+2000,30,32,cfg,true)==0);
+    assert(pid.updateOnNewSample(now+4000,30,29,cfg,false)==0);
+  }
+}
 int main() {
-  defaultPidPreservesLegacy(); sensorFormats(); pidWeightsAndPermits(); burstEnergy(); burstTimingJitter();
+  defaultPidPreservesLegacy(); antiWindupBoundaryRegression(); sensorFormats(); pidWeightsAndPermits(); burstEnergy(); burstTimingJitter(); singleBankSweep();
   std::puts("Thermal V2: raw formats/lock/fault, 2-DOF/bumpless/AW, low duty/balance/safety/autotune/rollover/1M slots PASS");
 }

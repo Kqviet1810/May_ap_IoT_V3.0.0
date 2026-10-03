@@ -109,6 +109,8 @@ Commit `274b0d28` đã sửa false-timeout khi task tỉnh muộn: sau khi sched
 
 Firmware có fault manager tập trung với severity `Info / Warning / Stop / Emergency`, output arbiter và heater inhibit. Tuy nhiên software chỉ là một lớp.
 
+Phần cứng heater hiện tại: **GPIO1 điều khiển đồng thời cả hai SSR**, mỗi SSR cấp cho hai thanh 4 kW. Firmware chỉ có **một bank 16 kW** (GPIO1 OFF = 0 kW, ON = 16 kW); công suất PID 0–100% là công suất trung bình của toàn bank. Không có GPIO điều khiển riêng SSR thứ hai. Xem [báo cáo thermal V2](audit/THERMAL_CONTROL_V2.md) trước khi thử nghiệm trên máy thật.
+
 Chuỗi an toàn phần cứng yêu cầu:
 
 ```text

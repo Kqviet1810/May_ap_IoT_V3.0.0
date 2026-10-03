@@ -279,29 +279,22 @@ constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
 
 // ----------------------------- GPIO ------------------------------------------
 // Output HIGH = ON.
-constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // KAO3400 - SSR thanh nhiet
-// No second SSR GPIO is proved by the repository pinmap. Single-output fallback
-// remains production default. Define ONLY after verifying Group B wiring.
-#if defined(MAYAP_HEATER_SSR_B_PIN)
-static_assert(MAYAP_HEATER_SSR_B_PIN >= 0 && MAYAP_HEATER_SSR_B_PIN <= 48,
-              "SSR B GPIO out of range");
-constexpr uint8_t PIN_OUT_HEATER_SSR_B = MAYAP_HEATER_SSR_B_PIN;
-constexpr uint8_t HEATER_GROUP_COUNT = 2U;
-#else
+constexpr uint8_t PIN_OUT_HEATER_SSR   = 1;   // Both SSRs, one logical 16 kW bank
 constexpr uint8_t HEATER_GROUP_COUNT = 1U;
+#ifdef MAYAP_HEATER_SSR_B_PIN
+#error "This board has one heater control GPIO; both SSRs share GPIO1"
+#endif
+#if defined(MAYAP_SENSOR_TEMP_FORMAT) || defined(MAYAP_SENSOR_HUMIDITY_RAW16)
+#error "Use MAYAP_SENSOR_PROFILE for paired temperature/humidity decoding"
 #endif
 
-// Module temperature profile: 0=raw-register autodetection, 1=X10, 2=X100,
-// 3=native SHT30 RAW16. An explicit profile is still verified every boot.
-#ifndef MAYAP_SENSOR_TEMP_FORMAT
-#define MAYAP_SENSOR_TEMP_FORMAT 0
+// Paired T/RH Modbus profile: 0=AUTO, 1=X10/RH-X10, 2=X100/RH-X10,
+// 3=native SHT30 T+RH. An explicit profile is still verified every boot.
+#ifndef MAYAP_SENSOR_PROFILE
+#define MAYAP_SENSOR_PROFILE 0
 #endif
-// Existing Modbus RH register is X10. Change only with a verified module map.
-#ifndef MAYAP_SENSOR_HUMIDITY_RAW16
-#define MAYAP_SENSOR_HUMIDITY_RAW16 0
-#endif
-static_assert(MAYAP_SENSOR_TEMP_FORMAT >= 0 && MAYAP_SENSOR_TEMP_FORMAT <= 3,
-              "Invalid RS485 temperature format");
+static_assert(MAYAP_SENSOR_PROFILE >= 0 && MAYAP_SENSOR_PROFILE <= 3,
+              "Invalid RS485 sensor profile");
 constexpr float THERMAL_PID_BETA = 1.0f;
 // Chan 2 truoc day du phong (PULSE_SPARE), sau do gan LED xanh bao "dang co
 // me ap" - nay bo han tinh nang LED nay, chan 2 chuyen thanh coi HMI (xem
@@ -401,9 +394,6 @@ constexpr bool BUZZER_ACTIVE_HIGH = true;
 // Kiem tra toan bo GPIO tai compile-time.
 constexpr uint8_t MAYAP_USED_PINS[] = {
   PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
-#if defined(MAYAP_HEATER_SSR_B_PIN)
-  PIN_OUT_HEATER_SSR_B,
-#endif
   PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
   PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
   PIN_OUT_HUMIDIFIER, PIN_STATUS_RGB, PIN_ATTINY_BUS,

@@ -14,9 +14,10 @@ class HeaterBurstScheduler {
     remainder = static_cast<uint8_t>(energy % count);
     return static_cast<uint32_t>(energy / count);
   }
-  explicit HeaterBurstScheduler(uint8_t groups = 1U, uint32_t quantumMs = 1000U)
+  // Current GPIO1 drives both SSRs; production passes one logical 16 kW bank.
+  explicit HeaterBurstScheduler(uint8_t groups = 1U, uint32_t quantumMs = 300U)
       : groups_(groups == 2U ? 2U : 1U),
-        quantumMs_(quantumMs < 1000U ? 1000U : (quantumMs > 60000U ? 60000U : quantumMs)) {}
+        quantumMs_(quantumMs < 300U ? 300U : (quantumMs > 60000U ? 60000U : quantumMs)) {}
 
   void reset() {
     active_ = false;

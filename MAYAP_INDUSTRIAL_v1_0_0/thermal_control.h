@@ -72,15 +72,23 @@ class ThermalController {
     const float d = -cfg.kd * filteredDerivative_;
     // Weighted absolute Celsius P has a DC offset. Permit I to cancel it:
     // the old +/-maxOut bound alone can prevent beta<1 reaching the setpoint.
-    // Conditional anti-windup still uses the ACTUAL 0..maxOut actuator limits.
+    // Anti-windup uses the ACTUAL 0..maxOut actuator limits.
     const float integralLimit = maxOut + fabsf(cfg.kp * (1.0f - beta_) * setpoint);
     const float candidateIntegral = clampFloat(
         integral_ + cfg.ki * error * dt, -integralLimit, integralLimit);
     const float unsaturated = p + candidateIntegral + d;
-    // Tich phan co dieu kien: chi tich khi chua bao hoa hoac dang keo khoi bao hoa.
-    if ((unsaturated >= 0.0f && unsaturated <= maxOut) ||
-        (unsaturated > maxOut && error < 0.0f) ||
-        (unsaturated < 0.0f && error > 0.0f)) {
+    const float previousUnsaturated = p + integral_ + d;
+    const float integralStep = candidateIntegral - integral_;
+    // A step crossing a limit must reach that limit. Discarding the whole
+    // step can leave positive heat indefinitely while PV is above SP.
+    if (unsaturated < 0.0f && integralStep < 0.0f && previousUnsaturated > 0.0f) {
+      integral_ = clampFloat(-p - d, -integralLimit, integralLimit);
+    } else if (unsaturated > maxOut && integralStep > 0.0f &&
+               previousUnsaturated < maxOut) {
+      integral_ = clampFloat(maxOut - p - d, -integralLimit, integralLimit);
+    } else if ((unsaturated >= 0.0f && unsaturated <= maxOut) ||
+               (unsaturated > maxOut && integralStep < 0.0f) ||
+               (unsaturated < 0.0f && integralStep > 0.0f)) {
       integral_ = candidateIntegral;
     }
     output_ = clampFloat(p + integral_ + d, 0.0f, maxOut);

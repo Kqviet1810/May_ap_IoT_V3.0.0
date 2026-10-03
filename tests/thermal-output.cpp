@@ -25,29 +25,21 @@ template<class T, unsigned N> class FixedRing {
 };
 #include "actual-output.inc"
 static void assertOff(const OutputArbiter &arbiter) {
-  assert(!arbiter.state().heaterSsr && !arbiter.state().heaterSsrA && !arbiter.state().heaterSsrB);
+  assert(!arbiter.state().heaterSsr);
   assert(levels[PIN_OUT_HEATER_SSR]==LOW);
-#ifdef MAYAP_HEATER_SSR_B_PIN
-  assert(levels[PIN_OUT_HEATER_SSR_B]==LOW);
-#endif
 }
 int main() {
   OutputArbiter arbiter;
   arbiter.begin(); assertOff(arbiter);
   OutputRequest request;
-  request.heaterSsr=true;request.heaterSsrA=true;request.heaterSsrB=true;
+  request.heaterSsr=true;
   request.heatMaster=true;request.circulationFan=true;
   bootReady=false;arbiter.update(1000,request);assertOff(arbiter);
   assert(!arbiter.state().heatMaster);
   bootReady=true;arbiter.update(1001,request);assertOff(arbiter);
   assert(!arbiter.heaterReady(1001));
   arbiter.update(1001+HEAT_MASTER_PICKUP_MS,request);
-  assert(arbiter.state().heaterSsrA && arbiter.state().heaterSsr);
-#ifdef MAYAP_HEATER_SSR_B_PIN
-  assert(arbiter.state().heaterSsrB && levels[PIN_OUT_HEATER_SSR_B]==HIGH);
-#else
-  assert(!arbiter.state().heaterSsrB);
-#endif
+  assert(arbiter.state().heaterSsr && levels[PIN_OUT_HEATER_SSR]==HIGH);
   // SSR inhibit has immediate priority even while contactor remains permitted.
   request.heaterSsr=false;arbiter.update(1002+HEAT_MASTER_PICKUP_MS,request);assertOff(arbiter);
   request.heaterSsr=true;arbiter.update(1003+HEAT_MASTER_PICKUP_MS,request);
@@ -81,9 +73,9 @@ int main() {
   OutputArbiter wrap;wrap.begin();request=OutputRequest{};
   request.heatMaster=request.heaterSsr=true;
   wrap.update(clockMs,request);
-  wrap.update(clockMs+HEAT_MASTER_PICKUP_MS,request);assert(wrap.state().heaterSsrA);
+  wrap.update(clockMs+HEAT_MASTER_PICKUP_MS,request);assert(wrap.state().heaterSsr);
   request.heatMaster=false;request.immediateMasterDrop=true;
   wrap.update(clockMs+HEAT_MASTER_PICKUP_MS+1,request);assertOff(wrap);
   assert(!wrap.state().heatMaster);
-  std::puts("Actual OutputArbiter: single/dual GPIO, boot/trip/inhibit/immediate OFF/pickup/relay wear/millis wrap PASS");
+  std::puts("Actual OutputArbiter: one 16 kW GPIO1 bank, boot/trip/inhibit/immediate OFF/pickup/relay wear/millis wrap PASS");
 }

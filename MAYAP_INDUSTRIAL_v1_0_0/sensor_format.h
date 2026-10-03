@@ -1,50 +1,58 @@
 #pragma once
 
-// Pure raw-register decoding. The Modbus register order stays RH, temperature.
-enum class SensorTemperatureFormat : uint8_t {
-  Auto = 0, TempX10 = 1, TempX100 = 2, Sht30Raw16 = 3
+// Paired Modbus register profile. Register order remains RH, temperature.
+enum class SensorProfile : uint8_t {
+  Auto = 0, X10RhX10 = 1, X100RhX10 = 2, Sht30Native = 3
 };
 
 class SensorFormatDecoder {
  public:
-  explicit SensorFormatDecoder(SensorTemperatureFormat configured = SensorTemperatureFormat::Auto,
-                               bool humidityRaw16 = false)
-      : configured_(configured), humidityRaw16_(humidityRaw16) {}
+  explicit SensorFormatDecoder(SensorProfile configured = SensorProfile::Auto)
+      : configured_(configured) {}
 
-  static float decodeTemperature(uint16_t raw, SensorTemperatureFormat format) {
+  static float decodeTemperature(uint16_t raw, SensorProfile profile) {
     // X10/X100 registers use signed two's complement; native SHT30 is unsigned.
     const int32_t signedRaw = raw < 0x8000U ? raw : static_cast<int32_t>(raw) - 65536;
-    switch (format) {
-      case SensorTemperatureFormat::TempX10: return signedRaw * 0.1f;
-      case SensorTemperatureFormat::TempX100: return signedRaw * 0.01f;
-      case SensorTemperatureFormat::Sht30Raw16: return -45.0f + 175.0f * raw / 65535.0f;
+    switch (profile) {
+      case SensorProfile::X10RhX10: return signedRaw * 0.1f;
+      case SensorProfile::X100RhX10: return signedRaw * 0.01f;
+      case SensorProfile::Sht30Native: return -45.0f + 175.0f * raw / 65535.0f;
       default: return NAN;
     }
   }
 
+  static float decodeHumidity(uint16_t raw, SensorProfile profile) {
+    if (profile == SensorProfile::Sht30Native) return 100.0f * raw / 65535.0f;
+    if (profile == SensorProfile::X10RhX10 || profile == SensorProfile::X100RhX10)
+      return raw * 0.1f;
+    return NAN;
+  }
+
   bool accept(uint16_t rawTemperature, uint16_t rawHumidity) {
     valid_ = false;
-    humidity_ = humidityRaw16_ ? 100.0f * rawHumidity / 65535.0f : rawHumidity * 0.1f;
-    if (humidity_ < 0.0f || humidity_ > 100.0f) { rejectSample(); return false; }
     if (!locked()) {
       uint8_t candidates = 0U;
       for (uint8_t i = 1U; i <= 3U; ++i) {
-        const auto f = static_cast<SensorTemperatureFormat>(i);
-        if (configured_ != SensorTemperatureFormat::Auto && f != configured_) continue;
-        const float t = decodeTemperature(rawTemperature, f);
+        const auto profile = static_cast<SensorProfile>(i);
+        if (configured_ != SensorProfile::Auto && profile != configured_) continue;
+        const float t = decodeTemperature(rawTemperature, profile);
+        const float rh = decodeHumidity(rawHumidity, profile);
         // Raw-only autodetection is ambiguous outside this commissioning envelope.
         // Explicit verified module profiles can start anywhere in the old -40..60 C range.
-        const float minimum = configured_ == SensorTemperatureFormat::Auto ? 10.0f : -40.0f;
-        if (t >= minimum && t <= 60.0f) candidates |= static_cast<uint8_t>(1U << i);
+        const float minimum = configured_ == SensorProfile::Auto ? 10.0f : -40.0f;
+        if (t >= minimum && t <= 60.0f && rh >= 0.0f && rh <= 100.0f)
+          candidates |= static_cast<uint8_t>(1U << i);
       }
       if (!candidates || (candidates & (candidates - 1U))) { rejectSample(); return false; }
       if (candidates != candidateMask_) { candidateMask_ = candidates; consecutive_ = 0U; }
       if (++consecutive_ < 6U) return false;
       for (uint8_t i = 1U; i <= 3U; ++i)
-        if (candidates == (1U << i)) format_ = static_cast<SensorTemperatureFormat>(i);
+        if (candidates == (1U << i)) profile_ = static_cast<SensorProfile>(i);
     }
-    const float t = decodeTemperature(rawTemperature, format_);
+    const float t = decodeTemperature(rawTemperature, profile_);
+    const float rh = decodeHumidity(rawHumidity, profile_);
     if (!isfinite(t) || t < -40.0f || t > 60.0f ||
+        !isfinite(rh) || rh < 0.0f || rh > 100.0f ||
         (hasLast_ && lastTemperature_ - t > 20.0f)) {
       rejectSample();
       return false; // Never change scale, even through loss/recovery of UART.
@@ -52,21 +60,21 @@ class SensorFormatDecoder {
     // Never suppress a plausible upward raw step: EmergencyHigh must see it
     // immediately, independently of median/IIR lag or PID plausibility gates.
     temperature_ = lastTemperature_ = t;
+    humidity_ = rh;
     hasLast_ = valid_ = true;
     return true;
   }
 
   void rejectSample() { valid_ = false; consecutive_ = 0U; candidateMask_ = 0U; }
-  bool locked() const { return format_ != SensorTemperatureFormat::Auto; }
+  bool locked() const { return profile_ != SensorProfile::Auto; }
   bool valid() const { return locked() && valid_; }
-  SensorTemperatureFormat format() const { return format_; }
+  SensorProfile profile() const { return profile_; }
   float temperature() const { return valid() ? temperature_ : NAN; }
   float humidity() const { return valid() ? humidity_ : NAN; }
 
  private:
-  const SensorTemperatureFormat configured_;
-  const bool humidityRaw16_;
-  SensorTemperatureFormat format_ = SensorTemperatureFormat::Auto;
+  const SensorProfile configured_;
+  SensorProfile profile_ = SensorProfile::Auto;
   uint8_t candidateMask_ = 0U;
   uint8_t consecutive_ = 0U;
   bool valid_ = false;

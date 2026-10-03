@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "5dc4be50d163b026e697ebbffd17017caf8d107f4f1a1eeca86f6d87a0d50d37"
+      "sha256": "3001873d256148d7ece63a8ae73272dbefda69bbefa7ede9b569f532592735bf"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "0aa4f7ee401d7c0b3c64c5584fb6a42034f1ffe899514545ffcbd9ac521d08f2",
+      "sha256": "6d716c3406366cb2ed5b52bf9524b6703e955c647dc39df8d0d7b25eccb46bea",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "d0a1832901295ddc74cb101d9421b67b496b2f659ab9ebc388dbb7040b0e99b5",
+      "sha256": "d3237e4ae71cd7367a3a6cb556e898d7e1f0ef5009fe2c69f64c8a693b623d5c",
       "signature": "class MachineController {"
     },
     {
@@ -72,7 +72,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "c0ca6ac61cd852e54abac326da2bb013763c6f9838b5e5cec0faee7ccbfbbbb4",
+      "sha256": "560812f17a3357ab6c2890e376d9ddbf9efa1af3a4610c73c83fae08364029f2",
       "signature": "class OutputArbiter {"
     },
     {
@@ -87,7 +87,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "0a83c34a404309dd6861d09f07bfb376c40a660ede8d41a31c44fdb9b74d52a9",
+      "sha256": "ec82d6d943ed025ee33183982dd8380594769c90aa2ff329f3a6a568969619e8",
       "signature": "bool decodeFrame("
     },
     {
@@ -363,11 +363,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/sensor_format.h",
-      "sha256": "1e53bebbea97cba799d716f25d97e3b852c8c43389eb9a5549bd9deffbc4f3ea"
+      "sha256": "3d35b9d650a1423c22547efeddba2065be0e30d31f47edc86c79f22cda610606"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/heater_burst_scheduler.h",
-      "sha256": "4dd8f85b4d4ede7edc5fd84a09545be1c74b571840a335c110a4e80e1a3fceac"
+      "sha256": "9cbefddadd06ddb9e517d1f264f9f2ef9d56dc95634b3e912ff53cac0fd0eb58"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
@@ -424,5 +424,5 @@
   "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
   "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed.",
   "transactionHardeningReviewNote": "2026-10-02: reviewed retrySameRequest, moveToUncertain, sweepUncertain, sendConfig, sendCommand and handleAck. Retain signed envelope before receipt; bounded reconnect/UNCERTAIN retries never re-sign or cross boot/device/expiry; terminal ACK cancels retries and incomplete history cannot settle. All controller, safety, storage, HMI display, ATtiny, boot/recovery/OTA preservation entries unchanged.",
-  "thermalV2ReviewNote": "2026-10-03: explicit thermal scope reviewed from main 9569fcc. Only config pin/profile/beta declarations, ThermalController 2-DOF weighting, MachineController sensor/filter/thermal scheduling gates and energy-equivalent heater watchdog, OutputArbiter A/B routing and mechanical-only relay wear count, and decodeFrame fingerprints changed. Single SSR GPIO 1 is the unchanged production default; B has no default GPIO. PID beta remains 1. Gains, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New raw decoder and burst scheduler are fingerprinted. No blanket baseline refresh."
+  "thermalV2ReviewNote": "2026-10-03: adversarial review correction on PR #2. GPIO1 is confirmed to drive both SSRs, one 16 kW bank; independent B production routing was removed. Only config paired-profile/bank declarations, ThermalController actuator-boundary anti-windup, MachineController paired sensor decoding/single-bank E115 and scheduling, OutputArbiter single-bank routing, and decodeFrame fingerprints changed. Kp/Ki/Kd, beta=1, sample period, median3/IIR3/8, safety thresholds/timers, RelayAutoTune body, EEPROM schemas/addresses, FaultManager, HMI, Web/protocol, batch/turn/recovery/OTA and ATtiny implementations remain unchanged. New sensor decoder and scheduler hashes updated after explicit review; no blanket baseline refresh."
 }

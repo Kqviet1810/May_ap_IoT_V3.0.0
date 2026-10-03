@@ -82,8 +82,7 @@ class HardwareSerial {
   }
 };
 using std::isfinite;
-#define MAYAP_SENSOR_TEMP_FORMAT 0
-#define MAYAP_SENSOR_HUMIDITY_RAW16 0
+#define MAYAP_SENSOR_PROFILE 0
 #include "../MAYAP_INDUSTRIAL_v1_0_0/sensor_format.h"
 #include "actual-uart.inc"
 static void run(SHT485Industrial &sensor, uint32_t duration) {
@@ -137,14 +136,14 @@ int main() {
   assert(precise.online() && !precise.dataValid()); // boot heater gate before sixth sample
   run(precise,4000);
   assert(precise.dataValid() && precise.formatLocked());
-  assert(precise.temperatureFormat()==SensorTemperatureFormat::TempX100);
+  assert(precise.sensorProfile()==SensorProfile::X100RhX10);
   assert(std::fabs(precise.rawTemperatureC()-37.51f)<0.00001f);
   assert(std::fabs(precise.temperatureC()-37.51f)<0.00001f);
   replyTemperature=3752; run(precise,6000);
   assert(precise.temperatureC()>37.51f && precise.temperatureC()<37.52f);
   replyTemperature=375; run(precise,2500);
   assert(!precise.dataValid() && std::isnan(precise.rawTemperatureC()));
-  assert(precise.temperatureFormat()==SensorTemperatureFormat::TempX100);
+  assert(precise.sensorProfile()==SensorProfile::X100RhX10);
   replyTemperature=3751; run(precise,4000);
   assert(precise.dataValid());
   const uint32_t goodBeforeCrc=precise.goodFrames();
@@ -154,12 +153,13 @@ int main() {
   run(precise,5000);
   assert(!precise.dataValid() && precise.formatLocked()); // persistent errors still expire data and cut heat.
   replyMode=1;run(precise,6000);assert(precise.dataValid());
-  replyMode=1; replyTemperature=30902;
+  replyMode=1; replyTemperature=30902; replyHumidity=39321;
   SHT485Industrial native;
   native.begin(); run(native,13000);
-  assert(native.dataValid() && native.temperatureFormat()==SensorTemperatureFormat::Sht30Raw16);
+  assert(native.dataValid() && native.sensorProfile()==SensorProfile::Sht30Native);
   assert(std::fabs(native.rawTemperatureC()-(-45.0f+175.0f*30902/65535.0f))<0.00001f);
-  replyTemperature=3751;
+  assert(std::fabs(native.humidityRH()-60.0f)<0.001f);
+  replyTemperature=3751; replyHumidity=600;
   SHT485Industrial hot;
   hot.begin();run(hot,13000);assert(hot.dataValid());
   replyTemperature=6000;run(hot,2500);

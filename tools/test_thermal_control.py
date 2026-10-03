@@ -43,20 +43,14 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     used=set()
     for name in pin_names:
         declaration = re.search(r'constexpr uint8_t '+name+r'\s*=[^;]*;',config)[0]
-        if name=='PIN_OUT_HEATER_SSR_B': declaration='#if defined(MAYAP_HEATER_SSR_B_PIN)\n'+declaration+'\n#endif'
-        else: used.add(int(re.search(r'=\s*(\d+)',declaration)[1]))
+        used.add(int(re.search(r'=\s*(\d+)',declaration)[1]))
         declarations.append(declaration)
     pin_source = out / 'pins.cpp'
     pin_source.write_text('#include <cstdint>\n#include <cstddef>\n'+'\n'.join(declarations)+'\n'+pins+'\nint main(){}\n')
-    # Verify the actual compile-time guard with hypothetical pin indices only.
-    free = next(n for n in range(49) if n not in used)
-    a = int(re.search(r'PIN_OUT_HEATER_SSR\s*=\s*(\d+)',config)[1])
-    for pin, accepted in [(None,True),(free,True),(a,False),(49,False)]:
-        command=['g++','-std=c++14',str(pin_source),'-o',str(out/'pins')]
-        if pin is not None: command += ['-DMAYAP_HEATER_SSR_B_PIN='+str(pin)]
-        result=subprocess.run(command,capture_output=True,text=True)
-        assert (result.returncode==0)==accepted,result.stderr
-    print('Actual pinmap: single fallback/optional unique B accepted; collisions/out-of-range rejected (no hardware B pin chosen)')
+    assert 'constexpr uint8_t HEATER_GROUP_COUNT = 1U;' in config
+    assert '#error "This board has one heater control GPIO; both SSRs share GPIO1"' in config
+    subprocess.run(['g++','-std=c++14',str(pin_source),'-o',str(out/'pins')],check=True)
+    print('Actual pinmap: GPIO1 drives both SSRs as one 16 kW bank; group count fixed at one')
     start = machine.index('struct OutputRequest {')
     end = body_end(machine, machine.index('class OutputArbiter {', start)) + 1
     source = machine[start:end]
@@ -65,13 +59,14 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     for name in names:
         found = re.search(r'constexpr [^;\n]*\b' + name + r'\s*=[^;]*;', config)
         if not found: raise ValueError('missing production constant ' + name)
-        if name == 'PIN_OUT_HEATER_SSR_B':
-            declarations.append('#if defined(MAYAP_HEATER_SSR_B_PIN)\n' + found[0] + '\n#endif')
-        else: declarations.append(found[0])
+        declarations.append(found[0])
     (out / 'actual-output.inc').write_text('\n'.join(declarations) + '\n' + source)
     start = machine.index('  void updateHeatingAndOutputs(')
     (out / 'actual-heating.inc').write_text(machine[start:body_end(machine,start)])
     heating = machine[start:body_end(machine,start)]
+    evidence_start = machine.index('    const bool responseDemand = batchRunning_')
+    evidence_end = machine.index('    const bool sensorGrace', evidence_start)
+    (out / 'actual-heater-evidence.inc').write_text(machine[evidence_start:evidence_end])
     fields = sorted(set(re.findall(r'config_\.(\w+)', heating)))
     extra = []
     fixture_fields = {'controlMode','kp','ki','kd','maxHeaterPower','autotuneRelayPowerPercent','tempHysteresis','autotuneBandC'}
@@ -99,14 +94,11 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         if actual != expected: raise ValueError('Update documented simulator defaults: ' + name)
     common = ['g++', '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out)]
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
-    for test in ['thermal-control','thermal-v2','thermal-output','thermal-heating']:
-        variants = [1,2] if test in ('thermal-output','thermal-heating') else [0]
+    for test in ['thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115']:
+        variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
             command = common + [str(ROOT / ('tests/' + test + '.cpp')), '-o', str(executable)]
-            if groups == 2:
-                # Deliberately synthetic HAL index OUTSIDE the ESP32 range: NOT a wiring recommendation.
-                command += ['-DMAYAP_HEATER_SSR_B_PIN=49']
             subprocess.run(command, check=True)
             result = subprocess.run([str(executable)], capture_output=True, text=True)
             if result.returncode:
@@ -114,6 +106,10 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                 result.check_returncode()
             (args.report_dir / (test + str(groups) + '.log')).write_text(result.stdout)
             print(result.stdout.splitlines()[-1])
+            if test == 'thermal-v2':
+                with (args.report_dir / 'low-duty.csv').open('w') as bank_report:
+                    bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
+                    bank_report.writelines(line[5:]+'\n' for line in result.stdout.splitlines() if line.startswith('BANK,'))
     executable = out / 'thermal-plant'
     subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-plant.cpp'), '-o', str(executable)], check=True)
     with (args.report_dir / 'plant.csv').open('w') as report:
@@ -122,6 +118,16 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     with (args.report_dir / 'plant.csv').open() as report: rows=list(csv.DictReader(report))
     failures=sum(r['targets']=='FAIL' for r in rows)
     print(f'SIMULATION TARGETS: {len(rows)-failures}/{len(rows)} pass; {failures} FAIL. Thresholds unchanged; this is not physical accuracy.')
+    # Calibrated performance is experimental, but the observed anti-windup
+    # sticking case is a deterministic software regression and must fail CI.
+    stuck_case=[r for r in rows if r['plant']=='light' and r['scenario']=='cold_start'
+        and r['setpoint']=='30.0' and r['ambient']=='28.0' and r['dead_s']=='30'
+        and r['resolution']=='0.01' and r['algorithm']=='NEW' and r['quantum_ms']=='300']
+    assert len(stuck_case)==1
+    stuck=stuck_case[0]
+    assert float(stuck['mean_abs_error'])<0.5 and abs(float(stuck['bias']))<0.5 \
+        and float(stuck['requested_tail_pct'])<3.0, 'Anti-windup stuck case regressed'
+    print('HARD REGRESSION: SP30/ambient28/dead30/res0.01 no positive-heater tail while hot PASS')
     if failures and os.getenv('GITHUB_ACTIONS'):
         print(f'::warning::Thermal simulation: {failures}/{len(rows)} miss acceptance targets; review OLD/NEW CSV before commissioning.')
     if failures and args.require_targets: raise SystemExit(1)

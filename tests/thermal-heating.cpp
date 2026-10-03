@@ -26,11 +26,7 @@ template<class T,unsigned N> class FixedRing {
 #include "actual-output.inc"
 #include "actual-heating-constants.inc"
 #include "actual-heating-config.inc"
-#ifdef MAYAP_HEATER_SSR_B_PIN
-constexpr uint8_t HEATER_GROUP_COUNT=2;
-#else
 constexpr uint8_t HEATER_GROUP_COUNT=1;
-#endif
 struct InputState { bool light=false,autoMode=true,circulationFan=true,heaterEnable=true; };
 struct FakeInputs { InputState in; const InputState &state()const{return in;} };
 struct FakeRtc { bool valid()const{return false;} uint32_t epoch()const{return 0;} };
@@ -66,12 +62,12 @@ struct Harness {
   void cycle(uint32_t now,bool newSample=true){clockMs=now;newSensorSample_=newSample;updateHeatingAndOutputs(now);}
   void warm(){outputs_.begin();for(uint32_t t=1000;t<=15000;t+=50)cycle(t,t%2000==0);}
 };
-static void assertOff(const Harness &h){assert(!h.outputs_.state().heaterSsrA && !h.outputs_.state().heaterSsrB && !h.outputs_.state().heaterSsr);}
+static void assertOff(const Harness &h){assert(!h.outputs_.state().heaterSsr);}
 int main(){
   Harness pickup;pickup.outputs_.begin();pickup.cycle(1000);
   assertOff(pickup);assert(pickup.runtime_.heaterPower==0 && pickup.pid_.output()==0);
   for(unsigned reason=0;reason<16;++reason){
-    Harness h;h.warm();assert(h.outputs_.state().heaterSsrA && h.runtime_.heaterPower==100);
+    Harness h;h.warm();assert(h.outputs_.state().heaterSsr && h.runtime_.heaterPower==100);
     switch(reason){
       case 0:h.inputs_.in.heaterEnable=false;break;
       case 1:h.sensorUsable_=false;break;
@@ -111,10 +107,10 @@ int main(){
   unsigned energy=0;
   for(uint32_t t=16000;t<616000;t+=50){
     tune.cycle(t,false);
-    energy+=tune.outputs_.state().heaterSsrA+tune.outputs_.state().heaterSsrB;
+    energy+=tune.outputs_.state().heaterSsr;
     assert(tune.runtime_.heaterPower==30);
   }
-  const double delivered=100.0*energy/(12000*HEATER_GROUP_COUNT);
+  const double delivered=100.0*energy/12000;
   assert(std::fabs(delivered-30)<0.2);
   tune.faults_.inhibit=true;tune.cycle(616001,false);assertOff(tune);
   for(unsigned reason=0;reason<15;++reason){

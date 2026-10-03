@@ -2981,7 +2981,7 @@ class SHT485Industrial {
   float rawTemperatureC() const {
     return decoder_.temperature();
   }
-  SensorTemperatureFormat temperatureFormat() const { return decoder_.format(); }
+  SensorProfile sensorProfile() const { return decoder_.profile(); }
   uint16_t rawTemperatureRegister() const { return rawTempRegister_; }
   bool formatLocked() const { return decoder_.locked(); }
   uint32_t dataAgeMs() const {
@@ -3029,8 +3029,7 @@ class SHT485Industrial {
   bool newData_ = false;
   bool startupResolved_ = false;
   uint8_t pendingEvents_ = 0;
-  SensorFormatDecoder decoder_{static_cast<SensorTemperatureFormat>(MAYAP_SENSOR_TEMP_FORMAT),
-                               MAYAP_SENSOR_HUMIDITY_RAW16 != 0};
+  SensorFormatDecoder decoder_{static_cast<SensorProfile>(MAYAP_SENSOR_PROFILE)};
   uint16_t rawTempRegister_ = 0U;
   float tempWindow_[3]{};
   float humWindow_[3]{};
@@ -3113,7 +3112,7 @@ class SHT485Industrial {
     const bool usable = decoder_.accept(temp, hum);
     if (!wasLocked && decoder_.locked()) {
       mayapSerialPrintf(false, "[SENSOR-FORMAT] locked=%u raw=%u T=%.4f\n",
-          static_cast<unsigned>(decoder_.format()), temp, decoder_.temperature());
+          static_cast<unsigned>(decoder_.profile()), temp, decoder_.temperature());
     }
     ++goodFrames_;
     // A CRC-valid discovery frame completes the poll without rapid retry.
@@ -3256,8 +3255,6 @@ class ConditionTimer {
 // ============================================================================
 struct OutputRequest {
   bool heaterSsr = false;
-  bool heaterSsrA = false;
-  bool heaterSsrB = false;
   bool heatMaster = false;
   bool turnLeft = false;
   bool turnRight = false;
@@ -3273,8 +3270,6 @@ struct OutputRequest {
 };
 struct OutputState {
   bool heaterSsr = false;
-  bool heaterSsrA = false;
-  bool heaterSsrB = false;
   bool heatMaster = false;
   bool turnLeft = false;
   bool turnRight = false;
@@ -3287,7 +3282,7 @@ struct OutputState {
 
 enum class OutputChannel : uint8_t {
   HeaterSsr = 0, HeatMaster, TurnLeft, TurnRight, VentFan, Light,
-  CirculationFan, Siren, Humidifier, HeaterSsrB, Count
+  CirculationFan, Siren, Humidifier, Count
 };
 
 struct OutputEvent {
@@ -3299,7 +3294,6 @@ struct OutputEvent {
 inline const char *outputName(OutputChannel channel) {
   switch (channel) {
     case OutputChannel::HeaterSsr: return "HEATER_SSR";
-    case OutputChannel::HeaterSsrB: return "HEATER_SSR_B";
     case OutputChannel::HeatMaster: return "HEAT_MASTER";
     case OutputChannel::TurnLeft: return "TURN_LEFT";
     case OutputChannel::TurnRight: return "TURN_RIGHT";
@@ -3319,9 +3313,6 @@ inline void writeLogical(uint8_t pin, bool on) {
 inline void mayapSafeOutputsEarly() {
   const uint8_t pins[] = {
     PIN_OUT_HEATER_SSR, PIN_OUT_TURN_RIGHT,
-#if defined(MAYAP_HEATER_SSR_B_PIN)
-    PIN_OUT_HEATER_SSR_B,
-#endif
     PIN_OUT_TURN_LEFT, PIN_OUT_VENT_FAN, PIN_OUT_LIGHT,
     PIN_OUT_HEAT_MASTER, PIN_OUT_CIRC_FAN, PIN_OUT_SIREN,
     PIN_OUT_HUMIDIFIER
@@ -3369,7 +3360,7 @@ class OutputArbiter {
     // forceAllSafe/system-trip bo qua moi thoi gian minimum-on/minimum-switch.
     // Neu khong, quat/den/spare co the con giu ON toi 2 giay sau mot trip.
     if (forceSafe) {
-      setHeaterGroups(false, false, now);
+      setHeaterBank(false, now);
       const bool masterWasOn = state_.heatMaster;
       setImmediate(PIN_OUT_HEAT_MASTER, OutputChannel::HeatMaster,
                    false, state_.heatMaster, now);
@@ -3412,7 +3403,7 @@ class OutputArbiter {
 
     // Khi cat nhiet: SSR OFF truoc, contactor nha sau mot khoang ngan.
     if (!request.heatMaster || request.forceAllSafe) {
-      setHeaterGroups(false, false, now);
+      setHeaterBank(false, now);
       if (state_.heatMaster) {
         if (request.immediateMasterDrop || request.forceAllSafe) {
           setImmediate(PIN_OUT_HEAT_MASTER, OutputChannel::HeatMaster,
@@ -3442,11 +3433,8 @@ class OutputArbiter {
       }
       const bool pickupDone = state_.heatMaster &&
           elapsedMs(now, masterOnAt_) >= HEAT_MASTER_PICKUP_MS;
-      const bool explicitGroups = request.heaterSsrA || request.heaterSsrB;
       const bool enable = request.heaterSsr && pickupDone;
-      // Existing manual/test request (aggregate=true, no explicit groups) is full power.
-      setHeaterGroups(enable && (!explicitGroups || request.heaterSsrA),
-                      enable && (!explicitGroups || request.heaterSsrB), now);
+      setHeaterBank(enable, now);
     }
 
     setMinSwitch(PIN_OUT_HUMIDIFIER, OutputChannel::Humidifier,
@@ -3478,17 +3466,9 @@ class OutputArbiter {
   }
 
  private:
-  void setHeaterGroups(bool a, bool b, uint32_t now) {
+  void setHeaterBank(bool enabled, uint32_t now) {
     setImmediate(PIN_OUT_HEATER_SSR, OutputChannel::HeaterSsr,
-                 a, state_.heaterSsrA, now);
-#if defined(MAYAP_HEATER_SSR_B_PIN)
-    setImmediate(PIN_OUT_HEATER_SSR_B, OutputChannel::HeaterSsrB,
-                 b, state_.heaterSsrB, now);
-#else
-    (void)b;
-    state_.heaterSsrB = false;
-#endif
-    state_.heaterSsr = state_.heaterSsrA || state_.heaterSsrB;
+                 enabled, state_.heaterSsr, now);
   }
 
   void updateTurnOutputs(uint32_t now, bool wantLeft, bool wantRight,
@@ -3548,7 +3528,7 @@ class OutputArbiter {
     lastTransitionAt_[static_cast<uint8_t>(channel)] = now;
     // Pulse-rated SSR switching is not mechanical relay wear. Preserve the
     // existing alarm threshold for contactor/fan/light/turn/spare transitions.
-    if (channel != OutputChannel::HeaterSsr && channel != OutputChannel::HeaterSsrB) {
+    if (channel != OutputChannel::HeaterSsr) {
       if (transitionsThisHour_ < UINT16_MAX) ++transitionsThisHour_;
       if (transitionsThisHour_ > MAX_RELAY_TRANSITIONS_PER_HOUR)
         relayRateExceeded_ = true;
@@ -4265,7 +4245,6 @@ class MachineController {
       // Khong dua xung SSR vao nhat ky HMI: PID co the doi moi vai giay va
       // se day mat cac lenh/loi quan trong. Serial van co the xem khi debug.
       if (event.channel != OutputChannel::HeaterSsr &&
-          event.channel != OutputChannel::HeaterSsrB &&
           event.channel != OutputChannel::Humidifier) {
         eventLog_.push(now, EventType::OutputChanged, code,
                        event.active ? 1 : 0);
@@ -5315,7 +5294,6 @@ class MachineController {
       heaterStuckTracking_ = false;
       heaterStuckSinceAt_ = now;
       heaterStuckAccumOnMs_ = 0U;
-      heaterStuckEnergyRemainder_ = 0U;
       heaterStuckStartTemp_ = NAN;
       heaterNotHeatingActive_ = false;
     } else {
@@ -5323,7 +5301,6 @@ class MachineController {
         heaterStuckTracking_ = true;
         heaterStuckSinceAt_ = now;
         heaterStuckAccumOnMs_ = 0U;
-        heaterStuckEnergyRemainder_ = 0U;
         heaterStuckStartTemp_ = temperature_;
         heaterNotHeatingActive_ = false;
       } else {
@@ -5331,9 +5308,8 @@ class MachineController {
         // da cap nhiet lien tuc trong ca khoang tre do.
         const uint32_t dt = std::min<uint32_t>(elapsedMs(now, heaterStuckSinceAt_), 1000UL);
         heaterStuckSinceAt_ = now;
-        const uint32_t energyMs = HeaterBurstScheduler::fullPowerEquivalentMs(dt,
-            HEATER_GROUP_COUNT, outputs_.state().heaterSsrA,
-            outputs_.state().heaterSsrB, heaterStuckEnergyRemainder_);
+        // GPIO1 energizes both physical SSRs: ON is full 16 kW bank power.
+        const uint32_t energyMs = outputs_.state().heaterSsr ? dt : 0U;
         if (heaterStuckAccumOnMs_ < UINT32_MAX - energyMs) {
           heaterStuckAccumOnMs_ += energyMs;
         }
@@ -5344,7 +5320,6 @@ class MachineController {
           // He thong co dap ung: bat dau cua so nang luong moi tu PV hien tai.
           heaterStuckStartTemp_ = temperature_;
           heaterStuckAccumOnMs_ = 0U;
-          heaterStuckEnergyRemainder_ = 0U;
           heaterNotHeatingActive_ = false;
         } else if (heaterStuckAccumOnMs_ >= responseRequiredOnMs) {
           heaterNotHeatingActive_ = true;
@@ -6105,9 +6080,7 @@ class MachineController {
     req.heatMaster = masterPermit;
     const auto burst = heaterBurst_.update(now, commandedPower,
         ssrPermit && actuatorReady);
-    req.heaterSsrA = burst.groupA;
-    req.heaterSsrB = burst.groupB;
-    req.heaterSsr = burst.groupA || burst.groupB;
+    req.heaterSsr = burst.groupA;
     req.immediateMasterDrop = batchClearPending_ ||
                               safetyJournalFaultLatched_ ||
                               faults_.masterDropRequired() ||
@@ -7432,7 +7405,7 @@ class MachineController {
       static_cast<unsigned long>(mayapTlsDeferredCount()));
     if (!detailed) return;
     mayapSerialPrintf(false, "[SENSOR] format=%u register=%u raw=%.4f filtered=%.4f\n",
-        static_cast<unsigned>(sensor_.temperatureFormat()), sensor_.rawTemperatureRegister(),
+        static_cast<unsigned>(sensor_.sensorProfile()), sensor_.rawTemperatureRegister(),
         sensor_.rawTemperatureC(), sensor_.temperatureC());
     mayapSerialPrintf(false, "[STATUS] switch=%s batch=%u resume=%u clear=%u recovery=%s phase=%u sensor=%u storage=%u safetyNvs=%u resetFault=%u T=%.2f raw=%.2f H=%.1f\n",
       in.autoMode ? "AUTO" : "MAN",
@@ -7675,7 +7648,6 @@ class MachineController {
   bool heaterStuckTracking_ = false;
   uint32_t heaterStuckSinceAt_ = 0U;
   uint32_t heaterStuckAccumOnMs_ = 0U;
-  uint8_t heaterStuckEnergyRemainder_ = 0U;
   float heaterStuckStartTemp_ = NAN;
   bool heaterNotHeatingActive_ = false;
 
