@@ -157,7 +157,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         'first_high_cross_s','first_emergency_cross_s','peak_before_high','peak_before_emergency',
         'high_crossed','emergency_crossed','qualification','model_scope']
     with (args.report_dir / 'safety-qualification.csv').open('w') as report:
-        writer=csv.DictWriter(report, fieldnames=qualification); writer.writeheader()
+        writer=csv.DictWriter(report, fieldnames=qualification, lineterminator='\n'); writer.writeheader()
         writer.writerows({k:r[k] for k in qualification} for r in rows)
     sp375=[r for r in rows if r['algorithm']=='NEW' and r['quantum_ms']=='300' and r['setpoint']=='37.5']
     print(f'CONTROL-ONLY / NO PRODUCTION SAFETY INTERVENTION: NEW300 SP37.5 High '
