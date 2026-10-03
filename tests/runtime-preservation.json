@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "5dedc739e028658c2459a244114b9ce981e628fad1f3a04571b426e94a4d5295",
+      "sha256": "5efc82a98ee7d8c7b8932a01c70c8801ab8d89fe48916dc59b6959ac712c42e0",
       "filter": "config"
     },
     {
@@ -445,5 +445,6 @@
   "autotuneQualificationReviewNote": "2026-10-03: reviewed AutoTune-only preheat 30% commissioning candidate with 15min preheat/phase,45min total deadlines; explicit phases/reasons/locked actual relay swing, upward one-ULP uniform gain scaling, bounded diagnostics, fail/reset before next GPIO cycle and outside-batch AutoTune EventLog exception. Actual PID/PDM/filter/safety threshold/alarm bodies, OutputArbiter, EEPROM schema and atomic save implementation unchanged. Plant-in-loop includes honest cold and near-SP qualification; performance/BAD candidates are experimental reports, not physical validation.",
   "adaptiveThermalReviewNote": "2026-10-03: explicit review of new opt-in schema13/runtime diagnostics in config.h and MachineController adaptive orchestration only. Actual requested PID limit comes from a transient config view; PID gains/filter/PDM/AutoTune/safety alarm/OutputArbiter/E115/Frozen bodies unchanged. Background loop owns versioned CRC NVS seeds with fixed mailbox, no control-task flash writes. Schema12 prefix/CRC migration defaults OFF. Frozen b537786 heating-body oracle proves OFF actual GPIO/request/vent equivalence. No blanket fingerprint refresh. Final qualification adds actual-fan validity, 126s robust observer rate after X10 evidence, independent confirmed self-heating confidence, bounded transition events outside batch, and background-only invalid-model diagnostics. Old thermal/safety/AutoTune function hashes remain unchanged. Integration also retains remote 013d931/f9fe684 config-save setpoint correction; its ThermalController hash and dedicated regressions are preserved.",
   "adaptivePostAuditReviewNote": "2026-10-03: reviewed post-audit hardening only. MachineController now offers learned NVS models only from supervisor Qualified/Adaptive states and compile-time locks smart-cooling timing to the existing vent relay minimums. Self-heating recovery/diagnostic changes live in the adaptive module; PID/filter/PDM/safety/OutputArbiter/E115 bodies remain unchanged.",
-  "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged."
+  "pidSetpointReviewNote": "2026-10-03: reviewed PID config-save correction. Setpoint edits and unrelated MachineConfig saves no longer invoke bumpless I re-projection or reset derivative timing; only control mode, Kp/Ki/Kd and maxHeaterPower changes do. Gain/cap changes remain bumpless at the previous setpoint, and safety/PDM/sensor behavior is unchanged.",
+  "notesBusyRecoveryReviewNote": "2026-10-03: reviewed notes-only reliability fix. Firmware version advanced to 1.1.1 so deployed devices with bounded notes reconciliation are distinguishable. Config schema, safety thresholds, PID/thermal parameters, GPIO, storage addresses and signed transaction semantics are otherwise unchanged."
 }
