@@ -796,7 +796,7 @@ body[data-page="batch"] .telemetryCanvasWrap{flex:1 1 0;height:0;min-height:72px
 .identityText strong,.identityText small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .brand.accountIdentity .identityText strong{font-size:16px;letter-spacing:0}
 .mobileIdentity{display:none}
-.accountPanel{max-width:960px;margin-top:24px;display:flex;align-items:center;flex-wrap:wrap;gap:18px}
+.accountPanel{width:100%;max-width:none;margin-top:24px;display:flex;align-items:center;flex-wrap:wrap;gap:18px}
 .accountPanel .accountIdentity{flex:1;min-width:0}
 .accountPanel h2{font-size:14px;margin:0 0 6px;color:var(--muted);font-weight:600}
 .accountPanel .identityText strong{font-size:17px}
