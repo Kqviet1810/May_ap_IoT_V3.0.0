@@ -62,7 +62,7 @@ Legacy `pidCycleSec` is hidden from both HMI navigation and Web forms; internal 
 
 E115/full-bank, 16 PID and 15 AutoTune actual heating-path safety cuts, native T+RH and X10/X100 AUTO locks, locked-format rejection, 3,000-cycle anti-windup, NaN/clamps, 1,000,000 variable-demand slots and millis wrap are tested. `maxHeaterPower=50` means 50% average of 16 kW. AutoTune's 30% request delivers 30% average through the same scheduler in the actual MachineController harness. Mechanical relay wear counters do not count pulse-rated SSR edges.
 
-The existing config invariant is `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C` and `emergencyTemp >= highTempAlarm + EMERGENCY_ABOVE_HIGH_C`; lowering SP to 30°C does **not** automatically lower stored high/emergency thresholds (defaults 38.2/39.0°C). Review these limits manually before low-temperature operation. That earlier qualification did not change safety setpoints or stored schema; the later Adaptive section documents the append-only schema13 opt-in flag.
+The config invariant remains `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C` and `emergencyTemp >= highTempAlarm + EMERGENCY_ABOVE_HIGH_C`. Final hardening also repairs one narrowly defined legacy case: if SV differs from 37.5°C while **all five** low/high/emergency/vent-on/vent-off thresholds are still exactly the 37.5°C defaults, the full envelope is shifted by the same SV delta before normal clamps. Any customized threshold disables that repair and is preserved. Schema13 layout is unchanged.
 
 ## Test/CI and reproduction
 
@@ -203,7 +203,7 @@ Default remains OFF. First build with `MAYAP_ADAPTIVE_OBSERVER_ONLY=1` (local bu
 - Confirm GPIO1 drives both SSR inputs on the physical board as specified, their zero-cross behavior, rating, heatsinking, contactor and 16 kW electrical loading. High burst transition rates make this a commissioning blocker until measured.
 - Confirm the RS485 module register map and six-sample paired AUTO lock at known T/RH. Raw-only AUTO is not a universal profile detector outside the stated envelope; overlapping plausible raw values cannot be rejected reliably.
 - Current default/stored PID gains are uncharacterized on the 12 m³ chamber. The uncalibrated model misses all joint performance targets and NEW is slightly worse than OLD in some 35/37.5°C cases. Run safe physical response identification/AutoTune before accepting thermal performance.
-- High/emergency thresholds saved for 37.5°C can remain too high at SP30°C; operator configuration review is required. This PR deliberately does not change the safety policy.
+- Legacy configs whose entire thermal envelope was still the untouched 37.5°C default are now re-anchored with SV. Customized envelopes are deliberately preserved, so operators must still review intentional/custom safety thresholds before low-temperature operation.
 - A single probe's stable reading does not prove ±0.1°C absolute accuracy or spatial uniformity throughout the chamber. Independent calibrated probes and a long soak are needed.
 - 300 ms is provisional; verify real control task jitter and SSR temperature over a long soak before accepting final actuator timing.
 
