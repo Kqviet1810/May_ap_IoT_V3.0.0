@@ -25,7 +25,6 @@ window.MayapRealtime = { Client: function(options) {
     unsubscribe() {}, reconnect() { client.emit('connect'); },
     end() { client.disconnecting = true; client.emit('close'); },
     send(route, msg, cb) {
-      if (route.channel.startsWith('notes/') && window.__notesWireFixture) { window.__notesWireFixture(client,route,msg,cb);return; }
       cb?.(); if (route.channel!=='session') return; window.__transport.sessions.push({ at: performance.now(), ...msg });
       if (!msg.active || !msg.sync) return;
       if (window.__transport.dropFirst) { window.__transport.dropFirst = false; return; }
@@ -54,7 +53,7 @@ async function setup(browser, options = {}) {
       const config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(key => [key, defaults[key] ?? 0]));
       config.ventAutoEnabled = true;
       config.adaptiveThermalBalanceEnabled = false;
-      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, notesVersion:1, ssid: 'Wi-Fi gia đình' });
+      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, ssid: 'Wi-Fi gia đình' });
       h.handleConfigReport(d, { revision: 1, bootId: 123, config });
       h.handleSnapshot(d, { revision: 1, bootId: 123, runtime: { temperature: 37.5, humidity: 58,
         heaterPower: 25, circulationFanOn: true, ventFanOn: false, turningEnabled: true,
@@ -82,7 +81,6 @@ async function setup(browser, options = {}) {
     if (url.pathname.endsWith('/firmware/latest')) body = { success: true, version: '4.0.0' };
     return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   });
-  if (options.notesScript) await context.addInitScript(options.notesScript);
   const page = await context.newPage(), errors = [];
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('http://127.0.0.1:8765', { waitUntil: 'networkidle' });

@@ -83,7 +83,6 @@ Chạy regression chính từ root repo:
 
 ```bash
 node --test tests/*.test.cjs
-python3 tools/test_notes_store.py
 python3 tools/test_single_eeprom.py --sanitize --check-regression
 python3 tools/test_realtime_workerd.py
 ```

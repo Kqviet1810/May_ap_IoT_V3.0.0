@@ -58,7 +58,7 @@ SQLite Durable Object: DeviceHub (1 hub / 1 máy)
 - **ESP32 là controller duy nhất.** Cloudflare/DeviceHub chỉ xác thực, định tuyến và giới hạn phiên; không điều khiển heater hay state machine.
 - Mất Internet/Cloudflare/Web không làm mất điều khiển cục bộ: PID, heater safety, đảo trứng, batch, HMI, alarm và recovery vẫn chạy trên ESP32.
 - `DeviceHub` gửi `forwarded` chỉ có nghĩa frame đã được chuyển tới socket thiết bị. **Chỉ terminal ACK đã xác minh từ ESP32 mới là kết quả thao tác.**
-- Command/config/reminder/notes giữ transaction V2 với `bootId`, `clientId`, sequence, nonce, expiry, HMAC, replay protection và exact retry.
+- Command/config/reminder giữ transaction V2 với `bootId`, `clientId`, sequence, nonce, expiry, HMAC, replay protection và exact retry.
 - TLS verification là bắt buộc; production không được dùng `setInsecure()`.
 
 ### Tên legacy còn tồn tại
@@ -100,7 +100,7 @@ Firmware hiện dùng **AT24C512 64 KiB tại I2C `0x50`** làm EEPROM ngoài b�
 
 - Config / Batch / Reminders dùng các vùng A/B cố định để giữ tương thích dữ liệu.
 - Lịch sử nhiệt: **7 ngày, 5 phút/mẫu**, vùng `0x1000..0x2F7F`.
-- Ghi chú vận hành: `notes_store.h`, tối đa **16 ghi chú**, mỗi record có A/B bank + version + CRC + readback verify; vùng bắt đầu `0x3000`.
+- Vùng `0x3000..0xEFFF` hiện **không được firmware sử dụng**. Backend Ghi chú cũ đã bị loại bỏ hoàn toàn; chỉ còn giao diện Web.
 - Driver ghi EEPROM dùng ACK polling có timeout và retry; regression hiện kiểm cả write-cycle thực, task wake-up trễ, millis wrap và power-cut/readback.
 
 Commit `274b0d28` đã sửa false-timeout khi task tỉnh muộn: sau khi scheduler trì hoãn, driver phải probe EEPROM thêm lần nữa trước khi kết luận hết thời gian.
@@ -138,7 +138,7 @@ cloudflare/                Worker + D1 + DeviceHub + Static Assets config
 app.js                     Web application
 realtime_transport.js      bounded native browser WebSocket client
 protocol_v2.js             transaction/ACK protocol helpers
-notes.js / notes.css       giao diện Ghi chú
+notes.js / notes.css       giao diện Ghi chú (UI-only, chưa nối backend mới)
 release-manifest.json      manifest version/toolchain
 tests/                     host/browser/runtime regressions
 tools/                     checker, web asset builder, QA/integration
@@ -185,7 +185,7 @@ Tag release phải khớp chính xác `MAYAP_FIRMWARE_VERSION`.
 5. Node transaction/account/Web/DeviceHub regressions;
 6. real local Cloudflare `workerd` + Chromium realtime test;
 7. Web connection/UX QA;
-8. PID/autotune, staged boot, runtime recovery, buses, EEPROM/notes regressions;
+8. PID/autotune, staged boot, runtime recovery, buses và EEPROM/reminder regressions;
 9. compile ATtiny13A với trần 1 KiB flash / 64 B static RAM;
 10. compile ESP32-S3 và kiểm linked GPIO ISR cache safety;
 11. khi build tag: ký ECDSA và tạo GitHub Release.

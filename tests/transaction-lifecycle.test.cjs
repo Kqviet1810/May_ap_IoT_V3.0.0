@@ -12,7 +12,7 @@ function browser() {
       moveToUncertain, publish, retrySameRequest, resumeExactRetries, clearPending, telemetryChart, storeControlSession,
       signRealtimeWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
       buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
-      refreshFaultPopupContent,handleNotesAck,handleNotesReport,notesCache,validWebNote });
+      refreshFaultPopupContent });
   })();`);
   const timers = new Map();
   let nextTimer = 0;
@@ -307,40 +307,4 @@ test('signed terminal history ACK cannot complete a transaction with missing chu
  h.handleAck(h.device,ack);assert.equal(pending.phase,'UNCERTAIN');assert.equal(h.state.uncertain.has('history-missing'),true);
  h.telemetryChart.historyGap=false;h.telemetryChart.historyLoaded=true;h.handleAck(h.device,ack);
  assert.equal(pending.phase,'APPLIED');assert.equal(h.state.uncertain.has('history-missing'),false);
-});
-
-test('notes save requires matching signed terminal ACK and preserves durable version after uncertainty',async()=>{
-  const h=browser(),{key}=await start(h,'notes-write','notes.save');let resolved;
-  const pending=h.state.pending.get('notes-write');pending.kind='notes';pending.bootId=123;
-  pending.note={id:'00000000-0000-4000-8000-000000000001',version:0,createdAt:1790000000000,type:'machine',title:'',content:'Bảo trì máy'};
-  pending.notesResolve=value=>resolved=value;pending.notesReject=()=>assert.fail('Unexpected rejection');
-  const ack=await signedAck(h,'notes-write','notes.save',true,key,{revision:5,code:'NOTES_STORED'});
-  assert.equal(await h.verifyDeviceAck(h.device,{...ack,sig:'00'.repeat(32)}),false);
-  const wrong=await signedAck(h,'notes-write','light.toggle',true,key,{revision:5});h.handleNotesAck(h.device,wrong);assert.equal(resolved,undefined);
-  const wrongBoot=await signedAck(h,'notes-write','notes.save',true,key,{bootId:124,revision:5});h.handleNotesAck(h.device,wrongBoot);assert.equal(resolved,undefined);
-  pending.onTimeout();assert.equal(h.state.uncertain.size,1);
-  assert.equal(await h.verifyDeviceAck(h.device,ack),true);h.handleNotesAck(h.device,ack);
-  assert.equal(resolved.version,5);assert.equal(h.notesCache.get(h.device.id)[0].id,pending.note.id);
-  assert.equal(h.state.uncertain.size,0);assert.equal(h.transactions.entries.size,0);
-});
-test('notes list waits for all contiguous chunks and signed ACK in either order',async()=>{
-  for(const ackFirst of [true,false]){
-    const h=browser(),{key,pending}=await start(h,'notes-read','notes.read');let resolved;
-    Object.assign(pending,{kind:'notes',bootId:123,notesList:[],notesCursor:0,notesComplete:false,notesGap:false,notesResolve:value=>resolved=value});
-    const note={id:'00000000-0000-4000-8000-000000000001',version:1,createdAt:1790000000000,type:'machine',title:'<script>',content:'Không render HTML'};
-    const ack=await signedAck(h,'notes-read','notes.read',true,key,{code:'NOTES_DONE'});
-    if(ackFirst)h.handleNotesAck(h.device,ack);assert.equal(resolved,undefined);
-    h.handleNotesReport(h.device,{v:1,bootId:123,requestId:'notes-read',cursor:0,nextCursor:1,done:false,notes:[note]});
-    h.handleNotesReport(h.device,{v:1,bootId:123,requestId:'notes-read',cursor:0,nextCursor:1,done:false,notes:[note]});assert.equal(pending.notesList.length,1);
-    h.handleNotesReport(h.device,{v:1,bootId:123,requestId:'notes-read',cursor:1,nextCursor:16,done:true,notes:[]});
-    if(!ackFirst)h.handleNotesAck(h.device,ack);assert.equal(resolved.length,1);assert.equal(resolved[0].title,'<script>');assert.equal(h.state.pending.size,0);
-  }
-});
-test('notes gap, boot mismatch and malformed records cannot masquerade as complete EEPROM list',async()=>{
-  const h=browser(),{key,pending}=await start(h,'notes-gap','notes.read');let resolved=false;
-  Object.assign(pending,{kind:'notes',bootId:123,notesList:[],notesCursor:0,notesComplete:false,notesGap:false,notesResolve:()=>resolved=true});
-  h.handleNotesReport(h.device,{v:1,bootId:124,requestId:'notes-gap',cursor:0,nextCursor:16,done:true,notes:[]});assert.equal(pending.notesComplete,false);
-  h.handleNotesReport(h.device,{v:1,bootId:123,requestId:'notes-gap',cursor:3,nextCursor:16,done:true,notes:[]});assert.equal(pending.notesGap,true);
-  h.handleNotesAck(h.device,await signedAck(h,'notes-gap','notes.read',true,key,{code:'NOTES_DONE'}));assert.equal(resolved,false);assert.equal(h.state.pending.size,1);
-  assert.equal(h.validWebNote({id:'bad',version:1,createdAt:1,type:'machine',title:'',content:'note'}),false);
 });

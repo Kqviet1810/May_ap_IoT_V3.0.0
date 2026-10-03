@@ -13,7 +13,7 @@ Do not connect another EEPROM at the same address.
 | Legacy history | 0x0B00–0x0FFF | Left untouched; no automatic history migration |
 | New history | 0x1000–0x2F7F | 2016 samples, five minutes each (seven days) |
 | Reserved gap | 0x2F80–0x2FFF | Untouched |
-| Operational notes | 0x3000–0xEFFF | 16 records, two 1536-byte banks per record |
+| Unused | 0x3000–0xEFFF | Not read or written by current firmware |
 | Reserved | 0xF000–0xFFFF | Untouched; never erased/formatted on boot |
 
 Config, batch and reminder addresses and schemas are intentionally preserved.
@@ -29,7 +29,7 @@ maximum 126 data bytes plus two word-address bytes. Reads stay at 32 bytes.
 History retention is seven days; the current web request window remains at
 most 24 hours to preserve bounded response size/latency.
 
-## Web notes/reminders
+## Web reminders
 
 The existing `reminders/set` signed MQTT request goes through the HMI transaction
 mailbox to `PersistentStore::saveReminders`. RAM is only a runtime cache.
@@ -58,23 +58,8 @@ This automated simulation is not a substitute for that physical test.
 
 ## ACK polling under task suspension
 
-Notes already use the same `ExternalEeprom24xx` driver as configuration,
-batch and reminders, with separate A/B regions, CRC and EEPROM readback.
-The commissioning regression now models a 5 ms EEPROM program cycle and
-0–250 ms delay before a Core 0 task resumes. The previous driver checked the
-20 ms deadline after sleeping and could reject a completed write without
-probing the chip again. This reproduces `notes.save stage=WRITE addr=0x3C00`
-while a reminder saved without that scheduling delay succeeds.
-
-The driver now probes the chip before checking the deadline after resuming.
-The timeout value, page size, chunk size, retries and record schemas remain
-unchanged. A chip still returning NACK at the deadline fails; write protection
-and failed CRC/readback still cannot produce a successful terminal ACK.
-
-`python3 tools/test_single_eeprom.py --sanitize --check-regression` covers
-actual reminder and notes persistence, delayed scheduling, millis wrap, 500
-updates with varying delays, existing-region preservation and a mutation
-proof: restoring the old poll loop must reproduce the failure. The earlier
-instant-ACK fake did not cover write-cycle timing or delayed task wake-up.
-These simulations prove the software defect; physical save/reboot acceptance
-is still required after flashing the fix.
+The shared AT24C512 driver still probes the chip before checking the timeout
+after a delayed task wake-up. The regression is now feature-neutral: it writes
+only to scratch addresses in the host fake and verifies the driver timing,
+millis wrap and busy timeout. No Ghi chú record format or allocation remains
+in firmware.

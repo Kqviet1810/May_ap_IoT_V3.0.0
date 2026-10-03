@@ -82,7 +82,6 @@ jobs:
       - name: Account, transaction, reconnect and hibernation regression
         run: |
           node --test tests/*.test.cjs
-          python3 tools/test_notes_store.py
           python3 tools/test_single_eeprom.py --sanitize --check-regression
 
       - name: Real local workerd integration before remote mutation

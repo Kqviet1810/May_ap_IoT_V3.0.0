@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Bounded notes EEPROM reconciliation prevents permanent NOTES_BUSY; thermal/WebSocket 1.1.0 behavior otherwise retained. No OTA rollout is implied."
+  "notes": "Legacy Ghi chú persistence removed completely from ESP32/EEPROM/realtime/DeviceHub; notes.js and notes.css remain UI-only pending a new backend design. No OTA rollout is implied."
 }
