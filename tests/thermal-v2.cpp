@@ -295,6 +295,25 @@ static void antiWindupBoundaryRegression() {
     assert(pid.updateOnNewSample(now+2000,30,32,cfg,true)==0);
     assert(pid.updateOnNewSample(now+4000,30,29,cfg,false)==0);
   }
+  // Cross the upper actuator limit by ONE integrator step, rather than by a
+  // P jump. The frozen controller leaves cap-1% commanded indefinitely.
+  cfg.kp=cfg.ki=1;cfg.kd=0;
+  for(uint8_t cap:{100U,50U,5U}) {
+    cfg.maxHeaterPower=cap;
+    ThermalController fixed;Old::ThermalController old;
+    uint32_t now=1000;
+    fixed.updateOnNewSample(now,30,29,cfg,true);
+    old.updateOnNewSample(now,30,29,cfg,true);
+    for(unsigned n=1;n<static_cast<unsigned>(cap)-1U;++n) {
+      now+=1000;
+      assert(fixed.updateOnNewSample(now,30,29,cfg,true)==n+1);
+      old.updateOnNewSample(now,30,29,cfg,true);
+    }
+    now+=5000;
+    assert(fixed.updateOnNewSample(now,30,29,cfg,true)==cap);
+    assert(old.updateOnNewSample(now,30,29,cfg,true)==cap-1);
+    assert(fixed.updateOnNewSample(now+1000,30,31,cfg,true)<cap);
+  }
 }
 int main() {
   defaultPidPreservesLegacy(); antiWindupBoundaryRegression(); sensorFormats(); pidWeightsAndPermits(); burstEnergy(); burstTimingJitter(); singleBankSweep();
