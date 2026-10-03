@@ -907,6 +907,9 @@
     for (const formId of ['quickForm', 'temperatureForm', 'ventForm', 'turningForm',
       'sensorForm', 'lightAlarmForm', 'humidifierForm', 'advancedForm']) {
       $(formId)?.querySelectorAll('input,select').forEach(input => {
+        const unsupportedAdaptive = input.id === 'adaptiveThermalBalanceEnabled' &&
+          typeof device?.config?.adaptiveThermalBalanceEnabled !== 'boolean';
+        if (unsupportedAdaptive) { input.disabled = true; return; }
         if (input.type === 'checkbox' || input.tagName === 'SELECT') input.disabled = !device?.config;
         else input.readOnly = !device?.config;
       });

@@ -7,7 +7,7 @@
 namespace MayapAdaptive {
 namespace Policy {
 constexpr uint32_t StartupMs=180000, WindowMs=120000, CoastMs=180000;
-constexpr uint32_t SelfConfirmMs=60000, CoolingMinMs=60000, LearnMinMs=600000;
+constexpr uint32_t SelfConfirmMs=60000, CoolingMinMs=120000, LearnMinMs=600000;
 constexpr uint32_t DiagnosticMs=30000, SaveMinMs=3600000, ModelMaxAgeSec=604800;
 constexpr float BankWatts=16000, MinEnergyJ=160000, HoldBandC=0.15f;
 constexpr float HoldRateCPerSec=0.001f, SelfRateCPerSec=0.0003f;

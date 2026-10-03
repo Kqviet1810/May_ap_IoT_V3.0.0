@@ -86,6 +86,8 @@ test('adaptive thermal setting is explicit opt-in and omitted for legacy firmwar
   const html=fs.readFileSync(require.resolve('../index.html'),'utf8');
   assert.match(html,/Tự cân bằng nhiệt/);
   assert.match(html,/id="adaptiveThermalBalanceEnabled" type="checkbox" disabled/);
+  const webSource=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  assert.match(webSource,/unsupportedAdaptive = input\.id === 'adaptiveThermalBalanceEnabled'/);
   const h=browser();h.device.config=Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key=>[key,0]));
   const values={advKp:18,advKi:.8,advKd:45,advMaxHeaterPower:100,advTempRateLimitC:1,
     advTempRateWindowSec:120,advTempOscillationCrossLimit:6,advTempOscillationWindowSec:600,

@@ -64,22 +64,41 @@ static void selfHeating(){
   for(float resolution:{.1f,.01f})for(bool heat:{false,true}){
     ActualSensorFilter filter;
     AdaptiveThermalSupervisor s;auto o=input();bool detected=false;uint32_t lastTransition=0;bool lastCool=false;
+    float resumeCeiling=100.0f;
     for(uint32_t t=0;t<900000;t+=5){
       s.tick(t,false);
       if(t%2000==0){
         o.raw=std::round((heat?37.5f+t*.0000005f:37.5f+std::sin(t*.0001f)*.015f)/resolution)*resolution;
         filter.updateFilter(o.raw,60);o.pv=filter.value();s.sample(t,o);
       }
+      const float before=s.decision().effective;
       auto d=s.update(t,true,100,o);
       if(d.cooling!=lastCool){assert(since(t,lastTransition)>=Policy::CoolingMinMs);lastTransition=t;lastCool=d.cooling;}
-      if(d.selfHeating){detected=true;assert(d.effective==0);assert(s.effectiveConfidence()>=Policy::HighConfidence);}
+      if(d.selfHeating){
+        if(!detected)resumeCeiling=before;
+        detected=true;assert(d.effective==0);
+        assert(std::fabs(s.effectiveConfidence()-s.observer().estimates().confidence)<0.001f);
+      }
     }
     assert(detected==heat);if(heat)assert(s.decision().cooling);
-    o.pv=o.raw=37.5;auto d=s.update(1000000,true,100,o);assert(!d.selfHeating&&!d.cooling);
+    o.pv=o.raw=37.5;Decision d{};
+    for(uint32_t t=900000;t<1200000;t+=5){
+      s.tick(t,false);
+      if(t%2000==0)s.sample(t,o);
+      d=s.update(t,true,100,o);
+      if(!d.selfHeating&&!d.cooling)break;
+    }
+    assert(!d.selfHeating&&!d.cooling);
+    if(heat)assert(d.effective+0.01f>=std::min(100.0f,resumeCeiling));
   }
 }
 static void persistence(){
   Estimates e;e.confidence=90;e.load=.5;e.coast=.2;e.coastSec=30;e.hold=20;e.windows=8;
+  e.validMs=Policy::LearnMinMs;e.learningValid=true;
+  Decision q;q.state=State::Degraded;assert(!persistenceEligible(q,e));
+  q.state=State::SelfHeating;assert(!persistenceEligible(q,e));
+  q.state=State::Qualified;assert(persistenceEligible(q,e));
+  q.state=State::Adaptive;assert(persistenceEligible(q,e));
   Model m=makeModel(e,123,1800000000,1);assert(validModel(m));
   assert(compatibleModel(m,123,1800000010,false));
   assert(!compatibleModel(m,124,1800000010,false));assert(!compatibleModel(m,123,1800000010,true));

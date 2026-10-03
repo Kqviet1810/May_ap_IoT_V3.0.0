@@ -26,6 +26,11 @@
 
 namespace Mayap {
 
+static_assert(MayapAdaptive::Policy::CoolingMinMs == RELAY_VENT_MIN_ON_MS,
+              "Smart cooling minimum ON must match vent relay protection");
+static_assert(MayapAdaptive::Policy::CoolingMinMs == RELAY_VENT_MIN_OFF_MS,
+              "Smart cooling minimum OFF must match vent relay protection");
+
 // ============================================================================
 // TIEN ICH CHUNG
 // ============================================================================
@@ -6020,9 +6025,8 @@ class MachineController {
         }
       }
       const auto &estimate=adaptiveThermal_.observer().estimates();
-      if(config_.adaptiveThermalBalanceEnabled && estimate.learningValid &&
-         estimate.confidence>=MayapAdaptive::Policy::HighConfidence &&
-         estimate.validMs>=MayapAdaptive::Policy::LearnMinMs && estimate.windows>=MayapAdaptive::Policy::MinQualifiedWindows)
+      if(config_.adaptiveThermalBalanceEnabled &&
+         MayapAdaptive::persistenceEligible(d,estimate))
         MayapAdaptive::modelStorage.offer(MayapAdaptive::makeModel(estimate,signature,rtc_.epoch(),0));
     }
     if(adaptiveThermal_.changedEnabled()){
