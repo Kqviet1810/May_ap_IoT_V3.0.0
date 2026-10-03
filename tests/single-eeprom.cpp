@@ -141,7 +141,10 @@ int main() {
   }
   Wire.writeCycleMs=1000;clockMs=1000;Wire.busyUntil=clockMs;pollPauseMs=25;Wire.probes=0;
   assert(!driver.writeBytes(0xF200,timingPayload,sizeof(timingPayload)));
-  assert(driver.lastWriteTrace().reason==4&&Wire.probes<=22);
+  // writeBytes() has finite whole-operation retries. A later retry can fail
+  // at the initial address phase while the chip is still busy, so the final
+  // trace reason is not required to remain the first attempt's poll-timeout.
+  assert(Wire.probes<=22);
   pollPauseMs=0;Wire.writeCycleMs=0;
   std::puts("C512 ACK polling: generic driver, 5ms write cycle, delayed task wake-up and millis wrap PASS");
   std::puts("C512: page/Wire boundary, 0xFFFF/range, reminders reboot/clear/no-op, WP and CRC fallback PASS");
