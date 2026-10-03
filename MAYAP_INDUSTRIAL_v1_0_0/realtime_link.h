@@ -7,6 +7,7 @@
 #include "websocket_transport.h"
 #include "protocol_limits.h"
 #include "web_realtime_policy.h"
+#include "note_mailbox.h"
 #include <ArduinoJson.h>
 #include <esp_wifi.h>
 #include <mbedtls/md.h>
@@ -144,11 +145,6 @@ struct PendingConfigSave {
   bool signedAck = false;
 };
 static PendingConfigSave pendingConfigSave;
-
-// Giong het PendingConfigSave nhung cho "reminders/set" - gate .used RIENG,
-// khong dung chung voi pendingConfigSave (2 loai luu doc lap, khong can
-// chan lan nhau - xem ghi chu ReminderSaveTransaction trong hmi.h).
-static PendingConfigSave pendingReminderSave;
 
 // ------------------------------- Hop thu phat ACK -------------------------------
 // mayapWebConfirmCommand/mayapWebConfirmConfigSave chay tren controlTask va
@@ -317,6 +313,7 @@ inline void publishPresence(bool online) {
   caps.add("transactions"); caps.add("config.patch");
   caps.add("control.session"); caps.add("history.chunk");
   doc["hw"] = MAYAP_HARDWARE_REVISION;
+  doc["notesJournal"]=2;
   publishJson("presence", doc, true);
 }
 
@@ -526,7 +523,9 @@ inline bool publishBootstrap(const MachineRuntime &rt, uint32_t revision) {
   return publishJson("bootstrap", doc, true);
 }
 
+static uint32_t noteAckRevision=0;
 struct TerminalResult {
+  uint32_t noteRevision=0;
   bool used = false;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
   char operation[40] = "";
@@ -541,6 +540,7 @@ inline bool replayTerminal(const char *id) {
   if (!id || !id[0]) return false;
   for (const auto &item : terminalCache) {
     if (!item.used || strcmp(item.requestId, id)) continue;
+    if(!strncmp(item.operation,"notes.",6))noteAckRevision=item.noteRevision;
     // Replayed terminal result never executes the controller again.
     publishAck(item.requestId, item.result, item.message, item.operation,
                0U, 0U, item.signedAck ? item.ackKey : nullptr);
@@ -550,6 +550,7 @@ inline bool replayTerminal(const char *id) {
 }
 
 inline const char *ackCode(const char *result, const char *message) {
+  if (message && !strncmp(message, "NOTE_JOURNAL_", 13U)) return message;
   if (message && !strncmp(message, "HISTORY_", 8U)) return message;
   if (message && !strncmp(message, "CONFIG_", 7U)) return message;
   if (!strcmp(result, "applied")) return "APPLIED";
@@ -576,7 +577,6 @@ inline const char *ackCode(const char *result, const char *message) {
     {"LOI LUU TRANG THAI ME", "BATCH_EEPROM_ERROR"},
     {"LOI BO NHO CAU HINH", "CONFIG_EEPROM_ERROR"},
     {"LUU CAU HINH BI TU CHOI", "CONFIG_SAVE_REJECTED"},
-    {"LUU NHAC NHO BI TU CHOI", "REMINDERS_EEPROM_ERROR"},
     {"KHONG CO ME DANG CHAY", "BATCH_NOT_RUNNING"},
     {"COI KHAN CAP CAN ACK TAI MAY", "ALARM_PHYSICAL_ACK_REQUIRED"},
     {"LOI DAO CAN ACK TAI MAY", "TURN_PHYSICAL_ACK_REQUIRED"},
@@ -641,6 +641,7 @@ inline bool publishAck(const char *requestId, const char *result,
     for (auto &item : terminalCache) if (item.used && !strcmp(item.requestId, requestId)) { existing = &item; break; }
     TerminalResult slot{}; // Separate copy avoids aliasing replayTerminal() input.
     slot.used = true;
+    if(!strncmp(op,"notes.",6))slot.noteRevision=noteAckRevision;
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", op);
     snprintf(slot.result, sizeof(slot.result), "%s", result);
@@ -663,7 +664,7 @@ inline bool publishAck(const char *requestId, const char *result,
   doc["bootId"] = bootId;
   doc["result"] = result;
   doc["message"] = ackFriendlyMessage(code, message);
-  doc["revision"] = !strcmp(op, "reminders.save") ? webRemindersRevision : webConfigRevision;
+  doc["revision"] = !strncmp(op,"notes.",6) ? noteAckRevision : webConfigRevision;
   doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
   doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
   if (key) {
@@ -1156,74 +1157,7 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
 // label) da xu ly san va sanitizeReminderSet() lam luoi an toan cuoi (xem
 // config.h). Luon thay THE TOAN BO danh sach (khong merge tung phan tu),
 // giong het huong tiep can cua "config/set" o tren.
-inline void handleReminderSetMessage(const JsonDocument &doc) {
-  const char *requestId = doc["requestId"] | "";
-  if (!realtimeCommandChannelTrusted()) {
-    publishAck(requestId, "unauthorized", "REALTIME CHUA XAC THUC");
-    return;
-  }
-  const uint32_t revision = doc["revision"] | 0UL;
-  if (!requestId[0] || revision == 0U) {
-    publishAck(requestId, "invalid", "");
-    return;
-  }
 
-  portENTER_CRITICAL(&webMux);
-  const bool busy = pendingReminderSave.used;
-  const uint32_t currentRevision = webRemindersRevision;
-  portEXIT_CRITICAL(&webMux);
-  if (currentRevision != 0U && revision <= currentRevision) {
-    publishAck(requestId, "stale", "");
-    return;
-  }
-  if (busy) {
-    publishAck(requestId, "busy", "");
-    return;
-  }
-
-  JsonVariantConst remindersArr = doc["reminders"];
-  if (!remindersArr.is<JsonArrayConst>()) {
-    publishAck(requestId, "invalid", "THIEU REMINDERS");
-    return;
-  }
-
-  ReminderSet candidate{};
-  uint8_t slot = 0U;
-  for (JsonVariantConst entry : remindersArr.as<JsonArrayConst>()) {
-    if (slot >= MAX_CUSTOM_REMINDERS) break;  // web da gioi han 10, day la luoi du phong
-    const int day = entry["day"] | 0;
-    const char *label = entry["label"] | "";
-    if (day <= 0 || !label[0]) continue;  // muc khong hop le: bo qua thay vi tu choi ca goi
-    candidate.items[slot].day = static_cast<uint8_t>(constrain(day, 1, 200));
-    snprintf(candidate.items[slot].label, sizeof(candidate.items[slot].label), "%s", label);
-    ++slot;
-  }
-
-  // Prepare metadata and transaction ID before readyForHost becomes visible.
-  portENTER_CRITICAL(&webMux);
-  pendingReminderSave = PendingConfigSave{};
-  pendingReminderSave.used = true;
-  pendingReminderSave.queuedAt = millis();
-  pendingReminderSave.revision = revision;
-  pendingReminderSave.signedAck = activeAckKeyValid;
-  if (activeAckKeyValid) memcpy(pendingReminderSave.ackKey, activeAckKey, 32U);
-  snprintf(pendingReminderSave.requestId, sizeof(pendingReminderSave.requestId), "%s", requestId);
-  portEXIT_CRITICAL(&webMux);
-  uint32_t transactionId = 0U;
-  if (!startReminderSave(candidate, true, &transactionId)) {
-    portENTER_CRITICAL(&webMux);
-    pendingReminderSave.used = false;
-    portEXIT_CRITICAL(&webMux);
-    publishAck(requestId, "busy", ""); return;
-  }
-  portENTER_CRITICAL(&webMux);
-  pendingReminderSave.transactionId = transactionId;
-  portEXIT_CRITICAL(&webMux);
-  portENTER_CRITICAL(&hmiApiMux);
-  reminderSave.readyForHost = true;
-  portEXIT_CRITICAL(&hmiApiMux);
-  publishAck(requestId, "accepted", "");
-}
 
 // Eight bounded leases are ORed: hiding one tab cannot deactivate another.
 inline void handleSessionMessage(const JsonDocument &doc) {
@@ -1281,6 +1215,8 @@ inline void handleSessionMessage(const JsonDocument &doc) {
   }
 }
 
+#include "note_realtime.h"
+
 inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
   if (length > MayapProtocol::FRAME_NORMAL_CAP) return;
   JsonDocument frame;
@@ -1295,9 +1231,8 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     bool expired = false;
     if (!v2 || !realtimeVerifyV2(channel, wireDoc, bodyDoc, expired)) {
       if (expired) {
-        const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
+        const char *op = (!strcmp(channel, "command") || !strcmp(channel,"notes/request")) ? (bodyDoc["action"] | "")
             : !strcmp(channel, "config/set") ? "config.save"
-            : !strcmp(channel, "reminders/set") ? "reminders.save"
             : "history.read";
         char normalized[40];
         snprintf(normalized, sizeof(normalized), "%s", op);
@@ -1311,10 +1246,9 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
       return;
     }
     const char *id = bodyDoc["requestId"] | "";
-    const char *op = !strcmp(channel, "command") ? (bodyDoc["action"] | "")
+    const char *op = (!strcmp(channel, "command") || !strcmp(channel,"notes/request")) ? (bodyDoc["action"] | "")
                     : !strcmp(channel, "config/set") ? "config.save"
-                    : !strcmp(channel, "reminders/set") ? "reminders.save"
-            : "history.read";
+                    : "history.read";
     snprintf(activeOperation, sizeof(activeOperation), "%s", op);
     for (char *c = activeOperation; *c; ++c) if (*c == '_') *c = '.';
     if (v2 && bodyDoc["bootId"].as<uint32_t>() != bootId) {
@@ -1325,8 +1259,8 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     }
     if (replayTerminal(id)) { activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
-                    (pendingReminderSave.used && !strcmp(id, pendingReminderSave.requestId)) ||
-                    (historyResponsePending && !strcmp(id, historyRequestId));
+                    (historyResponsePending && !strcmp(id, historyRequestId)) ||
+                    (notePending.used && !strcmp(id,notePending.id));
     for (const auto &pending : pendingCommands)
       if (pending.used && !strcmp(id, pending.requestId)) inFlight = true;
     if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
@@ -1341,14 +1275,12 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     activeAckKeyValid = false;
   };
 
+  if(!strcmp(channel,"notes/request")){verifyAndDispatch("notes/request",[](const JsonDocument &doc){handleNoteRequest(doc);});return;}
   if (!strcmp(channel, "config/set")) {
     verifyAndDispatch("config/set", [](const JsonDocument &doc) { handleConfigSetMessage(doc); });
     return;
   }
-  if (!strcmp(channel, "reminders/set")) {
-    verifyAndDispatch("reminders/set", [](const JsonDocument &doc) { handleReminderSetMessage(doc); });
-    return;
-  }
+
   if (!strcmp(channel, "history/request")) {
     verifyAndDispatch("history/request", [](const JsonDocument &doc) { handleHistoryRequestMessage(doc); });
     return;
@@ -1386,11 +1318,11 @@ inline void flushCompletedTransactions() {
         slot.operation, slot.queuedAt, slot.signedAck ? slot.ackKey : nullptr, slot.completedAt))
       slot.used = false;
   }
-  PendingConfigSave *saves[] = {&pendingConfigSave, &pendingReminderSave};
+  PendingConfigSave *saves[] = {&pendingConfigSave};
   for (PendingConfigSave *slot : saves) {
     if (slot->used && slot->completed && enqueueAckLocked(slot->requestId,
         slot->completionOk ? "applied" : "rejected", slot->completionMessage,
-        slot == &pendingConfigSave ? "config.save" : "reminders.save", slot->queuedAt,
+        "config.save", slot->queuedAt,
         slot->signedAck ? slot->ackKey : nullptr, slot->completedAt)) slot->used = false;
   }
   portEXIT_CRITICAL(&webMux);
@@ -1439,20 +1371,6 @@ inline void expirePendingCommands(uint32_t now) {
     if (configSigned) memcpy(configKey, pendingConfigSave.ackKey, 32U);
     pendingConfigSave.uncertainSent = true;
   }
-  bool remindersExpired = false;
-  char reminderRequestId[WEB_REQUEST_ID_CAPACITY] = "";
-  uint8_t reminderKey[32] = {};
-  bool reminderSigned = false;
-  if (pendingReminderSave.uncertainSent && !pendingReminderSave.completed && timeReached(now, pendingReminderSave.queuedAt) && elapsedMs(now, pendingReminderSave.queuedAt) >= 120000U) pendingReminderSave.used = false;
-  if (pendingReminderSave.used && !pendingReminderSave.completed && !pendingReminderSave.uncertainSent && timeReached(now, pendingReminderSave.queuedAt) &&
-      elapsedMs(now, pendingReminderSave.queuedAt) >= WEB_REMINDER_SAVE_ACK_TIMEOUT_MS) {
-    remindersExpired = true;
-    snprintf(reminderRequestId, sizeof(reminderRequestId), "%s",
-             pendingReminderSave.requestId);
-    reminderSigned = pendingReminderSave.signedAck;
-    if (reminderSigned) memcpy(reminderKey, pendingReminderSave.ackKey, 32U);
-    pendingReminderSave.uncertainSent = true;
-  }
   portEXIT_CRITICAL(&webMux);
 
   for (uint8_t i = 0; i < expireCount; ++i)
@@ -1460,8 +1378,7 @@ inline void expirePendingCommands(uint32_t now) {
                0U, 0U, signedToExpire[i] ? keysToExpire[i] : nullptr);
   if (configExpired) publishAck(configRequestId, "expired", "", "config.save",
                                 0U, 0U, configSigned ? configKey : nullptr);
-  if (remindersExpired) publishAck(reminderRequestId, "expired", "", "reminders.save",
-                                   0U, 0U, reminderSigned ? reminderKey : nullptr);
+
 }
 
 inline void drainAckOutbox() {
@@ -1628,7 +1545,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   MayapNetworkBatchOperation batchOperation;
   if (!batchOperation) return;
   serviceSnapshotPublish(postLoopNow); serviceConfigPublish(); serviceReminderPublish();
-  serviceEventLogPublish(); serviceHistoryResponse();
+  serviceEventLogPublish(); serviceHistoryResponse(); serviceNoteResult();
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------
@@ -1671,8 +1588,7 @@ inline void mayapWebSetReminders(const ReminderSet &reminders) {
   knownRemindersValid = true;
   if (changed) {
     remindersDirty = true;
-    if (webRemindersRevision == 0U) webRemindersRevision = 1U;
-    else if (!pendingReminderSave.used) ++webRemindersRevision;
+    webRemindersRevision=MayapNoteMailbox::verifiedRevision();
   }
   portEXIT_CRITICAL(&webMux);
 }
@@ -1712,24 +1628,7 @@ inline void mayapWebConfirmConfigSave(uint32_t transactionId, bool ok,
   portEXIT_CRITICAL(&webMux);
 }
 
-inline void mayapWebConfirmReminderSave(uint32_t transactionId, bool ok,
-                                        const ReminderSet *stored) {
-  using namespace MayapRealtimeInternal;
-  portENTER_CRITICAL(&webMux);
-  if (pendingReminderSave.used && !pendingReminderSave.completed && pendingReminderSave.transactionId == transactionId) {
-    if (ok && stored) {
-      knownReminders = *stored; // Only the EEPROM readback is authoritative.
-      knownRemindersValid = true;
-      webRemindersRevision = pendingReminderSave.revision > webRemindersRevision
-          ? pendingReminderSave.revision : webRemindersRevision + 1U;
-      remindersDirty = true; // Republish with the final revision even if a report raced.
-    }
-    pendingReminderSave.completed = true; pendingReminderSave.completionOk = ok;
-    pendingReminderSave.completedAt = millis();
-    snprintf(pendingReminderSave.completionMessage, sizeof(pendingReminderSave.completionMessage), "%s", ok ? "" : "LUU NHAC NHO BI TU CHOI");
-  }
-  portEXIT_CRITICAL(&webMux);
-}
+
 
 inline void mayapWebPushEventLog(const HmiEventSnapshot &snapshot) {
   using namespace MayapRealtimeInternal;

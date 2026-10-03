@@ -28,30 +28,12 @@ constants = []
 for name in ('EEPROM_I2C_ADDRESS', 'EEPROM_CAPACITY_BYTES', 'EEPROM_PAGE_SIZE',
              'EEPROM_MAX_WRITE_CHUNK', 'EEPROM_WRITE_TIMEOUT_MS', 'EEPROM_IO_RETRIES',
              'EEPROM_RETRY_GAP_MS', 'I2C_STORAGE_LOCK_TIMEOUT_MS', 'MAX_CUSTOM_REMINDERS',
-             'CUSTOM_REMINDER_LABEL_LEN', 'EEPROM_ADDR_REMINDERS_A', 'EEPROM_ADDR_REMINDERS_B',
-             'REMINDER_MAGIC', 'REMINDER_SCHEMA'):
+             'CUSTOM_REMINDER_LABEL_LEN', 'EEPROM_ADDR_REMINDERS_A', 'EEPROM_ADDR_REMINDERS_B'):
     match = re.search(rf'constexpr\s+\w+\s+{name}\s*=.*?;', config + '\n' + machine)
     assert match, name
     constants.append(match.group())
 
-parts = constants + [body(config, 'struct CustomReminder') + ';',
-                     body(config, 'struct ReminderSet') + ';',
-                     body(config, 'inline void sanitizeReminderSet('),
-                     body(machine, 'inline uint32_t mcCrc32('), '#pragma pack(push, 1)']
-for name in ('PackedReminderEntryV1', 'PackedReminderSetV1', 'ReminderRecordV1'):
-    parts.append(body(machine, 'struct ' + name) + ';')
-parts += ['#pragma pack(pop)', body(machine, 'inline PackedReminderSetV1 packReminders('),
-          body(machine, 'inline ReminderSet unpackReminders('),
-          body(machine, 'class ExternalEeprom24xx') + ';',
-          'class ReminderStore { public: bool ready_ = true;']
-for signature in ('bool loadReminders(', 'bool saveReminders(', 'static bool newer(',
-                  'static bool validReminders(', 'bool refreshReminderCache('):
-    parts.append(body(machine, signature))
-parts += ['template <typename T> ' + body(machine, 'bool readRecord('),
-          'template <typename T> ' + body(machine, 'bool writeRecord('),
-          'ExternalEeprom24xx eeprom_; bool reminderCacheValid_ = false;',
-          'bool reminderCurrentIsA_ = false; uint32_t reminderSequence_ = 0;',
-          'PackedReminderSetV1 reminderPayload_{}; };']
+parts = constants + [body(machine, 'class ExternalEeprom24xx') + ';']
 
 with tempfile.TemporaryDirectory(prefix='mayap-single-eeprom-') as temporary:
     output = Path(temporary)

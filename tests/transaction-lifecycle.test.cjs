@@ -8,7 +8,7 @@ const { TransactionLedger, PacketPolicy } = require('../protocol_v2.js');
 function browser() {
   const source = readFileSync(require.resolve('../app.js'), 'utf8').replace(/  init\(\);\s*\}\)\(\);\s*$/, `
     Object.assign(window.hooks, { state, transactions, startTransaction, handleAck,
-      verifyDeviceAck, sweepUncertain, handleConfigReport, handleReminderReport,
+      verifyDeviceAck, handleJournalData, sweepUncertain, handleConfigReport, handleReminderReport,
       moveToUncertain, publish, retrySameRequest, resumeExactRetries, clearPending, telemetryChart, storeControlSession,
       signRealtimeWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
       buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
@@ -18,7 +18,7 @@ function browser() {
   let nextTimer = 0;
   let time = 0;
   const elements = new Map();
-  const window = { addEventListener() {}, MayapProtocolV2: {
+  const window = { MayapJournalClient: require('../journal_client.js'), addEventListener() {}, MayapProtocolV2: {
     TransactionLedger: class extends TransactionLedger { constructor() { super(() => time); } },
     PacketPolicy },
     MAYAP_WEB_CONFIG: { cloudApiBase: 'https://test.invalid' }, hooks: {} };
@@ -157,7 +157,7 @@ test('fault popup renders every active fault instead of only the newest one', ()
   assert.equal(list.children[2].children[0].children[0].textContent, 'E301');
 });
 
-test('config, reminders and batch state reconcile without hiding a later signed rejection', async () => {
+test('config and batch state reconcile without hiding a later signed rejection', async () => {
   const h = browser();
   const full = Object.fromEntries(h.CONFIG_KEYS.map((key) => [key, 1]));
   full.targetTemp = 37;
@@ -183,18 +183,6 @@ test('config, reminders and batch state reconcile without hiding a later signed 
   h.handleConfigReport(h.device, { revision: 3, bootId: 123, requestId: 'cfg-b', config: full });
   assert.equal(verified.phase, 'UNCERTAIN'); // Settled by the verified report.
   assert.equal(h.state.uncertain.has('cfg-b'), false);
-
-  const reminder = h.startTransaction('rem-a', { kind: 'reminders', operation: 'reminders.save',
-    deviceId: h.device.id, revision: 3, nextList: [{ day: 5, label: 'Kiểm tra' }],
-    ackKey: key }, 100);
-  reminder.onTimeout();
-  h.handleReminderReport(h.device, { revision: 3,
-    reminders: [{ day: 5, label: 'Kiểm tra' }] });
-  assert.equal(reminder.observed, true);
-  const applied = await signedAck(h, 'rem-a', 'reminders.save', true, key, { revision: 3 });
-  assert.equal(await h.verifyDeviceAck(h.device, applied), true);
-  h.handleAck(h.device, applied);
-  assert.equal(reminder.phase, 'APPLIED');
 
   const batch = h.startTransaction('cmd-batch', { kind: 'command', operation: 'batch.start',
     action: 'batch_start', deviceId: h.device.id, ackKey: key }, 100);
@@ -307,4 +295,21 @@ test('signed terminal history ACK cannot complete a transaction with missing chu
  h.handleAck(h.device,ack);assert.equal(pending.phase,'UNCERTAIN');assert.equal(h.state.uncertain.has('history-missing'),true);
  h.telemetryChart.historyGap=false;h.telemetryChart.historyLoaded=true;h.handleAck(h.device,ack);
  assert.equal(pending.phase,'APPLIED');assert.equal(h.state.uncertain.has('history-missing'),false);
+});
+
+test('journal success requires authentic DATA and terminal ACK with matching revision',async()=>{
+ const h=browser(),{key,pending}=await start(h,'journal','notes.save');let applied=false;
+ pending.kind='journal';pending.resolve=()=>{applied=true;};pending.reject=()=>assert.fail('Unexpected journal rejection');
+ const ack=await signedAck(h,'journal','notes.save',true,key,{revision:5});
+ assert.equal(await h.verifyDeviceAck(h.device,ack),true);h.handleAck(h.device,ack);assert.equal(applied,false);
+ const body=JSON.stringify({generation:5,next:24,done:true}),frame={v:2,requestId:'journal',bootId:123,operation:'notes.save',body};
+ frame.sig=Buffer.from(await webcrypto.subtle.sign('HMAC',key,new TextEncoder().encode(['mayap-note-journal:v2',h.device.id,123,'journal','notes.save',body].join('\n')))).toString('hex');
+ await h.handleJournalData(h.device,{...frame,sig:'00'.repeat(32)});assert.equal(applied,false);
+ await h.handleJournalData(h.device,{...frame,bootId:124});assert.equal(applied,false);
+ await h.handleJournalData(h.device,frame);assert.equal(applied,true);
+});
+test('journal rejects a signed DATA/ACK revision mismatch without claiming success',async()=>{
+ const h=browser(),{key,pending}=await start(h,'journal-mismatch','notes.reminders.save');let error;
+ pending.kind='journal';pending.journalData={generation:4};pending.resolve=()=>assert.fail('Must not claim persistence');pending.reject=e=>error=e;
+ const ack=await signedAck(h,'journal-mismatch','notes.reminders.save',true,key,{revision:5});h.handleAck(h.device,ack);assert.match(error.message,/không khớp/);
 });

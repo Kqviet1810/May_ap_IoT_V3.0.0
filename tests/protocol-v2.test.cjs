@@ -199,7 +199,7 @@ test('firmware guards the replay, EEPROM, safety and packet boundaries', () => {
   assert.match(realtime, /expirePendingCommands\(postLoopNow\)/);
   assert.match(realtime, /timeReached\(now, slot\.queuedAt\)/);
   assert.match(realtime, /timeReached\(now, pendingConfigSave\.queuedAt\)/);
-  assert.match(realtime, /timeReached\(now, pendingReminderSave\.queuedAt\)/);
+  assert.doesNotMatch(realtime, /pendingReminderSave/);
   assert.match(hmi, /timeReached\(now, configSave\.startedAt\)/);
   assert.equal((hmi.match(/timeReached\(now, command\.createdAt\)/g) || []).length, 2);
   assert.match(machine, /store_\.saveConfig\(requested, readback\)/);

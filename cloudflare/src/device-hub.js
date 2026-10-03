@@ -189,7 +189,7 @@ export class DeviceHub {
       if (++a.rateCount > 160) { ws.close(1008, 'DEVICE_RATE_LIMIT'); return; }
       if (this.device() !== ws || msg.v !== 1 || !DEVICE_CHANNELS.has(msg.channel) ||
           !msg.payload || typeof msg.payload !== 'object' || Array.isArray(msg.payload)) return this.reject(ws, 'INVALID_CHANNEL');
-      if (['presence', 'bootstrap', 'snapshot', 'ack', 'config/reported', 'reminders/reported', 'history/reported'].includes(msg.channel) && msg.payload.bootId !== a.bootId)
+      if (['presence', 'bootstrap', 'snapshot', 'ack', 'config/reported', 'reminders/reported', 'history/reported', 'notes/reported'].includes(msg.channel) && msg.payload.bootId !== a.bootId)
         return this.reject(ws, 'STALE_BOOT');
       a.lastAt = now;
       if (msg.channel === 'presence') a.presence = msg.payload;
@@ -247,7 +247,7 @@ export class DeviceHub {
         Date.now() - attachment(device).lastAt >= DEVICE_STALE_MS)
       return this.reject(ws, 'CONNECTION_CHANGED', body.requestId);
     const commitSec = Math.floor(Date.now() / 1000);
-    if (Number(msg.payload.grant.split('|')[1]) < commitSec || (msg.channel === 'command' && body.expiresAt < commitSec))
+    if (Number(msg.payload.grant.split('|')[1]) < commitSec || (['command','notes/request'].includes(msg.channel) && body.expiresAt < commitSec))
       return this.reject(ws, 'INVALID_SIGNATURE_OR_EXPIRY', body.requestId);
     this.sql.exec('DELETE FROM realtime_replay WHERE expiry<=?', now);
     const key = JSON.stringify([a.sessionId, a.clientId]);

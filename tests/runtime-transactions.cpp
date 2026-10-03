@@ -20,7 +20,7 @@ void leave(int *p){if(p==&hmiApiMux)--hmiDepth;if(autoRun&&!hmiDepth&&!inControl
 #define portEXIT_CRITICAL(p) leave(p)
 constexpr uint8_t COMMAND_QUEUE_SIZE=4,MAX_CUSTOM_REMINDERS=10;
 constexpr size_t WEB_REQUEST_ID_CAPACITY=40;
-constexpr uint32_t AlarmNone=0,ALARM_KNOWN_MASK=0xffff,WEB_COMMAND_ACK_TIMEOUT_MS=8000,WEB_CONFIG_SAVE_ACK_TIMEOUT_MS=8000,WEB_REMINDER_SAVE_ACK_TIMEOUT_MS=8000;
+constexpr uint32_t AlarmNone=0,ALARM_KNOWN_MASK=0xffff,WEB_COMMAND_ACK_TIMEOUT_MS=8000,WEB_CONFIG_SAVE_ACK_TIMEOUT_MS=8000;
 constexpr uint16_t COMMAND_DEFAULT_VALID_MS=5000,COMMAND_AUTOTUNE_VALID_MS=5000;
 enum class HmiCommandType{None,LightToggle,AutoTuneStart,AlarmAck,FirmwareRollback};
 enum class HmiCommandSource{Local,Remote};enum class BuzzerCue{Error};
@@ -28,18 +28,15 @@ struct HmiCommand{uint32_t id=0;HmiCommandType type=HmiCommandType::None;uint32_
 struct ReminderItem{uint8_t day=0;char label[40]="";};struct ReminderSet{ReminderItem items[10];};
 struct MachineConfig{};
 static HmiCommand commandQueue[4];static uint8_t commandTail=0,commandHead=0,commandCount=0,commandOutstandingCount=0;static uint32_t nextCommandId=1;
-static struct{bool active=false,readyForHost=false;uint32_t id=0,startedAt=0;ReminderSet candidate;}reminderSave;
-static uint32_t nextReminderTransactionId=1;
 bool commandConflictLocked(HmiCommandType){return false;}void showToast(const char*,bool){}void buzzerPlayCue(BuzzerCue){}
 #include "actual-transaction-hmi.inc"
 void mayapWebConfirmCommand(uint32_t,bool,const char*);
-void mayapWebConfirmReminderSave(uint32_t,bool,const ReminderSet*);
 namespace MayapRealtimeInternal {
 static bool activeAckKeyValid=true;static uint8_t activeAckKey[32]={7};static char activeOperation[40]="light.toggle";
 static uint32_t bootId=123,lastCommandSequence=0;static char lastCommandRequestId[40]="";
 static bool knownRuntimeValid=true;static struct{uint32_t alarmMask=0;}knownRuntime;
-static ReminderSet knownReminders;static bool knownRemindersValid=false,remindersDirty=false,configDirty=false;
-static uint32_t webRemindersRevision=0,webConfigRevision=0,lastVerifiedConfigRevision=0;
+static bool configDirty=false;
+static uint32_t webConfigRevision=0,lastVerifiedConfigRevision=0;
 static char lastVerifiedConfigRequestId[40]="";
 #include "actual-transaction-state.inc"
 static std::vector<std::string>acks;
@@ -71,23 +68,20 @@ bool publishJson(const char *channel,const JsonDocument &doc,bool){if(failSend)r
 static int executions=0,saves=0;
 void controller(){inController=true;
  while(commandCount){const auto cmd=commandQueue[commandHead];commandHead=(commandHead+1)%4;--commandCount;--commandOutstandingCount;++executions;mayapWebConfirmCommand(cmd.id,true,"APPLIED");}
- if(reminderSave.active&&reminderSave.readyForHost){reminderSave.readyForHost=false;++saves;mayapWebConfirmReminderSave(reminderSave.id,true,&reminderSave.candidate);reminderSave.active=false;}
+
  inController=false;
 }
 using namespace MayapRealtimeInternal;
 void reset(){autoRun=false;for(auto &p:pendingCommands)p=PendingCommand{};for(auto &a:ackOutbox)a=AckOutboxItem{};
- pendingConfigSave=PendingConfigSave{};pendingReminderSave=PendingConfigSave{};reminderSave.active=false;reminderSave.readyForHost=false;
+ pendingConfigSave=PendingConfigSave{};
  for(auto &t:terminalCache) { t=TerminalResult{}; }
  terminalCursor=0;
- commandTail=commandHead=commandCount=commandOutstandingCount=0;webRemindersRevision=0;executions=saves=0;acks.clear();clockMs=100;}
+ commandTail=commandHead=commandCount=commandOutstandingCount=0;noteAckRevision=0;executions=saves=0;acks.clear();clockMs=100;}
 JsonDocument command(){JsonDocument d;d["v"]=2;d["requestId"]="cmd";d["bootId"]=123;d["expiresAt"]=time(nullptr)+20;d["action"]="light_toggle";return d;}
-JsonDocument reminders(){JsonDocument d;d["requestId"]="remind";d["revision"]=2;auto a=d["reminders"].to<JsonArray>();auto row=a.add<JsonObject>();row["day"]=3;row["label"]="day 3";return d;}
 int main(){
  reset();autoRun=true;handleCommandMessage(command());assert(executions==1&&pendingCommands[0].completed&&pendingCommands[0].commandId!=0);flushCompletedTransactions();assert(!pendingCommands[0].used&&ackOutbox[0].signedAck&&!strcmp(ackOutbox[0].requestId,"cmd"));
  reset();for(auto &p:pendingCommands)p.used=true;autoRun=true;handleCommandMessage(command());assert(executions==0&&commandCount==0&&acks.back()=="busy");
  reset();commandOutstandingCount=4;handleCommandMessage(command());for(const auto&p:pendingCommands)assert(!p.used);
- reset();autoRun=true;handleReminderSetMessage(reminders());assert(saves==1&&pendingReminderSave.completed&&pendingReminderSave.transactionId!=0&&knownRemindersValid);flushCompletedTransactions();assert(!pendingReminderSave.used&&!strcmp(ackOutbox[0].requestId,"remind"));
- reset();handleReminderSetMessage(reminders());mayapWebConfirmReminderSave(pendingReminderSave.transactionId+1,true,&reminderSave.candidate);assert(!pendingReminderSave.completed);controller();assert(pendingReminderSave.completed);
  reset();handleCommandMessage(command());for(auto &a:ackOutbox)a.used=true;controller();expirePendingCommands(9000);assert(pendingCommands[0].completed&&pendingCommands[0].used);ackOutbox[0].used=false;flushCompletedTransactions();assert(!pendingCommands[0].used&&!strcmp(ackOutbox[0].requestId,"cmd"));
  reset();handleCommandMessage(command());clockMs=8200;expirePendingCommands(clockMs);assert(pendingCommands[0].used&&pendingCommands[0].uncertainSent);clockMs=10000;controller();flushCompletedTransactions();assert(!pendingCommands[0].used&&!strcmp(ackOutbox[0].result,"applied"));
  reset();handleCommandMessage(command());expirePendingCommands(8200);expirePendingCommands(120101);assert(!pendingCommands[0].used);
@@ -97,5 +91,6 @@ int main(){
  reset();failSend=false;publishAck("cache","expired","");assert(terminalCursor==0);publishAck("cache","accepted","");assert(terminalCursor==0);publishAck("cache","applied","APPLIED","light.toggle");assert(terminalCursor==1);
  for(int i=0;i<100;i++) { assert(replayTerminal("cache")); }
  assert(terminalCursor==1&&!strcmp(terminalCache[0].requestId,"cache")&&!strcmp(terminalCache[0].result,"applied"));
- puts("Actual transactions: immediate-controller admission, saturated trackers/outbox, Reminder ID fencing, late completion and failed history chunks PASS");
+ reset();noteAckRevision=3;publishAck("note-cache","applied","NOTE_JOURNAL_OK","notes.save");noteAckRevision=99;assert(replayTerminal("note-cache")&&lastAckRevision==3);
+ puts("Actual transactions: immediate-controller admission, saturated trackers/outbox, late completion and failed history chunks PASS");
 }

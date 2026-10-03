@@ -29,7 +29,7 @@ function browser(overrides = {}, initialStorage = {}) {
   class BrowserDate extends Date { static now() { return wall; } }
   const timers = new Map(), elements = new Map(), clients = [], events = new Map();
   const storage = new Map(Object.entries(initialStorage));
-  const window = { hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
+  const window = { MayapJournalClient: require('../journal_client.js'), hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
     MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', realtimeUrl: 'wss://test.invalid/realtime', realtimeUsername: 'test', realtimePassword: 'test', sessionRefreshMs: 3000, ...overrides },
     MayapRealtime: { Client: class extends EventEmitter {
       constructor(options) { super(); this.deviceId=options.deviceId; this.connected=false; this.resumes=0; clients.push(this); }

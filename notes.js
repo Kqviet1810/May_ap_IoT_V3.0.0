@@ -169,7 +169,7 @@
       }
       const create = button('+ Ghi chú mới','primary full',() => form());
       body.append(create);
-      if (!writable()) body.append(el('small','notesNotice','Giao diện Ghi chú đang được giữ nguyên · Kho lưu trữ mới chưa được kết nối.'));
+      if (!writable()) body.append(el('small','notesNotice','Cần firmware journal mới và máy online để lưu.'));
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -181,7 +181,7 @@
       } else items = items.slice(0,4);
       const list = el('div','notesList'); list.id = 'notesList'; body.append(list); drawList(list,items);
       if (!all && records.length > 4) body.append(button('Xem tất cả','ghost full',showAll));
-      body.append(button('Làm mới','ghost full',load),el('small','notesNotice','Chưa có kho lưu trữ · Dữ liệu hiện không được ghi.'));
+      body.append(button('Làm mới','ghost full',load),el('small','notesNotice','Lưu trong AT24C512 · Máy commit và đọc kiểm chứng trước khi xác nhận.'));
     }
     function filtered() { const q = query.trim().toLocaleLowerCase('vi'); return sorted().filter(n => (filter === 'all' || n.type === filter) && `${n.title}\n${n.content}`.toLocaleLowerCase('vi').includes(q)); }
     function drawList(list,items) {
@@ -231,7 +231,7 @@
     async function remove(note) {
       if (busy || confirmPending) return;
       if (!writable()) {
-        const message = el('p','notesError','Chức năng xóa đang tạm tắt trong lúc thay kiến trúc lưu trữ.');
+        const message = el('p','notesError','Máy chưa sẵn sàng xóa Ghi chú.');
         message.setAttribute('role','alert'); body.prepend(message); return;
       }
       const noteScope = scope;
