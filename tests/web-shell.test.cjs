@@ -47,7 +47,7 @@ test('normal network remains fresh-first and cleans the fallback timer', async (
 
 test('offline startup includes cached public config hardening; error pages do not replace code', async () => {
   const source = fs.readFileSync(require.resolve('../sw.js'),'utf8');
-  assert.match(source, /'\.\/config\.js\?v=1\.1\.2'/);
+  assert.match(source, /'\.\/config\.js\?v=1\.1\.3'/);
   const w = worker(async()=> {throw new Error('offline');}, {'https://web.test/config.js':'public security wrapper'});
   assert.equal(await (await w.request('https://web.test/config.js').response).text(),'public security wrapper');
   const failed = worker(async()=>new Response('server error',{status:503}), {'https://web.test/app.js':'good code'});

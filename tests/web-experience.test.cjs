@@ -211,7 +211,7 @@ test('pairing keeps the page and auth; production loads the native WebSocket cli
   const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
   assert.doesNotMatch(app, /window\.location\.reload/);
   assert.match(app, /await verifyDevicePin\(id, pin\)/);
-  assert.match(html, /defer src="\.\/realtime_transport\.js\?v=1\.1\.2"/);
+  assert.match(html, /defer src="\.\/realtime_transport\.js\?v=1\.1\.3"/);
   assert.ok(html.indexOf('realtime_transport.js') < html.indexOf('./app.js'));
 });
 
