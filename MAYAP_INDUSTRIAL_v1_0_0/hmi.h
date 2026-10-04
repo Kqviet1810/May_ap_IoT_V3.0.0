@@ -2101,6 +2101,14 @@ void commitSetting() {
     candidate.ventOnTemp += delta;
     candidate.ventOffTemp += delta;
   }
+  const bool editingPid = item.offset == offsetof(MachineConfig, kp) ||
+                          item.offset == offsetof(MachineConfig, ki) ||
+                          item.offset == offsetof(MachineConfig, kd);
+  if (editingPid && !mayapPidHasAuthority(candidate)) {
+    view = editReturnView;
+    showToast("KP HOAC KI PHAI > 0", true);
+    return;
+  }
   sanitizeConfig(candidate);
 
   const float oldValue = readSetting(currentConfig, item);

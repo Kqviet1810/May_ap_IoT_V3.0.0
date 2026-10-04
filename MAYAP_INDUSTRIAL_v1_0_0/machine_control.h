@@ -1361,6 +1361,13 @@ inline void sanitizeMachineConfig(MachineConfig &cfg) {
   cfg.kp = clampFloat(cfg.kp, 0.0f, 100.0f);
   cfg.ki = clampFloat(cfg.ki, 0.0f, 20.0f);
   cfg.kd = clampFloat(cfg.kd, 0.0f, 200.0f);
+  // EEPROM legacy/bi hong co the chua D-only. Repair tai sanitize de boot
+  // khong vao trang thai khong co steady-state heating authority.
+  if (!mayapPidHasAuthority(cfg)) {
+    cfg.kp = defaults.kp;
+    cfg.ki = defaults.ki;
+    cfg.kd = defaults.kd;
+  }
   cfg.pidCycleSec = static_cast<uint16_t>(constrain(
       static_cast<int>(cfg.pidCycleSec), 1, 60));
   cfg.maxHeaterPower = static_cast<uint8_t>(constrain(
@@ -4371,6 +4378,10 @@ class MachineController {
     MachineConfig requested{};
     uint32_t transactionId = 0;
     if (hmiTakeSavedConfig(requested, transactionId)) {
+      // Validate request truoc sanitize: sanitize duoc phep repair EEPROM cu,
+      // nhung request D-only/all-zero cua user phai bi tu choi, khong silently
+      // bien thanh gain mac dinh roi bao save=OK.
+      const bool pidAuthorityValid = mayapPidHasAuthority(requested);
       sanitizeMachineConfig(requested);
       // nextDirection la trang thai scheduler noi bo, HMI khong duoc ghi de.
       requested.nextDirection = config_.nextDirection;
@@ -4402,7 +4413,6 @@ class MachineController {
       const bool thermalEnvelopeViolation = targetChanged
           ? !thermalEnvelopeFollowsTarget
           : directSafetyThresholdChange;
-      const bool pidAuthorityValid = mayapPidHasAuthority(requested);
       const bool protectedBatchChange = (batchRunning_ || resumePending_) && (
           requested.autoResumeOnPowerLoss != config_.autoResumeOnPowerLoss ||
           requested.totalIncubationDays != config_.totalIncubationDays ||
@@ -7482,10 +7492,10 @@ class MachineController {
         config_.nextDirection == TurnDirection::Right ? "PHAI" : "TRAI",
         config_.totalIncubationDays);
     mayapSerialPrintf(false,
-        "[CONFIG] ap_lai_sau_mat_dien=%s tre_khoi_phuc=%us bu_nhiet=%.1fC bu_am=%.0f%% timeout_cam_bien=%us\n",
+        "[CONFIG] ap_lai_sau_mat_dien=%s tre_khoi_phuc=%us bu_nhiet=%.1fC bu_am=%.0f%% cam_bien_failsafe=CO_DINH\n",
         config_.autoResumeOnPowerLoss ? "TU DONG" : "HOI XAC NHAN",
         config_.powerRestoreDelaySec, config_.tempOffset,
-        config_.humidityOffset, config_.sensorTimeoutSec);
+        config_.humidityOffset);
     mayapSerialPrintf(false, "[CONFIG] canh_bao_am_thanh=%s che_do_ket_noi=%s\n",
         config_.alarmEnabled ? "BAT" : "TAT",
         config_.connectivityMode == ConnectivityMode::Online ? "ONLINE" : "OFFLINE");
