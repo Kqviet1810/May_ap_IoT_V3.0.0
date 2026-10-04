@@ -17,6 +17,7 @@ constexpr uint32_t MQTT_MIN_FREE_HEAP = 49152U;
 constexpr uint32_t CLOUD_MIN_FREE_HEAP = 65536U;
 constexpr uint32_t OTA_MIN_FREE_HEAP = 73728U;
 constexpr uint32_t TLS_MIN_LARGEST_BLOCK = 24576U;
+constexpr uint32_t BATCH_MIN_FREE_HEAP = 24576U;
 }
 
 enum class MayapTlsKind : uint8_t { Mqtt, Cloud, Ota };
@@ -54,7 +55,7 @@ class MayapNetworkBatchOperation {
     uint8_t expected = 0U;
     acquired_ = __atomic_compare_exchange_n(&MayapNetworkIoInternal::tlsBusy,
         &expected, 2U, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-    if (acquired_ && ESP.getFreeHeap() < MayapNetworkIoInternal::TLS_MIN_LARGEST_BLOCK) {
+    if (acquired_ && ESP.getFreeHeap() < MayapNetworkIoInternal::BATCH_MIN_FREE_HEAP) {
       __atomic_store_n(&MayapNetworkIoInternal::tlsBusy, 0U, __ATOMIC_RELEASE);
       acquired_ = false;
     }
