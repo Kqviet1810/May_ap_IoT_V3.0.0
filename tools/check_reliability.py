@@ -197,6 +197,11 @@ require(index, 'id="tempOffset" max="5" min="-5"', "web temperature calibration 
 require(index, 'id="highAlarm" max="42"', "web High bound matches firmware")
 require(index, 'id="emergencyTemp" max="45"', "web Emergency bound matches firmware")
 require(app, "kp === 0 && ki === 0 && kd === 0", "web rejects zero-authority PID")
+require(config, "HeatingTimeout = 14, CoolingTimeout = 15", "stable AutoTune diagnostic reason codes")
+require(machine, "runtime_.autoTuneReason = autotune_.reason();", "AutoTune failure reason reaches runtime")
+require(read("MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h"), 'r["autoTunePhase"]', "AutoTune phase reaches Web")
+require(hmi, "GIA NHIET QUA LAU", "AutoTune heating timeout visible on HMI")
+require(app, "Gia nhiệt không vượt được ngưỡng trên", "AutoTune heating timeout visible on Web")
 
 # Safety consistency: SensorFrozen requires actual heater-on evidence and remains fail-safe.
 require(machine, "heaterStuckAccumOnMs_ >= frozenEvidenceOnMs", "SensorFrozen heater evidence")
