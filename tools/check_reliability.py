@@ -196,7 +196,11 @@ if 'id="sensorTimeout"' in index:
 require(index, 'id="tempOffset" max="5" min="-5"', "web temperature calibration matches firmware")
 require(index, 'id="highAlarm" max="42"', "web High bound matches firmware")
 require(index, 'id="emergencyTemp" max="45"', "web Emergency bound matches firmware")
-require(app, "kp === 0 && ki === 0 && kd === 0", "web rejects zero-authority PID")
+require(app, "kp === 0 && ki === 0", "web rejects PID without steady-state P/I authority")
+require(app, "validateShiftedThermalEnvelope", "web validates target-shift thermal envelope before write")
+require(app, "if (thermalSafetyLocked)", "running-batch temperature form validates shifted envelope")
+require(hmi, "mayapPidHasAuthority(candidate)", "HMI rejects PID without P/I authority locally")
+require(hmi, "SV VUOT BIEN BAO VE", "HMI rejects target shifts that would clamp safety envelope")
 
 # Safety consistency: SensorFrozen requires actual heater-on evidence and remains fail-safe.
 require(machine, "heaterStuckAccumOnMs_ >= frozenEvidenceOnMs", "SensorFrozen heater evidence")
