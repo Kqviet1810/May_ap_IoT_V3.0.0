@@ -299,7 +299,7 @@ test('signed terminal history ACK cannot complete a transaction with missing chu
 
 test('journal success requires authentic DATA and terminal ACK with matching revision',async()=>{
  const h=browser(),{key,pending}=await start(h,'journal','notes.save');let applied=false;
- pending.kind='journal';pending.resolve=()=>{applied=true;};pending.reject=()=>assert.fail('Unexpected journal rejection');
+ pending.kind='journal';pending.retryWire={bootId:h.device.bootId};pending.resolve=()=>{applied=true;};pending.reject=()=>assert.fail('Unexpected journal rejection');
  const ack=await signedAck(h,'journal','notes.save',true,key,{revision:5});
  assert.equal(await h.verifyDeviceAck(h.device,ack),true);h.handleAck(h.device,ack);assert.equal(applied,false);
  const body=JSON.stringify({generation:5,next:24,done:true}),frame={v:2,requestId:'journal',bootId:123,operation:'notes.save',body};
@@ -310,6 +310,6 @@ test('journal success requires authentic DATA and terminal ACK with matching rev
 });
 test('journal rejects a signed DATA/ACK revision mismatch without claiming success',async()=>{
  const h=browser(),{key,pending}=await start(h,'journal-mismatch','notes.reminders.save');let error;
- pending.kind='journal';pending.journalData={generation:4};pending.resolve=()=>assert.fail('Must not claim persistence');pending.reject=e=>error=e;
+ pending.kind='journal';pending.retryWire={bootId:h.device.bootId};pending.journalData={generation:4};pending.resolve=()=>assert.fail('Must not claim persistence');pending.reject=e=>error=e;
  const ack=await signedAck(h,'journal-mismatch','notes.reminders.save',true,key,{revision:5});h.handleAck(h.device,ack);assert.match(error.message,/không khớp/);
 });

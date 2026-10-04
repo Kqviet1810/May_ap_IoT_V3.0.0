@@ -2064,6 +2064,8 @@
     const id = String(ack.requestId || '');
     const pending = state.pending.get(id) || state.uncertain.get(id);
     if (!pending || pending.deviceId !== device.id) return;
+    if(pending.kind==='journal'&&(ack.operation!==pending.operation||ack.bootId!==device.bootId||
+       ack.bootId!==pending.retryWire?.bootId)){journalLog(id,pending,'ACK_FENCE_REJECTED');return;}
     if (Number(ack.v) === 2 && ack.operation === pending.operation && ack.phase === 'completed' &&
         ack.ok === true && typeof ack.code === 'string' && pending.kind === 'history' && (telemetryChart.activeRequestId !== id ||
         !telemetryChart.historyLoaded || telemetryChart.historyGap)) {

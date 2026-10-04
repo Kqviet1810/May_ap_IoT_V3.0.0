@@ -120,3 +120,17 @@ test('known forwarding/device stages retain specific codes and still reconcile w
   assert.equal((await client.save('A',note)).id,note.id);assert.equal(writes,1);
  }
 });
+
+test('actual Web ACK handler cannot roll current boot back with a delayed rejected journal ACK',()=>{
+ const fs=require('node:fs'),vm=require('node:vm'),source=fs.readFileSync(require.resolve('../app.js'),'utf8');
+ const start=source.indexOf('  function handleAck('),end=source.indexOf('  async function verifyDeviceAck(',start);
+ const id='jnl-delayed',pending={kind:'journal',deviceId:'A',operation:'notes.save',retryWire:{bootId:123}};
+ const device={id:'A',bootId:124},stages=[];
+ const ctx={state:{pending:new Map([[id,pending]]),uncertain:new Map()},journalLog:(_,__,stage)=>stages.push(stage)};
+ vm.runInNewContext(source.slice(start,end),ctx);
+ ctx.handleAck(device,{v:2,requestId:id,bootId:123,operation:'notes.save',phase:'completed',ok:false,code:'NOTE_JOURNAL_IO'});
+ assert.equal(device.bootId,124);assert.equal(ctx.state.pending.get(id),pending);assert.deepEqual(stages,['ACK_FENCE_REJECTED']);
+ // Same live boot but a different original request boot is also fenced.
+ device.bootId=125;ctx.handleAck(device,{v:2,requestId:id,bootId:125,operation:'notes.save',phase:'completed',ok:false,code:'NOTE_JOURNAL_IO'});
+ assert.equal(device.bootId,125);assert.equal(stages.length,2);
+});

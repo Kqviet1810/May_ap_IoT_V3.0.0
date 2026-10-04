@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "7c8012ce1e712985b24f606e8cd3e103844f3ce3606042e0b0977a8984784c78",
+      "sha256": "09ef5a4e5cd08d1f9ace7bb45548447d470c3d9d84ebc90cf2cd1a13e005c06a",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -452,5 +452,5 @@
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
   "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
-  "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged."
+  "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes."
 }
