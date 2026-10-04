@@ -1958,8 +1958,9 @@
   }
   async function exchangeJournal(deviceId,action,body,recovery=false){
     const device=state.devices.find(d=>d.id===deviceId);
-    if(!device||deviceId!==state.selectedId||device.notesJournal!==2)throw Object.assign(new Error('Cần nạp firmware journal mới cho máy đang chọn.'),{code:'NOTE_JOURNAL_UNSUPPORTED',definitive:true});
-    if(!controlReady(device))throw Object.assign(new Error('Web chưa kết nối máy; chưa gửi yêu cầu.'),{code:'TRANSPORT_ERROR',definitive:true});
+    if(!device||deviceId!==state.selectedId)throw Object.assign(new Error('Máy đang chọn đã thay đổi; chưa gửi yêu cầu.'),{code:'DEVICE_CHANGED',definitive:true});
+    if(!state.realtimeConnected||!state.realtime?.connected||!controlReady(device))throw Object.assign(new Error('Web chưa kết nối máy hoặc quyền điều khiển chưa sẵn sàng; chưa gửi yêu cầu.'),{code:'TRANSPORT_ERROR',definitive:true});
+    if(device.notesJournal!==2||!device.notesReadinessKnown)throw Object.assign(new Error('Cần nạp firmware journal mới có trạng thái sẵn sàng bộ nhớ.'),{code:'NOTE_JOURNAL_UNSUPPORTED',definitive:true});
     if(device.notesReady!==true&&(!['notes.list','notes.reminders.read'].includes(action)||!device.notesError))throw Object.assign(new Error(device.notesError?journalErrors[device.notesError]||device.notesError:
       'Đang khởi tạo bộ nhớ ghi chú… Chờ máy báo sẵn sàng.'),{code:device.notesError||'NOTE_JOURNAL_MOUNTING',definitive:true});
     const id=requestId('jnl');
@@ -2463,10 +2464,10 @@
   }
 
   function handlePresence(device, presence) {
-    const previousJournal=`${device.notesJournal}:${device.notesReady}:${device.notesError}`;
+    const previousJournal=`${device.notesJournal}:${device.notesReadinessKnown}:${device.notesReady}:${device.notesError}`;
     device.notesJournal=Number(presence.notesJournal)===2?2:0;
-    device.notesReady=presence.notesReady===true;device.notesError=String(presence.notesError||'');
-    const journalChanged=previousJournal!==`${device.notesJournal}:${device.notesReady}:${device.notesError}`;
+    device.notesReadinessKnown=typeof presence.notesReady==='boolean';device.notesReady=presence.notesReady===true;device.notesError=String(presence.notesError||'');
+    const journalChanged=previousJournal!==`${device.notesJournal}:${device.notesReadinessKnown}:${device.notesReady}:${device.notesError}`;
     device.presence = presence;
     device.presenceAt = Date.now();
     device.presenceEpoch = state.subscriptionEpoch;
@@ -4047,8 +4048,8 @@
         return { deviceId: device?.id || '', deviceName: device?.name || '',
           batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning),
           notesWritable: device?.notesJournal===2&&device?.notesReady===true&&controlReady(device),
-          notesMounting: device?.notesJournal===2&&device?.notesReady!==true&&!device?.notesError,
-          notesStatus: device?.notesError?journalErrors[device.notesError]||device.notesError:device?.notesReady!==true?'Đang khởi tạo bộ nhớ ghi chú…':'Máy chưa sẵn sàng kết nối.' };
+          notesMounting: device?.notesJournal===2&&device?.notesReadinessKnown&&device?.notesReady!==true&&!device?.notesError,
+          notesStatus: !controlReady(device)?'Máy hoặc quyền điều khiển chưa sẵn sàng.':!device?.notesReadinessKnown?'Cần nạp firmware journal mới có trạng thái sẵn sàng bộ nhớ.':device?.notesError?journalErrors[device.notesError]||device.notesError:device?.notesReady!==true?'Đang khởi tạo bộ nhớ ghi chú…':'Máy chưa sẵn sàng kết nối.' };
       }
     });
     renderSelector();

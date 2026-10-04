@@ -658,6 +658,13 @@ async function main() {
           if(saved.id!==value.id||window.__journalMock.generation!==before+1)throw new Error('Duplicate write or failed reconciliation');
           window[lost]=false;results.push(lost);
         }
+        const livePresence={...d.presence};delete livePresence.notesReady;h.handlePresence(d,livePresence);
+        const sentBefore=window.__journalWires.length;
+        try{await client.list(d.id);throw new Error('Legacy presence must not be called mounting');}catch(e){if(e.code!=='NOTE_JOURNAL_UNSUPPORTED')throw e;}
+        if(window.__journalWires.length!==sentBefore)throw new Error('Legacy readiness published a request');
+        h.state.realtimeConnected=false;
+        try{await client.list(d.id);throw new Error('Offline must not claim unsupported firmware');}catch(e){if(e.code!=='TRANSPORT_ERROR')throw e;}
+        h.state.realtimeConnected=true;h.handlePresence(d,{...livePresence,notesReady:true});
         // Device applied but Wi-Fi/socket disappears after received ACK.
         window.__journalDropMutationData=window.__journalDropMutationAck=true;
         const disconnectedValue={...candidate,id:crypto.randomUUID()},before=window.__journalMock.generation;
@@ -671,7 +678,7 @@ async function main() {
         const reloaded=window.MayapJournalClient.create(h.exchangeJournal,{storage:localStorage,prefix:()=> 'mayap.account.qa-sub'});
         const recovered=await reloaded.list(d.id);
         if(!recovered.some(n=>n.id===disconnectedValue.id)||window.__journalMock.generation!==before+1)throw new Error('Reload did not reconcile without mutation');
-                // Mounting presence is not writable; completion updates a draft in place.
+        // Mounting presence is not writable; completion updates a draft in place.
         h.handlePresence(d,{...d.presence,notesReady:false,notesError:''});
         return results;
       });
