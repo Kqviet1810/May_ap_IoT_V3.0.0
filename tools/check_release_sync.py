@@ -31,6 +31,7 @@ sw = read("sw.js")
 build = read(".github/workflows/build-firmware.yml")
 deploy = read(".github/workflows/deploy-cloudflare-worker.yml")
 reliability = read(".github/workflows/reliability-checks.yml")
+readme = read("README.md")
 
 fw = capture(config, r'MAYAP_FIRMWARE_VERSION\[\]\s*=\s*"([^"]+)"', "firmware version")
 hmi = capture(config, r'HMI_FIRMWARE_VERSION\[\]\s*=\s*"([^"]+)"', "HMI version")
@@ -44,6 +45,22 @@ require(int(esp_proto) == int(manifest["attiny_protocol"]), "ESP ATtiny protocol
 require(int(tiny_proto) == int(manifest["attiny_protocol"]), "ATtiny protocol lech manifest")
 require(web == manifest["web"], f"web cache {web} != manifest {manifest['web']}")
 require(manifest["release"] == manifest["firmware"], "release va firmware phai dong bo")
+require(
+    f"| Release / baseline mã nguồn | {manifest['release']} |" in readme,
+    "README release version lech manifest",
+)
+require(
+    f"| ESP32 firmware | {manifest['firmware']} |" in readme,
+    "README firmware version lech manifest",
+)
+require(
+    f"| HMI firmware | {manifest['hmi']} |" in readme,
+    "README HMI version lech manifest",
+)
+require(
+    f"| Web PWA | {manifest['web']} |" in readme,
+    "README Web PWA version lech manifest",
+)
 runpy.run_path(str(ROOT / "tools/check_ota_config.py"), run_name="__main__")
 
 require(f"esp32:esp32@{manifest['esp32_core']}" in build, "ESP32 core trong workflow lech manifest")

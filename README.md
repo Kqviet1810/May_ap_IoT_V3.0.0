@@ -11,7 +11,7 @@
 | Release / baseline mã nguồn | 1.1.2 |
 | ESP32 firmware | 1.1.2 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.1 |
+| Web PWA | 1.1.2 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
@@ -229,6 +229,6 @@ Chi tiết Cloudflare: `cloudflare/README.md`.
 - Không đổi EEPROM region/protocol/crypto domain chỉ vì tên lịch sử “không đẹp”; phải đánh giá tương thích trước.
 - Mọi thay đổi heater safety, provisioning, WebSocket auth, ATtiny, EEPROM hoặc OTA phải đi qua regression gate và commissioning phần cứng trước khi rollout.
 
-### Tự cân bằng nhiệt (candidate trên PR #2)
+### Tự cân bằng nhiệt (candidate commissioning trong 1.1.2)
 
 Mặc định **OFF**, config cũ không tự bật. Khi ON, observer học từ GPIO1 ON-time thực; supervisor chỉ giới hạn heater authority/soft landing và yêu cầu quạt hút ON/OFF, giữ nguyên PID, SP và safety. Không nhận biết số xe hay nhiệt từng khoang. Learned model NVS chỉ là seed confidence thấp, không restore quyền điều khiển. Xem [Adaptive Thermal Balance](audit/THERMAL_CONTROL_V2.md) và chạy commissioning observer-only (`MAYAP_ADAPTIVE_OBSERVER_ONLY=1`) trước khi bật actuator trên máy thật. Không có tuyên bố độ chính xác ±0.1°C hay đều nhiệt toàn buồng.
