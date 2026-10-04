@@ -44,7 +44,7 @@ require(int(esp_proto) == int(manifest["attiny_protocol"]), "ESP ATtiny protocol
 require(int(tiny_proto) == int(manifest["attiny_protocol"]), "ATtiny protocol lech manifest")
 require(web == manifest["web"], f"web cache {web} != manifest {manifest['web']}")
 require(manifest["release"] == manifest["firmware"], "release va firmware phai dong bo")
-runpy.run_path(str(ROOT / "tools/check_build_secrets.py"), run_name="__main__")
+runpy.run_path(str(ROOT / "tools/check_ota_config.py"), run_name="__main__")
 
 require(f"esp32:esp32@{manifest['esp32_core']}" in build, "ESP32 core trong workflow lech manifest")
 require(f"ARDUINO_CLI_VERSION: '{manifest['arduino_cli']}'" in build, "Arduino CLI trong workflow lech manifest")

@@ -142,17 +142,143 @@ jobs:
           python3 tools/test_runtime_buses.py --sanitize --check-regression
           python3 tools/test_single_eeprom.py --sanitize
 
-      - name: Tao OTA credential tuy chon cho compile
+      - name: Nap OTA credential vao diem cau hinh duy nhat
         env:
           MAYAP_OTA_PASSWORD: ${{ secrets.MAYAP_OTA_PASSWORD }}
         run: |
           python3 - <<'PYOTA'
-          import json, os
+          import json, os, re
           from pathlib import Path
           release = os.getenv("GITHUB_REF", "").startswith("refs/tags/") or os.getenv("GITHUB_EVENT_NAME") == "workflow_dispatch"
           password = os.getenv("MAYAP_OTA_PASSWORD", "") if release else "__ci_ota_password__"
-          Path("MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h").write_text(
-              "#pragma once\n#define MAYAP_OTA_PASSWORD " + json.dumps(password) + "\n", encoding="utf-8")
+          path = Path("MAYAP_INDUSTRIAL_v1_0_0/build_public.h")
+          text = path.read_text(encoding="utf-8")
+          replacement = "#define MAYAP_OTA_PASSWORD " + json.dumps(password)
+          text, count = re.subn(r'^#define MAYAP_OTA_PASSWORD\s+".*"\s*
+      - name: Kiem tra JavaScript
+        run: |
+          node --check app.js
+          node --check protocol_v2.js
+          node --check realtime_transport.js
+          node --check cloudflare/src/device-hub.js
+          node --check cloudflare/src/realtime-auth.js
+          node --check push.js
+          node --check sw.js
+          node --check config.js
+          node --check cloudflare/src/reliability-wrapper.js
+          node --check cloudflare/src/security-wrapper.js
+          node --check cloudflare/src/index.js
+          node --check cloudflare/src/auth.js
+          node --check cloudflare/src/db.js
+          node --check cloudflare/src/push.js
+
+      - name: Bien dich ATtiny13A
+        run: |
+          mkdir -p build-attiny
+          avr-g++ -x c++ \
+            -mmcu=attiny13a \
+            -DF_CPU=1200000UL \
+            -Os -flto -std=gnu++11 \
+            -ffunction-sections -fdata-sections \
+            -fno-exceptions -fno-rtti \
+            -Wall -Wextra \
+            -Wl,--gc-sections \
+            ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino \
+            -o build-attiny/ATTINY13A_POWER_ALARM.elf
+
+          avr-size -C --mcu=attiny13a build-attiny/ATTINY13A_POWER_ALARM.elf
+          read TEXT DATA BSS <<< "$(avr-size build-attiny/ATTINY13A_POWER_ALARM.elf | tail -n 1 | awk '{print $1, $2, $3}')"
+          FLASH=$((TEXT + DATA))
+          RAM=$((DATA + BSS))
+          echo "ATtiny flash=${FLASH}/1024 bytes, static RAM=${RAM}/64 bytes"
+          test "$FLASH" -le 1024 || { echo "::error::ATtiny flash vuot 1KB"; exit 1; }
+          test "$RAM" -le 64 || { echo "::error::ATtiny static RAM vuot 64B"; exit 1; }
+
+          avr-objcopy -O ihex -R .eeprom \
+            build-attiny/ATTINY13A_POWER_ALARM.elf \
+            build-attiny/ATTINY13A_POWER_ALARM.hex
+
+      - name: Chon build profile
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            echo "MAYAP_BUILD_PROFILE=PROD" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=0 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            echo "MAYAP_BUILD_PROFILE=PILOT" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          else
+            echo "MAYAP_BUILD_PROFILE=DEV" >> "$GITHUB_ENV"
+            echo "MAYAP_CPP_FLAGS=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0" >> "$GITHUB_ENV"
+          fi
+
+      - name: Bien dich firmware ESP32
+        run: |
+          echo "Build profile: ${MAYAP_BUILD_PROFILE}"
+          arduino-cli compile \
+            --fqbn "${{ env.MAYAP_FQBN }}" \
+            --build-property "compiler.cpp.extra_flags=${MAYAP_CPP_FLAGS} -DMAYAP_BUILD_REVISION=${GITHUB_SHA:0:12}" \
+            --output-dir ./build \
+            --verbose \
+            MAYAP_INDUSTRIAL_v1_0_0
+
+      - name: Verify linked GPIO ISR cache safety
+        shell: bash
+        run: |
+          OBJDUMP=$(find "$HOME/.arduino15/packages/esp32/tools/esp-x32" -type f -name 'xtensa-esp32s3-elf-objdump' -print -quit)
+          test -n "$OBJDUMP"
+          python3 tools/check_bus_iram.py --objdump "$OBJDUMP" --elf build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf
+
+      - name: Bao cao kich thuoc
+        run: |
+          ls -la ./build/*.bin
+          ls -la ./build-attiny/*.hex
+
+      - name: Luu firmware test
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v6
+        with:
+          name: firmware-test-${{ github.sha }}
+          path: |
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.bin
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf
+            ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.map
+            ./build-attiny/ATTINY13A_POWER_ALARM.hex
+          retention-days: 7
+
+      - name: Doi ten file .bin theo tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cp ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.bin "./MAYAP-firmware-${VERSION}.bin"
+          cp ./build/MAYAP_INDUSTRIAL_v1_0_0.ino.elf "./MAYAP-firmware-${VERSION}.elf"
+          cp ./build-attiny/ATTINY13A_POWER_ALARM.hex "./MAYAP-ATtiny13A-LINKFIX-${VERSION}.hex"
+
+      - name: Ky so firmware
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          OTA_SIGNING_PRIVATE_KEY: ${{ secrets.MAYAP_OTA_SIGNING_PRIVATE_KEY }}
+        run: |
+          test -n "$OTA_SIGNING_PRIVATE_KEY" || { echo "::error::Thieu khoa ky OTA"; exit 1; }
+          printf '%s\n' "$OTA_SIGNING_PRIVATE_KEY" > ota-signing-key.pem
+          openssl dgst -sha256 -sign ota-signing-key.pem -out firmware.sig.der "./MAYAP-firmware-${GITHUB_REF_NAME#v}.bin"
+          base64 -w0 firmware.sig.der > "./MAYAP-firmware-${GITHUB_REF_NAME#v}.sig"
+          rm -f ota-signing-key.pem firmware.sig.der
+
+      - name: Tao GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: |
+            ./MAYAP-firmware-*.bin
+            ./MAYAP-firmware-*.sig
+            ./MAYAP-firmware-*.elf
+            ./MAYAP-ATtiny13A-LINKFIX-*.hex
+          generate_release_notes: true
+, replacement, text, count=1, flags=re.MULTILINE)
+          if count != 1:
+              raise SystemExit("MAYAP_OTA_PASSWORD must have exactly one build_public.h definition")
+          path.write_text(text, encoding="utf-8")
           PYOTA
 
       - name: Kiem tra JavaScript

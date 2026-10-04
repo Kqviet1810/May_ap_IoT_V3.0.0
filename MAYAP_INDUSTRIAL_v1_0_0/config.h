@@ -7,10 +7,6 @@
 
 #include "build_public.h"
 
-#if __has_include("build_secrets.h")
-#include "build_secrets.h"
-#endif
-
 // ============================================================================
 // MAY AP TRUNG INDUSTRIAL v3.4.0 - CAU HINH DUY NHAT CAN SUA
 // MCU: ESP32-S3-WROOM-1U-N8, FLASH THAT 8MB (da xac nhan qua "esptool.py
@@ -79,12 +75,9 @@ static_assert(sizeof(NETWORK_WIFI_HOSTNAME) <= 33U,
 // ------------------------- Nap firmware qua Wi-Fi (OTA) -----------------------
 // Cho phep nap code tu Arduino IDE qua mang (Tools > Port > chon may hien qua
 // mDNS) thay vi phai thao vo cam cap USB - xem ota_update.h. Mat khau mac
-// dinh theo yeu cau - co the doi rieng cho tung ban build qua build_flags
-// (-D MAYAP_OTA_PASSWORD=\"...\") ma khong can sua file nay. De trong se TU
-// DONG TAT ca tinh nang OTA (khong mo cong khong mat khau tren mang LAN).
-#ifndef MAYAP_OTA_PASSWORD
-#define MAYAP_OTA_PASSWORD ""
-#endif
+// dinh theo yeu cau. Chi co MOT noi nhap mat khau ArduinoOTA:
+// MAYAP_INDUSTRIAL_v1_0_0/build_public.h -> MAYAP_OTA_PASSWORD.
+// De trong se TU DONG TAT ca tinh nang OTA (khong mo cong khong mat khau LAN).
 constexpr char OTA_PASSWORD[] = MAYAP_OTA_PASSWORD;
 static_assert(sizeof(OTA_PASSWORD) <= 64U, "Mat khau OTA toi da 63 ky tu");
 
@@ -140,7 +133,7 @@ constexpr char TLS_ROOT_CA[] = MAYAP_TLS_ROOT_CA;
 // day macro rong van bien dich va chi den khi chay moi in "TLS bi khoa".
 // Loi nay phai dung NGAY luc bien dich de khong co ban nap loi ra thiet bi.
 static_assert(sizeof(TLS_ROOT_CA) > 1U,
-              "THIEU MAYAP_TLS_ROOT_CA: them PEM CA vao build_secrets.h truoc khi bien dich");
+              "THIEU MAYAP_TLS_ROOT_CA: them PEM CA vao build_public.h truoc khi bien dich");
 
 #ifndef MAYAP_OTA_SIGNING_PUBLIC_KEY
 #define MAYAP_OTA_SIGNING_PUBLIC_KEY ""
