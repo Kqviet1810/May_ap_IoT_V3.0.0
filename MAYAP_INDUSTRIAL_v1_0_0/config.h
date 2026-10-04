@@ -31,7 +31,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.2";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.3";
 #ifndef MAYAP_BUILD_REVISION
 #define MAYAP_BUILD_REVISION local
 #endif
@@ -1151,11 +1151,11 @@ struct MachineConfig {
   bool sirenSelfTestEnabled = false;
 };
 
-// PID la che do dieu khien san pham: it nhat mot he so phai co authority.
-// Kp-only / Ki-only / Kd-only van duoc phep cho commissioning; ca ba bang 0
-// thi bo dieu khien khong the tao cong suat ben vung va phai bi tu choi.
+// PID la che do dieu khien san pham: phai co authority o thanh phan P hoac I.
+// Kd-only chi phan ung khi PV dang thay doi; khi PV dung yen no ve 0 va khong
+// the duy tri cong suat giu nhiet, nen khong duoc coi la bo dieu khien hop le.
 inline bool mayapPidHasAuthority(const MachineConfig &cfg) {
-  return cfg.kp > 0.0f || cfg.ki > 0.0f || cfg.kd > 0.0f;
+  return cfg.kp > 0.0f || cfg.ki > 0.0f;
 }
 
 
