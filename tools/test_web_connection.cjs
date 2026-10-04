@@ -212,7 +212,8 @@ async function main() {
       assert.ok(await page.evaluate(()=>window.__transport.sessions.some(s=>s.config)));
       assert.equal(await page.evaluate(()=>window.__transport.sessions.some(s=>s.reminders || s.log)),false);
       await page.evaluate(()=>document.getElementById('remindersForm').closest('details').open=true);
-      assert.equal(await page.locator('#addReminderBtn').isDisabled(),true);
+      await page.waitForFunction(()=>document.getElementById('remindersSummary').textContent!=='Đang tải từ Cloud…');
+      assert.equal(await page.locator('#addReminderBtn').isEnabled(),true);
       assert.equal(await page.evaluate(()=>window.__transport.sessions.some(s=>s.reminders)),false);
       await page.evaluate(()=>window.__qa.showPage('device'));
       await page.evaluate(()=>window.__qa.handlePresence(window.__qa.state.devices[0],{online:false,bootId:123}));
