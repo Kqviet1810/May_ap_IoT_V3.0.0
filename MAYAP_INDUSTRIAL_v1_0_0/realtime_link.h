@@ -66,7 +66,7 @@ static bool connectionAnnounced = false;
 static bool webSessionActive = false;
 struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
 static WebClientLease webClientLeases[8];
-static bool highPerfWifiApplied = false;  // tranh goi esp_wifi_set_ps lap lai
+static bool highPerfWifiApplied = false;  // cache yeu cau gui sang networkTask
 static bool wifiPowerModeValid = false;
 static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
 static MayapWebRealtime::BootstrapCadence bootstrapCadence;
@@ -75,15 +75,12 @@ static bool forceSnapshotPublish = false;
 
 inline void applyWifiPowerMode(bool highPerformance) {
   if (wifiPowerModeValid && highPerfWifiApplied == highPerformance) return;
-  // WIFI_PS_NONE: khong ngu, do tre thap nhat cho realtime. WIFI_PS_MIN_MODEM:
-  // tiet kiem nang luong nhung van thuc day kip DTIM de nhan realtime/lenh portal.
-  if (esp_wifi_set_ps(highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM) != ESP_OK) {
-    wifiPowerModeValid = false;
-    return; // Retry after radio is ready; do not cache a failed hardware change.
-  }
+  // Realtime is not a Wi-Fi driver owner. It only posts the desired policy;
+  // networkTask applies esp_wifi_set_ps after the radio is stable.
+  mayapRequestWifiHighPerformance(highPerformance);
   highPerfWifiApplied = highPerformance;
   wifiPowerModeValid = true;
-  mayapSerialPrintf(false, "[WEBLINK] WiFi power mode -> %s\n",
+  mayapSerialPrintf(false, "[WEBLINK] WiFi power request -> %s\n",
                     highPerformance ? "PERFORMANCE" : "SAVE");
 }
 
@@ -1370,16 +1367,12 @@ inline void serviceSessionTimeout(uint32_t now) {
   webSessionActive = active;
 }
 
-// realtime owner is the sole writer of modem-sleep policy. Reapply after any
-// radio recovery; session churn is absorbed by the nonblocking 25-second grace.
+// Realtime only computes the policy. networkTask is the sole Wi-Fi driver
+// writer; session churn is absorbed by the nonblocking 25-second grace.
 inline void serviceWifiPowerMode() {
   // Radio/portal recovery stays awake. Only an established STA may sleep.
   const bool performance = wifiPerformanceGrace.update(millis(),
     webSessionActive || !mayapGetNetworkStatus().connected);
-  const wifi_ps_type_t wanted = performance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM;
-  wifi_ps_type_t actualMode;
-  if (esp_wifi_get_ps(&actualMode) != ESP_OK || actualMode != wanted)
-    wifiPowerModeValid = false;
   applyWifiPowerMode(performance);
 }
 

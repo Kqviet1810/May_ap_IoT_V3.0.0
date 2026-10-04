@@ -49,6 +49,9 @@ using namespace Mayap;
 constexpr uint32_t NETWORK_FAST_TASK_PERIOD_MS = 50UL;
 constexpr uint32_t MQTT_TASK_PERIOD_MS = 20UL;
 constexpr uint32_t CLOUD_TASK_PERIOD_MS = 100UL;
+// Controller availability outranks connectivity. Heap pressure remains visible
+// through E401/E402, but an online workload may not reboot the machine.
+constexpr bool ALLOW_RUNTIME_HEALTH_AUTO_RESTART = false;
 constexpr size_t MQTT_TASK_STACK_BYTES = 12288U;
 constexpr size_t CLOUD_TASK_STACK_BYTES = 12288U;
 
@@ -476,7 +479,8 @@ void supervisorTask(void *parameter) {
       mayapRestart(MayapBoot::RestartReason::HmiFatal, "Supervisor HMI fatal");
     }
 
-    if (controlExpected && Machine.healthRestartRequested()) {
+    if (ALLOW_RUNTIME_HEALTH_AUTO_RESTART &&
+        controlExpected && Machine.healthRestartRequested()) {
       mayapLatchSystemTrip();
       if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
       mayapSafeOutputsEarly();
@@ -485,18 +489,10 @@ void supervisorTask(void *parameter) {
     }
 
     MayapRecovery::Service failedService = MayapRecovery::Service::Network;
-    if (mayapServiceSupervisorUpdate(now, failedService) && mayapFirmwareMaintenanceReady()) {
-      // A hung owner cannot safely be deleted: it may own a TLS/I2C lock.
-      // Use the existing safe shutdown and retained Adaptive Boot reason.
-      mayapLatchSystemTrip();
-      if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
-      mayapSafeOutputsEarly();
-      char reason[40];
-      snprintf(reason, sizeof(reason), "%s runtime unresponsive",
-          MayapServiceInternal::names[static_cast<uint8_t>(failedService)]);
-      mayapRestart(MayapBoot::RestartReason::HealthMonitor, reason);
-    }
-    const esp_err_t result = esp_task_wdt_reset();
+    (void)failedService;
+    // Network/Realtime/Cloud/OTA may degrade, but never own controller reset.
+    mayapServiceSupervisorUpdate(now);
+    const esp_err_t result = esp_task_wdt_reset();    const esp_err_t result = esp_task_wdt_reset();
     if (result != ESP_OK) fatalRestart("SUP WDT RESET", result, MayapBoot::RestartReason::WdtApi);
     __atomic_store_n(&supervisorHeartbeatMs, millis(), __ATOMIC_RELEASE);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SUPERVISOR_TASK_PERIOD_MS));

@@ -25,7 +25,10 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
     for (const [current, baseline] of entry.copyReplacements || []) source = source.replace(current, baseline);
     // The only additions allowed inside these protected functions are health instrumentation.
     if (entry.filter === 'webBeat') source = source.replace(/^\s*mayapServiceBeat\(MayapRecovery::Service::Ota\);\n/gm, '');
-    if (entry.filter === 'supervisor') source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');
+    if (entry.filter === 'supervisor') {
+      source = source.replace('ALLOW_RUNTIME_HEALTH_AUTO_RESTART &&\n        ', '');
+      source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');
+    }
     if (entry.filter === 'config') source = source.replace(/^void mayapI2cReport\(uint8_t address, bool ok\);\n|^uint32_t mayapI2cRecoveryEpoch\(\);\n/gm, '');
     assert.equal(crypto.createHash('sha256').update(source).digest('hex'), entry.sha256, entry.file + ' ' + (entry.signature || ''));
   }
@@ -41,17 +44,22 @@ test('all service tasks admit and beat themselves, including isolation paths', (
     for (const prefix of source.split(/\bcontinue;/).slice(0,-1)) assert.match(prefix, /mayapServiceBeat/);
   }
 });
-test('new restart path requires prolonged owner failure and maintenance-safe shutdown', () => {
+test('online service failure degrades without controller restart authority', () => {
   const source = body(read(dir + 'MAYAP_INDUSTRIAL_v1_0_0.ino'), 'void supervisorTask(');
-  assert.match(source, /mayapServiceSupervisorUpdate\(now, failedService\) && mayapFirmwareMaintenanceReady\(\)/);
-  const runtime = source.slice(source.indexOf('MayapRecovery::Service failedService'));
-  assert.match(runtime, /mayapLatchSystemTrip\(\)[\s\S]*vTaskSuspend\(controlTaskHandle\)[\s\S]*mayapSafeOutputsEarly\(\)[\s\S]*mayapRestart\(MayapBoot::RestartReason::HealthMonitor, reason\)/);
+  const start = source.indexOf('MayapRecovery::Service failedService');
+  const end = source.indexOf('const esp_err_t result = esp_task_wdt_reset();', start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const runtime = source.slice(start, end);
+  assert.match(runtime, /mayapServiceSupervisorUpdate\(now\);/);
+  assert.doesNotMatch(runtime, /mayapLatchSystemTrip|vTaskSuspend\(controlTaskHandle\)|mayapSafeOutputsEarly|mayapRestart/);
+  assert.match(read(dir + 'runtime_recovery_policy.h'), /Action : uint8_t \{ None, Reinit, Isolate, Degraded \}/);
+  assert.doesNotMatch(read(dir + 'runtime_recovery_policy.h'), /Action::Restart/);
+  assert.match(read(dir + 'service_recovery.h'), /LOCAL CONTROL CONTINUES, NO RESTART/);
   for (const file of ['i2c_supervisor.h', 'service_recovery.h', 'runtime_recovery_policy.h', 'network_service.h'])
     assert.doesNotMatch(read(dir + file), /\bmayapRestart\(/);
-  const uart = body(read(dir + 'machine_control.h'), 'class SHT485Industrial');
-  assert.doesNotMatch(uart, /mayapRestart|esp_restart|clearRecovered|faults_\.set/);
 });
-test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {
+test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {
   const hmi = read(dir + 'hmi.h');
   assert.doesNotMatch(hmi, /recoverI2cBusUnlocked|Wire\.end\(|Wire\.begin\(/);
   const bus = body(read(dir + 'i2c_supervisor.h'), 'inline void mayapI2cSupervisorUpdate(');

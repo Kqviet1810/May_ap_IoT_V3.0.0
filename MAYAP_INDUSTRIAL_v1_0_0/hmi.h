@@ -969,6 +969,13 @@ uint32_t lastLcdFaultLogAt = 0;
 char toastLine[27] = "";
 bool toastError = false;
 uint32_t toastUntil = 0;
+uint32_t wifiOfflineSinceAt = 0U;
+bool wifiOfflineTracking = false;
+bool wifiOfflineNoticeActive = false;
+uint32_t wifiWeakSinceAt = 0U;
+bool wifiWeakTracking = false;
+bool wifiWeakNoticeActive = false;
+uint8_t onlineServiceDegradedMaskSeen = 0U;
 uint32_t lastCommandPollAt = 0;
 uint32_t inputGuardUntil = 0;
 
@@ -1156,6 +1163,67 @@ void showToast(const char *text, bool error = false, uint32_t duration = 0) {
   toastUntil = millis() +
       (duration ? duration : (error ? TOAST_ERROR_MS : TOAST_INFO_MS));
   dirty = true;
+}
+
+void serviceOnlineHealthNotice(uint32_t now) {
+  const bool onlineConfigured =
+      currentRuntime.connectivityMode == ConnectivityMode::Online &&
+      currentRuntime.networkConfigured;
+  const bool portalIdle = currentRuntime.wifiPortalState == WifiPortalState::Idle;
+  const bool offline = onlineConfigured && portalIdle &&
+      !currentRuntime.networkConnected;
+
+  if (offline) {
+    if (!wifiOfflineTracking) {
+      wifiOfflineTracking = true;
+      wifiOfflineSinceAt = now;
+    }
+    if (!wifiOfflineNoticeActive &&
+        now - wifiOfflineSinceAt >= 5000UL) {
+      wifiOfflineNoticeActive = true;
+      showToast("MAT WIFI - MAY VAN CHAY", true, 8000UL);
+    }
+  } else {
+    if (wifiOfflineNoticeActive && onlineConfigured &&
+        currentRuntime.networkConnected) {
+      showToast("WIFI DA KET NOI LAI");
+    }
+    wifiOfflineTracking = false;
+    wifiOfflineNoticeActive = false;
+    wifiOfflineSinceAt = 0U;
+  }
+
+  const bool weak = onlineConfigured && currentRuntime.networkConnected &&
+      currentRuntime.networkRssiDbm <= WIFI_RSSI_WEAK_DBM;
+  if (weak) {
+    if (!wifiWeakTracking) {
+      wifiWeakTracking = true;
+      wifiWeakSinceAt = now;
+    }
+    if (!wifiWeakNoticeActive &&
+        now - wifiWeakSinceAt >= WIFI_RSSI_WEAK_DURATION_MS) {
+      wifiWeakNoticeActive = true;
+      showToast("WIFI YEU - MAY VAN CHAY", true, 8000UL);
+    }
+  } else {
+    if (wifiWeakNoticeActive && onlineConfigured &&
+        currentRuntime.networkConnected) {
+      showToast("TIN HIEU WIFI DA ON");
+    }
+    wifiWeakTracking = false;
+    wifiWeakNoticeActive = false;
+    wifiWeakSinceAt = 0U;
+  }
+
+  const uint8_t degraded = mayapServiceDegradedMask();
+  if (degraded != onlineServiceDegradedMaskSeen) {
+    onlineServiceDegradedMaskSeen = degraded;
+    if (degraded) {
+      showToast("ONLINE LOI - MAY VAN CHAY", true, 8000UL);
+    } else if (onlineConfigured) {
+      showToast("DICH VU ONLINE DA PHUC HOI");
+    }
+  }
 }
 
 bool confirmationActive() {
@@ -4503,6 +4571,17 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
 
 void applyRuntime(MachineRuntime runtime) {
   sanitizeRuntime(runtime);
+  const bool wifiJustLost =
+      currentRuntime.connectivityMode == ConnectivityMode::Online &&
+      currentRuntime.networkConfigured && currentRuntime.networkConnected &&
+      runtime.connectivityMode == ConnectivityMode::Online &&
+      runtime.networkConfigured && !runtime.networkConnected &&
+      runtime.wifiPortalState == WifiPortalState::Idle;
+  const bool wifiJustRecovered =
+      currentRuntime.connectivityMode == ConnectivityMode::Online &&
+      currentRuntime.networkConfigured && !currentRuntime.networkConnected &&
+      runtime.connectivityMode == ConnectivityMode::Online &&
+      runtime.networkConfigured && runtime.networkConnected;
   const AutoTuneState previousAutoTuneState = currentRuntime.autoTuneState;
   const bool newFaultOccurrence =
       runtime.faultNotificationSequence != currentRuntime.faultNotificationSequence &&
@@ -4522,6 +4601,17 @@ void applyRuntime(MachineRuntime runtime) {
 
   const bool visibleChange = runtimeVisibleChanged(currentRuntime, runtime);
   currentRuntime = runtime;
+  if (wifiJustLost) {
+    wifiOfflineTracking = true;
+    wifiOfflineSinceAt = millis();
+    wifiOfflineNoticeActive = true;
+    showToast("MAT WIFI - MAY VAN CHAY", true, 8000UL);
+  } else if (wifiJustRecovered) {
+    wifiOfflineTracking = false;
+    wifiOfflineNoticeActive = false;
+    wifiOfflineSinceAt = 0U;
+    showToast("WIFI DA KET NOI LAI");
+  }
   buzzer.acknowledgedAlarmMask &= currentRuntime.alarmMask;
   // Moi ma loi moi deu duoc keu lai, ke ca no dung chung AlarmBit voi mot loi
   // cu da duoc nguoi dung ACK truoc do.
@@ -4917,6 +5007,7 @@ void serviceConfigSaveTimeout(uint32_t now) {
 
 void hmiUpdate(uint32_t now) {
   serviceApiMailboxes();
+  serviceOnlineHealthNotice(now);
   serviceHeaterTestWorkflow(now);
   stabilizeViewTransition();
   if (now - lastCommandPollAt >= HMI_COMMAND_POLL_MS) {

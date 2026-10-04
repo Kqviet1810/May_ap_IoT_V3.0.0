@@ -28,6 +28,9 @@ machine = read("MAYAP_INDUSTRIAL_v1_0_0/machine_control.h")
 network = read("MAYAP_INDUSTRIAL_v1_0_0/network_service.h")
 hmi = read("MAYAP_INDUSTRIAL_v1_0_0/hmi.h")
 ota = read("MAYAP_INDUSTRIAL_v1_0_0/ota_update.h")
+service_recovery = read("MAYAP_INDUSTRIAL_v1_0_0/service_recovery.h")
+runtime_recovery = read("MAYAP_INDUSTRIAL_v1_0_0/runtime_recovery_policy.h")
+realtime = read("MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h")
 ino = read("MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino")
 wrangler = read("cloudflare/wrangler.toml")
 wrapper = read("cloudflare/src/reliability-wrapper.js")
@@ -82,6 +85,24 @@ require(ino, "mayapWifiPortalExclusiveRequested()", "otaTask portal exclusion")
 require(ino, "mayapSetWifiPortalOtaQuiesced(quiesced)", "otaTask quiesce acknowledgement")
 require(config, "WIFI_PORTAL_MAX_OPEN_MS = 120000UL", "Wi-Fi portal 2 minute network timeout")
 require(config, "WIFI_PORTAL_UI_IDLE_TIMEOUT_MS = 120000UL", "Wi-Fi portal 2 minute HMI timeout")
+
+# Online availability must never own the controller reset domain.
+require(runtime_recovery, "Action : uint8_t { None, Reinit, Isolate, Degraded }", "service ladder terminates at degraded")
+if "Action::Restart" in runtime_recovery:
+    raise SystemExit("FAIL: online service restart escalation reintroduced")
+require(service_recovery, "LOCAL CONTROL CONTINUES, NO RESTART", "degraded service keeps local controller alive")
+if "mayapRestart(" in service_recovery:
+    raise SystemExit("FAIL: communication service may not restart controller")
+require(ino, "mayapServiceSupervisorUpdate(now);", "supervisor observes communication degradation")
+require(ino, "ALLOW_RUNTIME_HEALTH_AUTO_RESTART = false", "heap pressure cannot auto-reboot controller")
+require(network, "safe STA reconnect", "runtime Wi-Fi recovery is non-destructive")
+require(network, "mayapRequestWifiHighPerformance", "Wi-Fi power mailbox")
+if "WiFi.disconnect(true, false)" in network:
+    raise SystemExit("FAIL: destructive STA teardown reintroduced")
+if "esp_wifi_set_ps(" in realtime or "esp_wifi_get_ps(" in realtime:
+    raise SystemExit("FAIL: realtime task must not own Wi-Fi power state")
+require(hmi, "MAT WIFI - MAY VAN CHAY", "local Wi-Fi loss warning")
+require(hmi, "ONLINE LOI - MAY VAN CHAY", "local degraded online-service warning")
 
 # ATtiny v4: preserve power-loss protection with pulse-width bus framing.
 attiny = read("ATTINY13A_POWER_ALARM/ATTINY13A_POWER_ALARM.ino")
