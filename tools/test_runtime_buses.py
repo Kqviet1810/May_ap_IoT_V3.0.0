@@ -48,11 +48,17 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         (out / ('actual-' + name + '.inc')).write_text(source, encoding='utf-8')
     cloud = (root / 'MAYAP_INDUSTRIAL_v1_0_0/cloud_alert_link.h').read_text(encoding='utf-8')
     start = cloud.index('struct OutboxItem {')
-    end = cloud.index('inline void enqueueLevel(', start)
+    end = cloud.index('inline bool enqueueLevel(', start)
     (out / 'actual-cloud-outbox.inc').write_text(cloud[start:end], encoding='utf-8')
-    start = cloud.index('inline void servicePinReset()')
+    # Pin-reset now shares the actual paced Cloud admission gate. Extract the
+    # gate state/readiness helper plus the function under test, without pulling
+    # in the unrelated defer scheduler constants.
+    gate_start = cloud.index('static uint32_t cloudAdmissionRetryAt = 0U;')
+    gate_end = cloud.index('inline void deferCloudAdmission(', gate_start)
+    start = cloud.index('inline void servicePinReset(uint32_t now)')
     end = cloud.index('}  // namespace MayapCloudInternal', start)
-    (out / 'actual-cloud-pin-reset.inc').write_text(cloud[start:end], encoding='utf-8')
+    (out / 'actual-cloud-pin-reset.inc').write_text(
+        cloud[gate_start:gate_end] + cloud[start:end], encoding='utf-8')
     realtime = (root / 'MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h').read_text(encoding='utf-8')
     start = realtime.index('inline void serviceEventLogPublish()')
     end = realtime.index('}  // namespace MayapRealtimeInternal', start)

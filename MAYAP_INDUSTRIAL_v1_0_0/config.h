@@ -31,7 +31,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.2";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.3";
 #ifndef MAYAP_BUILD_REVISION
 #define MAYAP_BUILD_REVISION local
 #endif
@@ -150,6 +150,11 @@ constexpr uint32_t CLOUD_CHECK_INTERVAL_MS = 500UL;
 // cung luc khi nhieu loi phat sinh gan nhau (moi lan goi block networkTask
 // vai giay do TLS handshake, nen khong the/khong nen ban song song).
 constexpr uint32_t CLOUD_MIN_SEND_GAP_MS = 3000UL;
+// Admission defer is not a network failure. Pace retries so a temporarily low
+// heap/busy TLS owner cannot spin on every network-task cycle and starve the
+// alarm queue. Busy owners clear quickly; low/fragmented heap gets more time.
+constexpr uint32_t CLOUD_TLS_BUSY_RETRY_MS = 250UL;
+constexpr uint32_t CLOUD_TLS_MEMORY_RETRY_MS = 1000UL;
 constexpr uint32_t CLOUD_HTTP_TIMEOUT_MS = 8000UL;
 constexpr uint32_t CLOUD_HTTP_CONNECT_TIMEOUT_MS = 5000UL;
 // Cap nhat firmware TU XA qua Cloudflare (ota_web_update.h) - nhip tu kiem

@@ -92,6 +92,19 @@ static MachineConfig processingConfig{};
 // cung reset ve nhanh nhat cho ca 3.
 static BackoffTimer cloudBackoff{};
 static bool registered = false;
+// Admission deferral (TLS busy / heap budget) is intentionally separate from
+// network failure backoff. A deferred request was never put on the wire.
+static uint32_t cloudAdmissionRetryAt = 0U;
+
+inline bool cloudAdmissionReady(uint32_t now) {
+  return cloudAdmissionRetryAt == 0U || timeReached(now, cloudAdmissionRetryAt);
+}
+inline void deferCloudAdmission(uint32_t now, MayapTlsDeferReason reason) {
+  const uint32_t delayMs =
+      reason == MayapTlsDeferReason::Busy ? CLOUD_TLS_BUSY_RETRY_MS
+                                         : CLOUD_TLS_MEMORY_RETRY_MS;
+  cloudAdmissionRetryAt = now + delayMs;
+}
 
 // Co hieu "dat lai ma PIN web ve mac dinh" phat tu HMI (controlTask) toi
 // networkTask - dung chung idiom voi portalRequestFlag cua network_service.h
@@ -120,42 +133,86 @@ static uint8_t outboxHead = 0U, outboxTail = 0U, outboxCount = 0U;
 static uint32_t lastSendAt = 0U;
 static uint32_t lastRequestFinishedAt = 0U;
 static bool requestDeferred = false;
-static uint32_t outboxDropped = 0U, outboxCriticalDropped = 0U;
+static uint32_t outboxDropped = 0U, outboxCriticalDeferred = 0U;
+
+inline uint8_t notifyPriority(NotifyLevel level) {
+  switch (level) {
+    case NotifyLevel::Critical: return 3U;
+    case NotifyLevel::Warning: return 2U;
+    case NotifyLevel::System: return 1U;
+    default: return 0U;
+  }
+}
+
+inline void eraseOutboxOffset(uint8_t offset) {
+  if (offset >= outboxCount) return;
+  for (uint8_t n = offset; n + 1U < outboxCount; ++n) {
+    outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE] =
+        outbox[(outboxHead + n + 1U) % CLOUD_OUTBOX_SIZE];
+  }
+  outboxTail = static_cast<uint8_t>(
+      (outboxTail + CLOUD_OUTBOX_SIZE - 1U) % CLOUD_OUTBOX_SIZE);
+  outbox[outboxTail] = OutboxItem{};
+  --outboxCount;
+}
+
+inline uint8_t nextOutboxOffset() {
+  // A critical safety event must not wait behind informational traffic.
+  for (uint8_t n = 0U; n < outboxCount; ++n) {
+    if (outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE].severity == NotifyLevel::Critical) return n;
+  }
+  return 0U;
+}
 
 inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolved,
                        const char *message, bool hasReadings, float temperature, float humidity) {
   if (!alarmType || !alarmType[0] || !message || !message[0]) return false;
-  // Coalesce repeat notifications for the SAME state only. Keep an active
-  // alarm and its recovery as distinct events (especially critical faults).
+
+  // Repeated copies of the same state carry no extra safety information.
   for (uint8_t n = 0U; n < outboxCount; ++n) {
     const uint8_t p = (outboxTail + CLOUD_OUTBOX_SIZE - 1U - n) % CLOUD_OUTBOX_SIZE;
     OutboxItem &pending = outbox[p];
     if (!pending.used || strcmp(pending.alarmType, alarmType)) continue;
     if (pending.resolved == resolved && pending.severity == severity) {
       snprintf(pending.message, sizeof(pending.message), "%s", message);
-      pending.hasReadings = hasReadings; pending.temperature = temperature; pending.humidity = humidity;
+      pending.hasReadings = hasReadings;
+      pending.temperature = temperature;
+      pending.humidity = humidity;
       return true;
     }
-    break; // Never coalesce across this alarm's opposite transition.
+    break;  // Never coalesce across this alarm's opposite transition.
   }
+
   if (outboxCount >= CLOUD_OUTBOX_SIZE) {
+    // Only a strictly lower-priority queued item may be evicted. Critical
+    // events can evict Warning/System/Info, but NEVER another Critical event.
+    const uint8_t incomingPriority = notifyPriority(severity);
     uint8_t victim = CLOUD_OUTBOX_SIZE;
+    uint8_t victimPriority = 0xFFU;
     for (uint8_t n = 0U; n < outboxCount; ++n) {
-      if (outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE].severity != NotifyLevel::Critical) { victim = n; break; }
+      const uint8_t p = notifyPriority(outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE].severity);
+      if (p < incomingPriority && p < victimPriority) {
+        victim = n;
+        victimPriority = p;
+      }
+    }
+    if (victim == CLOUD_OUTBOX_SIZE) {
+      if (severity == NotifyLevel::Critical) {
+        // Do not destroy an older Critical to make room. FaultTrack keeps this
+        // event pending and retries it when a slot becomes available.
+        ++outboxCriticalDeferred;
+      } else {
+        ++outboxDropped;
+      }
+      return false;
     }
     ++outboxDropped;
-    if (victim == CLOUD_OUTBOX_SIZE) {
-      if (severity != NotifyLevel::Critical) return false;
-      victim = 0U; ++outboxCriticalDropped;
-    }
-    for (uint8_t n = victim; n + 1U < outboxCount; ++n)
-      outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE] = outbox[(outboxHead + n + 1U) % CLOUD_OUTBOX_SIZE];
-    outboxTail = (outboxTail + CLOUD_OUTBOX_SIZE - 1U) % CLOUD_OUTBOX_SIZE;
-    outbox[outboxTail].used = false;
-    --outboxCount;
-    mayapSerialPrintf(false, "[CLOUD] outbox loss=%lu critical=%lu\n",
-      static_cast<unsigned long>(outboxDropped), static_cast<unsigned long>(outboxCriticalDropped));
+    eraseOutboxOffset(victim);
+    mayapSerialPrintf(false, "[CLOUD] outbox drop=%lu critical_wait=%lu\n",
+        static_cast<unsigned long>(outboxDropped),
+        static_cast<unsigned long>(outboxCriticalDeferred));
   }
+
   OutboxItem &item = outbox[outboxTail];
   snprintf(item.alarmType, sizeof(item.alarmType), "%s", alarmType);
   item.severity = severity;
@@ -170,14 +227,16 @@ inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolve
   return true;
 }
 
-inline void enqueueLevel(const char *alarmType, NotifyLevel level, const char *body) {
+inline bool enqueueLevel(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
-  enqueueRaw(alarmType, level, false, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
+  return enqueueRaw(alarmType, level, false, body, hasReadings,
+                    processingRuntime.temperature, processingRuntime.humidity);
 }
 
-inline void enqueueResolved(const char *alarmType, NotifyLevel level, const char *body) {
+inline bool enqueueResolved(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
-  enqueueRaw(alarmType, level, true, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
+  return enqueueRaw(alarmType, level, true, body, hasReadings,
+                    processingRuntime.temperature, processingRuntime.humidity);
 }
 
 // --------------------------- Noi dung loi (Vietnamese) --------------------------
@@ -256,6 +315,8 @@ inline uint32_t repeatIntervalForSeverity(uint8_t severity) {
 // lai/da het, khong quan tam co ACK tren HMI hay chua.
 struct FaultTrack {
   bool used = false;
+  bool announced = false;
+  bool resolving = false;
   uint16_t code = 0;
   uint8_t severity = 0;
   uint32_t firstSentAt = 0;
@@ -267,6 +328,24 @@ inline void alarmTypeForFault(uint16_t code, char *out, size_t outLen) {
   snprintf(out, outLen, "FAULT_%u", code);
 }
 
+inline bool enqueueFaultActive(FaultTrack &track, uint32_t now, bool repeat) {
+  char alarmType[24];
+  alarmTypeForFault(track.code, alarmType, sizeof(alarmType));
+  char body[160];
+  if (repeat) {
+    snprintf(body, sizeof(body), "Vẫn còn: %s", faultSummaryText(track.code));
+  } else {
+    snprintf(body, sizeof(body), "%s", faultSummaryText(track.code));
+  }
+  if (!enqueueLevel(alarmType, levelForSeverity(track.severity), body)) return false;
+  if (!track.announced) {
+    track.announced = true;
+    track.firstSentAt = now;
+  }
+  track.lastSentAt = now;
+  return true;
+}
+
 inline void checkFaults(uint32_t now) {
   bool seen[CLOUD_ACTIVE_TRACK_SIZE]{};
   const uint8_t count = processingRuntime.activeFaultDisplayCount;
@@ -276,55 +355,68 @@ inline void checkFaults(uint32_t now) {
     if (!conditionLive) continue;
 
     int16_t slot = -1;
-    for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-      if (faultTrack[s].used && faultTrack[s].code == item.code) { slot = static_cast<int16_t>(s); break; }
-    }
-    if (slot < 0) {
-      for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-        if (!faultTrack[s].used) { slot = static_cast<int16_t>(s); break; }
+    for (uint8_t s = 0U; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
+      if (faultTrack[s].used && faultTrack[s].code == item.code) {
+        slot = static_cast<int16_t>(s);
+        break;
       }
     }
-    if (slot < 0) continue;  // bang theo doi day (rat hiem) - bo qua ky nay
+    if (slot < 0) {
+      for (uint8_t s = 0U; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
+        if (!faultTrack[s].used) {
+          slot = static_cast<int16_t>(s);
+          break;
+        }
+      }
+    }
+    if (slot < 0) continue;
 
     seen[slot] = true;
     FaultTrack &track = faultTrack[static_cast<uint8_t>(slot)];
-    const NotifyLevel level = levelForSeverity(item.severity);
-    const uint32_t interval = repeatIntervalForSeverity(item.severity);
-    char alarmType[24];
-    alarmTypeForFault(item.code, alarmType, sizeof(alarmType));
-    char body[160];
-
     if (!track.used) {
       track.used = true;
       track.code = item.code;
       track.severity = item.severity;
-      track.firstSentAt = now;
-      track.lastSentAt = now;
-      // KHONG kem "ma loi X" - nguoi dung thuong khong can biet ma noi bo,
-      // chi can biet DANG XAY RA CHUYEN GI (xem faultSummaryText).
-      snprintf(body, sizeof(body), "%s", faultSummaryText(item.code));
-      enqueueLevel(alarmType, level, body);
-    } else if (timeReached(now, track.lastSentAt + interval)) {
-      track.lastSentAt = now;
-      snprintf(body, sizeof(body), "Vẫn còn: %s", faultSummaryText(item.code));
-      enqueueLevel(alarmType, level, body);
+    } else if (item.severity > track.severity) {
+      // Preserve escalation while waiting for a queue slot.
+      track.severity = item.severity;
+    }
+    // If the condition returned before its resolved event was queued, the
+    // recovery notification was never observable; continue with the live state.
+    track.resolving = false;
+
+    if (!track.announced) {
+      // Do not claim "sent" until the outbox accepted the event.
+      enqueueFaultActive(track, now, false);
+    } else if (timeReached(now, track.lastSentAt + repeatIntervalForSeverity(track.severity))) {
+      // A failed enqueue leaves lastSentAt unchanged so the next check retries.
+      enqueueFaultActive(track, now, true);
     }
   }
 
-  for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-    if (faultTrack[s].used && !seen[s]) {
-      char alarmType[24];
-      alarmTypeForFault(faultTrack[s].code, alarmType, sizeof(alarmType));
-      char body[160];
-      // Bao ro rang la DA HET (khac han luc moi bao - xem enqueueLevel o
-      // tren), khong chi lap lai y y mo ta loi kem "ma loi X" nhu truoc -
-      // nguoi dung de nham la dang bao lai loi cu chu khong phai da het.
-      // "Da het:" dung DAU cau, khong phai cuoi - nguoi dung thuong chi doc
-      // vai chu dau tien cua thong bao, can biet NGAY la loi da qua chua
-      // phai doc het ca mo ta loi cu roi moi thay chu "da khoi phuc" o cuoi.
-      snprintf(body, sizeof(body), "Đã hết: %s", faultSummaryText(faultTrack[s].code));
-      enqueueResolved(alarmType, levelForSeverity(faultTrack[s].severity), body);
-      faultTrack[s] = FaultTrack{};
+  for (uint8_t s = 0U; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
+    FaultTrack &track = faultTrack[s];
+    if (!track.used || seen[s]) continue;
+    track.resolving = true;
+
+    // If a Critical fault appeared and recovered while the queue contained
+    // only older Critical events, preserve the occurrence: queue ACTIVE first,
+    // then RESOLVED. Lower-priority events that disappeared before ever being
+    // announced may be discarded rather than generating stale notifications.
+    if (!track.announced) {
+      if (levelForSeverity(track.severity) != NotifyLevel::Critical) {
+        track = FaultTrack{};
+        continue;
+      }
+      if (!enqueueFaultActive(track, now, false)) continue;
+    }
+
+    char alarmType[24];
+    alarmTypeForFault(track.code, alarmType, sizeof(alarmType));
+    char body[160];
+    snprintf(body, sizeof(body), "Đã hết: %s", faultSummaryText(track.code));
+    if (enqueueResolved(alarmType, levelForSeverity(track.severity), body)) {
+      track = FaultTrack{};
     }
   }
 }
@@ -568,17 +660,21 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
 inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
                      String *responseBody = nullptr, int *responseCode = nullptr) {
   requestDeferred = true;
+  const uint32_t requestNow = millis();
   if (lastRequestFinishedAt != 0U &&
-      elapsedMs(millis(), lastRequestFinishedAt) < CLOUD_MIN_SEND_GAP_MS) {
+      elapsedMs(requestNow, lastRequestFinishedAt) < CLOUD_MIN_SEND_GAP_MS) {
+    cloudAdmissionRetryAt = lastRequestFinishedAt + CLOUD_MIN_SEND_GAP_MS;
     if (responseCode) *responseCode = 0;
     return false;
   }
   MayapTlsOperation tlsOperation(MayapTlsKind::Cloud);
   if (!tlsOperation) {
+    deferCloudAdmission(requestNow, tlsOperation.deferReason());
     if (responseCode) *responseCode = 0;
-    return false; // defer through the existing bounded Cloud retry queue
+    return false;  // request never reached the network; retry on admission timer
   }
   requestDeferred = false;
+  cloudAdmissionRetryAt = 0U;
   const uint32_t heapBefore = ESP.getFreeHeap();
   const uint32_t startedAt = millis();
   WiFiClientSecure client;
@@ -726,31 +822,30 @@ inline bool sendAlarm(const OutboxItem &item) {
 
 inline void drainOutbox(uint32_t now) {
   if (outboxCount == 0U) return;
+  if (!cloudAdmissionReady(now)) return;
   if (!timeReached(now, lastSendAt + CLOUD_MIN_SEND_GAP_MS)) return;
-  if (!cloudBackoff.ready(now)) return;  // lan goi truoc vua that bai
+  if (!cloudBackoff.ready(now)) return;
   const NetworkStatus status = mayapGetNetworkStatus();
   if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
 
-  lastSendAt = now;
-  OutboxItem &item = outbox[outboxHead];
+  const uint8_t offset = nextOutboxOffset();
+  const OutboxItem item = outbox[(outboxHead + offset) % CLOUD_OUTBOX_SIZE];
   const bool ok = sendAlarm(item);
+  // A deferred admission did not touch the network and must not consume the
+  // normal HTTPS send gap or enter network-failure backoff.
+  if (!requestDeferred) lastSendAt = now;
   if (ok) {
     cloudBackoff.onSuccess();
-    item.used = false;
-    outboxHead = static_cast<uint8_t>((outboxHead + 1U) % CLOUD_OUTBOX_SIZE);
-    --outboxCount;
-  } else {
-    // That bai (mang chap chon, Worker loi tam thoi...): giu nguyen dau hang
-    // doi (khong mat tin), nhung lui backoff truoc khi cho phep thu lai -
-    // khong dap HTTPS lien tuc moi CLOUD_MIN_SEND_GAP_MS trong khi mang dang
-    // that su mat trong nhieu gio.
-    if (!requestDeferred) cloudBackoff.onFailure(millis());
+    eraseOutboxOffset(offset);
+  } else if (!requestDeferred) {
+    cloudBackoff.onFailure(millis());
   }
 }
 
 static uint32_t lastHeartbeatAt = 0U;
 
 inline void serviceHeartbeat(uint32_t now) {
+  if (!cloudAdmissionReady(now)) return;
   if (!timeReached(now, lastHeartbeatAt + CLOUD_HEARTBEAT_INTERVAL_MS)) return;
   if (!cloudBackoff.ready(now)) return;
   const NetworkStatus status = mayapGetNetworkStatus();
@@ -758,13 +853,14 @@ inline void serviceHeartbeat(uint32_t now) {
   lastHeartbeatAt = now;
   if (sendHeartbeat()) {
     cloudBackoff.onSuccess();
-  } else {
-    if (!requestDeferred) cloudBackoff.onFailure(millis());
+  } else if (!requestDeferred) {
+    cloudBackoff.onFailure(millis());
   }
 }
 
 inline void serviceRegister(uint32_t now) {
   if (registered) return;
+  if (!cloudAdmissionReady(now)) return;
   if (!cloudBackoff.ready(now)) return;
   const NetworkStatus status = mayapGetNetworkStatus();
   if (status.requestedMode != ConnectivityMode::Online) return;
@@ -775,12 +871,13 @@ inline void serviceRegister(uint32_t now) {
   if (sendRegister()) {
     registered = true;
     cloudBackoff.onSuccess();
-  } else {
-    if (!requestDeferred) cloudBackoff.onFailure(millis());
+  } else if (!requestDeferred) {
+    cloudBackoff.onFailure(millis());
   }
 }
 
-inline void servicePinReset() {
+inline void servicePinReset(uint32_t now) {
+  if (!cloudAdmissionReady(now)) return;
   if (!__atomic_exchange_n(&pinResetRequestFlag, 0U, __ATOMIC_ACQ_REL)) return;
   const NetworkStatus netStatus = mayapGetNetworkStatus();
   if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) {
@@ -788,8 +885,6 @@ inline void servicePinReset() {
     return;
   }
   if (!sendResetPin() && requestDeferred) {
-    // No HTTP request was sent: retain the user's intent while admission is
-    // busy. Never automatically replay a reset after an ambiguous HTTP error.
     __atomic_store_n(&pinResetRequestFlag, 1U, __ATOMIC_RELEASE);
   }
 }
@@ -867,11 +962,13 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
 
   // Explicit user request gets first admission, not a permanently occupied
   // send gap left by routine heartbeat/alarm traffic.
-  servicePinReset();
+  servicePinReset(now);
   serviceRegister(now);
   if (registered) {
-    serviceHeartbeat(now);
+    // Safety/event traffic outranks routine liveness traffic. Drain one alarm
+    // first; heartbeat runs only after the alarm backlog is empty.
     drainOutbox(now);
+    if (outboxCount == 0U) serviceHeartbeat(now);
   }
 
 }
@@ -912,6 +1009,11 @@ inline void mayapPrintCloudStatus(uint32_t now) {
       mayapDeviceSecret()[0] ? "DA CAU HINH" : "CHUA CAU HINH",
       registered, static_cast<unsigned>(outboxCount), static_cast<unsigned>(CLOUD_OUTBOX_SIZE),
       static_cast<unsigned>(cloudBackoff.step), static_cast<unsigned>(BACKOFF_STEP_COUNT - 1U));
+  mayapSerialPrintf(false, "[CLOUD] outbox_drop=%lu critical_wait=%lu admission_retry_ms=%ld\n",
+      static_cast<unsigned long>(outboxDropped),
+      static_cast<unsigned long>(outboxCriticalDeferred),
+      cloudAdmissionRetryAt == 0U || timeReached(now, cloudAdmissionRetryAt)
+          ? 0L : static_cast<long>(cloudAdmissionRetryAt - now));
   const long sendAgoSec = lastSendAt == 0U
       ? -1L
       : static_cast<long>(MayapCloudInternal::elapsedMs(now, lastSendAt) / 1000U);

@@ -95,10 +95,14 @@ int main() {
     MayapTlsOperation other; assert(!other);
     MayapNetworkBatchOperation bulk; assert(!bulk); }
   assert(!mayapTlsBusy());
-  ESP.free=73727;
+  ESP.free=65535;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud && !mayapTlsBusy()); }
-  ESP.free=73728;
+  ESP.free=65536;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud); }
+  ESP.free=73727;
+  { MayapTlsOperation ota(MayapTlsKind::Ota); assert(!ota && !mayapTlsBusy()); }
+  ESP.free=73728;
+  { MayapTlsOperation ota(MayapTlsKind::Ota); assert(ota); }
   ESP.free=85000; ESP.largest=24575;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud); }
   ESP.largest=24576;
@@ -152,13 +156,13 @@ int main() {
   using namespace MayapCloudInternal;
   (void)lastSendAt; (void)lastRequestFinishedAt; (void)requestDeferred;
   pinResetRequestFlag=1; resetDeferred=true;
-  servicePinReset(); servicePinReset();
+  servicePinReset(clockMs); servicePinReset(clockMs);
   assert(pinResetRequestFlag==1 && resetRequests==0); // Not sent while busy.
-  resetDeferred=false; servicePinReset(); servicePinReset();
+  resetDeferred=false; servicePinReset(clockMs); servicePinReset(clockMs);
   assert(pinResetRequestFlag==0 && resetRequests==1);
-  pinResetRequestFlag=1; resetSuccess=false; servicePinReset(); servicePinReset();
+  pinResetRequestFlag=1; resetSuccess=false; servicePinReset(clockMs); servicePinReset(clockMs);
   assert(pinResetRequestFlag==0 && resetRequests==2); // No ambiguous replay.
-  pinResetRequestFlag=1; network.connected=false; servicePinReset();
+  pinResetRequestFlag=1; network.connected=false; servicePinReset(clockMs);
   assert(pinResetRequestFlag==0 && resetRequests==2);
   assert(enqueueRaw("FAULT_501",NotifyLevel::Warning,false,"first",false,0,0));
   assert(enqueueRaw("FAULT_501",NotifyLevel::Warning,false,"repeat",false,0,0));
@@ -172,9 +176,35 @@ int main() {
     assert(enqueueRaw(key,NotifyLevel::Critical,false,"critical",false,0,0));
   }
   assert(!enqueueRaw("ROUTINE",NotifyLevel::Info,false,"routine",false,0,0));
-  assert(outboxCount==8 && outboxCriticalDropped==0);
+  assert(outboxCount==8 && outboxCriticalDeferred==0);
+  // A full Critical-only queue must preserve every older Critical. The new
+  // event stays pending at the FaultTrack layer and retries when capacity frees.
+  assert(!enqueueRaw("CRITICAL_NEW",NotifyLevel::Critical,false,"critical",false,0,0));
+  assert(outboxCount==8 && outboxCriticalDeferred==1);
+  for(unsigned i=0;i<8;++i) {
+    char key[24]; std::snprintf(key,sizeof(key),"CRITICAL_%u",i);
+    assert(!strcmp(outbox[(outboxHead+i)%CLOUD_OUTBOX_SIZE].alarmType,key));
+  }
+  eraseOutboxOffset(0);
+  assert(outboxCount==7);
   assert(enqueueRaw("CRITICAL_NEW",NotifyLevel::Critical,false,"critical",false,0,0));
-  assert(outboxCount==8 && outboxCriticalDropped==1);
+  assert(outboxCount==8 && outboxCriticalDeferred==1);
+
+  // Critical may evict lower-priority traffic, but never another Critical.
+  outboxHead=outboxTail=outboxCount=0;
+  for(unsigned i=0;i<7;++i) {
+    char key[24]; std::snprintf(key,sizeof(key),"CRITICAL_P_%u",i);
+    assert(enqueueRaw(key,NotifyLevel::Critical,false,"critical",false,0,0));
+  }
+  assert(enqueueRaw("ROUTINE_LOW",NotifyLevel::Info,false,"routine",false,0,0));
+  assert(enqueueRaw("CRITICAL_PRIORITY",NotifyLevel::Critical,false,"critical",false,0,0));
+  bool foundRoutine=false, foundPriority=false;
+  for(unsigned i=0;i<outboxCount;++i) {
+    const char *key=outbox[(outboxHead+i)%CLOUD_OUTBOX_SIZE].alarmType;
+    if(!strcmp(key,"ROUTINE_LOW")) foundRoutine=true;
+    if(!strcmp(key,"CRITICAL_PRIORITY")) foundPriority=true;
+  }
+  assert(!foundRoutine && foundPriority && outboxCount==8);
 
   pendingEventSnapshot.sourceSequence=12; pendingEventSnapshot.count=12;
   for(unsigned i=0;i<12;++i) pendingEventSnapshot.items[i].sequence=12-i;

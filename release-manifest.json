@@ -1,6 +1,6 @@
 {
-  "release": "1.1.2",
-  "firmware": "1.1.2",
+  "release": "1.1.3",
+  "firmware": "1.1.3",
   "hmi": "1.0.0",
   "web": "1.1.6",
   "web_storage_schema": 10,
@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Web 1.1.6 hardens Android installed-PWA reopen: canonical scope-root start/id, required runtime shell install, navigation-specific cached fallback and non-ERR_FAILED offline response. Firmware/HMI/control/safety are unchanged."
+  "notes": "Firmware 1.1.3 Phase A hardens Cloud alarm delivery: Cloud TLS admission is separated from OTA, deferred admission is paced, Critical alarms outrank heartbeat/routine traffic, and Critical events are never evicted by queue pressure. Web 1.1.6, HMI, thermal control, turning and safety policy are unchanged."
 }

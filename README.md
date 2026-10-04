@@ -1,15 +1,15 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> **Baseline release candidate hiện tại: 1.1.2.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
+> **Baseline release candidate hiện tại: 1.1.3.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
 >
-> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.2` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
+> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.3` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
 
 ## Phiên bản hiện hành trên `main`
 
 | Thành phần | Phiên bản |
 |---|---:|
-| Release / baseline mã nguồn | 1.1.2 |
-| ESP32 firmware | 1.1.2 |
+| Release / baseline mã nguồn | 1.1.3 |
+| ESP32 firmware | 1.1.3 |
 | HMI firmware | 1.0.0 |
 | Web PWA | 1.1.6 |
 | Web storage schema | 10 |
