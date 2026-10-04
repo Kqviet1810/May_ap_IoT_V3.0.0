@@ -2103,6 +2103,34 @@ void commitSetting() {
   }
   sanitizeConfig(candidate);
 
+  if ((item.offset == offsetof(MachineConfig, kp) ||
+       item.offset == offsetof(MachineConfig, ki) ||
+       item.offset == offsetof(MachineConfig, kd)) &&
+      !mayapPidHasAuthority(candidate)) {
+    view = editReturnView;
+    showToast("KP/KI KHONG CUNG 0", true);
+    return;
+  }
+
+  if (item.offset == offsetof(MachineConfig, targetTemp) &&
+      (currentRuntime.batchRunning || currentRuntime.resumeConfirmationRequired)) {
+    const float delta = candidate.targetTemp - oldTarget;
+    const auto movedBy = [delta](float before, float after) {
+      return fabsf((after - before) - delta) <= 0.0015f;
+    };
+    const bool envelopePreserved =
+        movedBy(currentConfig.lowTempAlarm, candidate.lowTempAlarm) &&
+        movedBy(currentConfig.highTempAlarm, candidate.highTempAlarm) &&
+        movedBy(currentConfig.emergencyTemp, candidate.emergencyTemp) &&
+        movedBy(currentConfig.ventOnTemp, candidate.ventOnTemp) &&
+        movedBy(currentConfig.ventOffTemp, candidate.ventOffTemp);
+    if (!envelopePreserved) {
+      view = editReturnView;
+      showToast("SV VUOT BIEN BAO VE", true);
+      return;
+    }
+  }
+
   const float oldValue = readSetting(currentConfig, item);
   const float newValue = readSetting(candidate, item);
   view = editReturnView;
