@@ -236,6 +236,38 @@ test('push ownership is account-scoped and a revoked session cannot receive devi
 });
 
 
+test('push survives automatic 24h session expiry but still requires live account/device permission',async()=>{
+  const h=await setup(), A=await h.login('push-expiry'), id=await h.device(72), [worker]=await modules;
+  const db=await import('../cloudflare/src/db.js');
+  await h.call('/api/account/devices/claim',A,{device_id:id,pin:'123456'});
+  const subscription={endpoint:'https://push.example/session-expiry',keys:{p256dh:'test',auth:'test'}};
+  assert.equal((await h.call('/api/push/subscribe',A,{device_id:id,subscription})).status,200);
+
+  // Login expires: Web control must require login again, but the phone remains
+  // a valid Push installation for the account/device.
+  h.sql.prepare('UPDATE user_sessions SET expires_at=? WHERE id=?').run(Date.now()-1,A.id);
+  assert.equal((await h.call('/api/account/session',A)).status,401);
+  let eligible=await db.getSubscriptionsForDevice(h.env.DB,id);
+  assert.equal(eligible.length,1);
+  assert.equal(eligible[0].endpoint,subscription.endpoint);
+
+  // The scheduled cleanup must not turn normal session expiry into Push revoke.
+  await worker.default.scheduled({},h.env,{waitUntil(){}});
+  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM push_subscriptions WHERE endpoint=?').get(subscription.endpoint).n,1);
+
+  // A later login still reports the existing Push installation.
+  const A2=await h.login('push-expiry');
+  const account=await (await h.call('/api/account/session',A2)).json();
+  assert.equal(account.devices[0].linked_browsers,1);
+
+  // Security remains account/device-scoped even though session expiry is ignored.
+  h.sql.prepare('UPDATE users SET disabled=1 WHERE google_sub=?').run('push-expiry');
+  assert.equal((await db.getSubscriptionsForDevice(h.env.DB,id)).length,0);
+  h.sql.prepare('UPDATE users SET disabled=0 WHERE google_sub=?').run('push-expiry');
+  h.sql.prepare('DELETE FROM user_devices WHERE user_sub=? AND device_id=?').run('push-expiry',id);
+  assert.equal((await db.getSubscriptionsForDevice(h.env.DB,id)).length,0);
+});
+
 test('D1 Notes and Reminders are account-scoped, idempotent and independent of device realtime',async()=>{
   const h=await setup(), owner=await h.login('cloud-owner'), viewer=await h.login('cloud-viewer'), outsider=await h.login('cloud-outsider');
   const id=await h.device(77);
