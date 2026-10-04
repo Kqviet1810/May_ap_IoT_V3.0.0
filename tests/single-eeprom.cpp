@@ -116,6 +116,9 @@ int main() {
   // trace reason is not required to remain the first attempt's poll-timeout.
   assert(Wire.probes<=22);
   pollPauseMs=0;Wire.writeCycleMs=0;
+  Wire.off=true;assert(!driver.readBytes(0x3000,&result,1));const auto readTrace=driver.lastReadTrace();
+  assert(readTrace.address==0x3000&&readTrace.reason==3&&readTrace.error==2);
+  Wire.off=false;assert(driver.readBytes(0x3000,&result,1));assert(driver.lastReadTrace().reason==0);
   std::puts("C512 ACK polling: generic driver, 5ms write cycle, delayed task wake-up and millis wrap PASS");
   std::puts("C512: page/Wire boundary, 0xFFFF/range, shared journal notes/reminders reboot/readback and WP PASS");
 }

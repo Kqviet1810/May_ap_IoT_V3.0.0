@@ -8,7 +8,7 @@ const root = path.resolve(__dirname, '..');
 const out = path.resolve(process.argv[2] || path.join(root, 'work', 'web-qa'));
 fs.mkdirSync(out, { recursive: true });
 const source = fs.readFileSync(path.join(root, 'app.js'), 'utf8').replace('  init();', `
-  window.__qa = { state, notesUiStorage, sendReminders, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
+  window.__qa = { state, exchangeJournal, notesUiStorage, sendReminders, REQUIRED_CONFIG_KEYS, VENT_PROFILE_KEYS, handleConfigReport,
     handleSnapshot, handlePresence, showPage, buildConfig, createDevice, renderSelector, renderDevice, connectionStatus, controlReady };
   init();`);
 const firmware = fs.readFileSync(path.join(root, 'MAYAP_INDUSTRIAL_v1_0_0/config.h'), 'utf8');
@@ -25,10 +25,15 @@ window.MayapRealtime = { Client: function(options) {
     unsubscribe() {}, reconnect() { client.emit('connect'); },
     end() { client.disconnecting = true; client.emit('close'); },
     send(route, msg, cb) {
-      cb?.();
       if(route.channel==='notes/request'){
+        const requestId=JSON.parse(msg.body).requestId;
+        (window.__journalWires ||= []).push({body:msg.body,sig:msg.sig,requestId});
+        if(window.__journalHubError){cb?.(Object.assign(new Error(window.__journalHubError),{code:window.__journalHubError,hubCode:window.__journalHubError,stage:'HUB_REJECTED'}));return;}
+        cb?.(window.__journalReceiptMissing?Object.assign(new Error('FORWARD_RECEIPT_TIMEOUT'),{code:'UNCERTAIN'}):null);
         (async()=>{
-          const request=JSON.parse(msg.body), mock=window.__journalMock ||= { generation:0,reminderVersion:0,notes:new Map(),reminders:[] };
+          const request=JSON.parse(msg.body), mock=window.__journalMock ||= { generation:0,reminderVersion:0,notes:new Map(),reminders:[],terminal:new Map() };
+          const mutation=['notes.save','notes.delete','notes.reminders.save'].includes(request.action);
+          if(mock.terminal.has(request.requestId)){if(!(mutation&&window.__journalDropMutationAck))client.emit('message',{deviceId:options.deviceId,channel:'ack'},mock.terminal.get(request.requestId));return;}
           let data={generation:mock.generation,next:24,done:true},code='NOTE_JOURNAL_OK',ok=true;
           if(window.__journalFailure&&request.action.endsWith('.save')){ok=false;code='NOTE_JOURNAL_IO';}
           else if(request.action==='notes.list'){
@@ -42,15 +47,24 @@ window.MayapRealtime = { Client: function(options) {
           else if(request.action==='notes.reminders.save'){mock.reminders=request.reminders;mock.reminderVersion=++mock.generation;data={...data,generation:mock.generation,version:mock.reminderVersion,reminders:mock.reminders};}
           const key=await crypto.subtle.importKey('raw',new Uint8Array(32).fill(7),{name:'HMAC',hash:'SHA-256'},false,['sign']);
           const sign=async text=>[...new Uint8Array(await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(text)))].map(b=>b.toString(16).padStart(2,'0')).join('');
-          if(ok&&!(window.__journalDropData>0&&(window.__journalDropData--))){const body=JSON.stringify(data),frame={v:2,bootId:123,requestId:request.requestId,operation:request.action,body};
+          if(!window.__journalDropAccepted){
+            const received={v:2,bootId:123,requestId:request.requestId,operation:request.action,phase:'received',ok:false,code:'NOTE_JOURNAL_ACCEPTED',revision:mock.generation,message:'NOTE_JOURNAL_ACCEPTED'};
+            received.sig=await sign(['mayap-mqtt-ack:v2',options.deviceId,request.requestId,request.action,'received','0',received.code,123,mock.generation,received.message].join('\\n'));
+            client.emit('message',{deviceId:options.deviceId,channel:'ack'},received);
+          }
+          if(ok&&!(mutation&&window.__journalDropMutationData)&&!(window.__journalDropData>0&&(window.__journalDropData--))){const body=JSON.stringify(data),frame={v:2,bootId:123,requestId:request.requestId,operation:request.action,body};
             frame.sig=await sign(['mayap-note-journal:v2',options.deviceId,123,request.requestId,request.action,body].join('\\n'));
+            if(window.__journalBadData)frame.sig='0'.repeat(64);
             client.emit('message',{deviceId:options.deviceId,channel:'notes/reported'},frame);
           }
           const ack={v:2,bootId:123,requestId:request.requestId,operation:request.action,phase:'completed',ok,code,revision:mock.generation,message:code};
           ack.sig=await sign(['mayap-mqtt-ack:v2',options.deviceId,request.requestId,request.action,'completed',ok?'1':'0',code,123,mock.generation,code].join('\\n'));
-          setTimeout(()=>client.emit('message',{deviceId:options.deviceId,channel:'ack'},ack),20);
+          if(window.__journalBadAck)ack.sig='0'.repeat(64);
+          mock.terminal.set(request.requestId,ack);
+          if(!(mutation&&window.__journalDropMutationAck))setTimeout(()=>client.emit('message',{deviceId:options.deviceId,channel:'ack'},ack),20);
         })();return;
       }
+      cb?.();
       if (route.channel!=='session') return; window.__transport.sessions.push({ at: performance.now(), ...msg });
       if (!msg.active || !msg.sync) return;
       if (window.__transport.dropFirst) { window.__transport.dropFirst = false; return; }
@@ -79,7 +93,7 @@ async function setup(browser, options = {}) {
       const config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(key => [key, defaults[key] ?? 0]));
       config.ventAutoEnabled = true;
       config.adaptiveThermalBalanceEnabled = false;
-      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, notesJournal:2, ssid: 'Wi-Fi gia đình' });
+      h.handlePresence(d, { online: true, bootId: 123, fw: '4.0.0', proto: 2, notesJournal:2, notesReady:true, ssid: 'Wi-Fi gia đình' });
       h.handleConfigReport(d, { revision: 1, bootId: 123, config });
       h.handleSnapshot(d, { revision: 1, bootId: 123, runtime: { temperature: 37.5, humidity: 58,
         heaterPower: 25, circulationFanOn: true, ventFanOn: false, turningEnabled: true,
@@ -613,6 +627,70 @@ async function main() {
       await journal.context.close();
     }
     results.push('Shared journal browser: signed DATA + ACK save/edit notes and reminders, shared revision, Vietnamese text, XSS and desktop/mobile/low-height layout PASS (transport fixture; physical EEPROM tested separately).');
+    {
+      const qa=await setup(browser,{width:390,height:844,mobile:true}),page=qa.page;
+      const result=await page.evaluate(async()=>{
+        const h=window.__qa,d=h.state.devices[0],client=h.notesUiStorage;
+        const candidate={id:crypto.randomUUID(),type:'machine',title:'Kiểm tra',content:'Nội dung',createdAt:Date.now()};
+        const results=[];
+        const failRead=async(flag,expected)=>{
+          window[flag]=flag==='__journalHubError'?'DEVICE_OFFLINE':true;
+          const promise=client.list(d.id);promise.catch(()=>{});await new Promise(r=>setTimeout(r,80));
+          if(flag!=='__journalHubError')for(const p of h.state.pending.values())if(p.kind==='journal')p.onTimeout();
+          try{await promise;throw new Error('Unexpected success');}catch(e){if(e.code!==expected)throw e;}
+          window[flag]=false;results.push(expected);
+        };
+        await failRead('__journalHubError','DEVICE_OFFLINE');
+        await failRead('__journalBadData','DATA_SIGNATURE_INVALID');
+        await failRead('__journalBadAck','ACK_SIGNATURE_INVALID');
+        window.__journalReceiptMissing=true;window.__journalDropAccepted=true;await client.list(d.id);window.__journalReceiptMissing=false;window.__journalDropAccepted=false;
+        // Original mutation is applied, responses are lost. Trigger the actual
+        // bounded timeout handler after an exact retry, without sleeping 30s.
+        for(const lost of ['__journalDropMutationData','__journalDropMutationAck']){
+          window[lost]=true;const value={...candidate,id:crypto.randomUUID()},before=window.__journalMock.generation;
+          const save=client.save(d.id,value);await new Promise(r=>setTimeout(r,80));
+          const pending=[...h.state.pending.values()].find(p=>p.operation==='notes.save');
+          if(!pending)throw new Error('Missing mutation transaction');pending.retry();
+          await new Promise(r=>setTimeout(r,80));
+          const wires=window.__journalWires.filter(w=>w.requestId===JSON.parse(pending.retryWire.envelope.body).requestId);
+          if(wires.length<2||wires.some(w=>w.body!==wires[0].body||w.sig!==wires[0].sig))throw new Error('Mutation re-signed');
+          pending.onTimeout();const saved=await save;
+          if(saved.id!==value.id||window.__journalMock.generation!==before+1)throw new Error('Duplicate write or failed reconciliation');
+          window[lost]=false;results.push(lost);
+        }
+        // Device applied but Wi-Fi/socket disappears after received ACK.
+        window.__journalDropMutationData=window.__journalDropMutationAck=true;
+        const disconnectedValue={...candidate,id:crypto.randomUUID()},before=window.__journalMock.generation;
+        const disconnected=client.save(d.id,disconnectedValue);disconnected.catch(()=>{});
+        await new Promise(r=>setTimeout(r,80));
+        const inFlight=[...h.state.pending.values()].find(p=>p.operation==='notes.save');
+        if(!inFlight||inFlight.tDeviceReceived==null)throw new Error('No authenticated accepted ACK');
+        h.state.realtimeConnected=false;inFlight.onTimeout();
+        try{await disconnected;throw new Error('Offline reconciliation must not confirm');}catch(e){if(e.code!=='TRANSPORT_ERROR')throw e;}
+        h.state.realtimeConnected=true;window.__journalDropMutationData=window.__journalDropMutationAck=false;
+        const reloaded=window.MayapJournalClient.create(h.exchangeJournal,{storage:localStorage,prefix:()=> 'mayap.account.qa-sub'});
+        const recovered=await reloaded.list(d.id);
+        if(!recovered.some(n=>n.id===disconnectedValue.id)||window.__journalMock.generation!==before+1)throw new Error('Reload did not reconcile without mutation');
+                // Mounting presence is not writable; completion updates a draft in place.
+        h.handlePresence(d,{...d.presence,notesReady:false,notesError:''});
+        return results;
+      });
+      assert.ok(result.includes('DEVICE_OFFLINE'));
+      await page.locator('#notesBubble').click();
+      await page.waitForFunction(()=>document.querySelector('#notesPanel')?.textContent.includes('Đang khởi tạo'));
+      assert.equal(await page.locator('#notesPanel button[type=submit]').count(),0);
+      await page.evaluate(()=>{const h=window.__qa,d=h.state.devices[0];h.handlePresence(d,{...d.presence,notesReady:true,notesError:''});});
+      await page.waitForFunction(()=>document.querySelector('#notesPanel')?.textContent.includes('+ Ghi chú mới'));
+      await page.locator('#notesPanel').getByRole('button',{name:'+ Ghi chú mới',exact:true}).click();
+      await page.locator('#notesPanel textarea').fill('Giữ nguyên bản nháp');
+      await page.evaluate(()=>{const h=window.__qa,d=h.state.devices[0];h.handlePresence(d,{...d.presence,notesReady:false,notesError:''});});
+      assert.equal(await page.locator('#notesPanel button[type=submit]').isDisabled(),true);
+      assert.equal(await page.locator('#notesPanel textarea').inputValue(),'Giữ nguyên bản nháp');
+      await page.evaluate(()=>{const h=window.__qa,d=h.state.devices[0];h.handlePresence(d,{...d.presence,notesReady:true,notesError:''});});
+      assert.equal(await page.locator('#notesPanel button[type=submit]').isDisabled(),false);
+      await qa.context.close();
+      results.push('Actual Web bridge: Hub rejection code, missing receipt, bad DATA/ACK signatures, exact envelope retry, lost mutation DATA/ACK read reconciliation and mounting readiness PASS.');
+    }
     fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers, layouts, safeAreas },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }

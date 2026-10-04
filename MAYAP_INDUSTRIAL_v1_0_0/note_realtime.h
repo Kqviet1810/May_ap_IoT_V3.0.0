@@ -22,6 +22,10 @@ inline void handleNoteRequest(const JsonDocument &doc){
   else if(!strcmp(action,"notes.reminders.read"))request.operation=Operation::ReadReminders;
   else if(!strcmp(action,"notes.reminders.save"))request.operation=Operation::SaveReminders;
   else {publishAck(id,"invalid","NOTE_JOURNAL_INVALID");return;}
+  Code mountCode;const auto mount=MayapNoteMailbox::status(mountCode);
+  if(mount==MayapNoteMailbox::MountState::Mounting){publishAck(id,"busy","NOTE_JOURNAL_MOUNTING");return;}
+  const bool mutation=request.operation==Operation::Save||request.operation==Operation::Remove||request.operation==Operation::SaveReminders;
+  if(mutation&&mount!=MayapNoteMailbox::MountState::Ready){publishAck(id,"rejected",codeText(mountCode));return;}
   request.snapshot=!doc["generation"].isNull();
   if(request.snapshot&&!doc["generation"].is<uint32_t>()){publishAck(id,"invalid","NOTE_JOURNAL_INVALID");return;}
   request.generation=doc["generation"]|0UL;
@@ -58,7 +62,9 @@ inline void handleNoteRequest(const JsonDocument &doc){
   if(!MayapNoteMailbox::submit(request)){publishAck(id,"busy","NOTE_JOURNAL_BUSY");return;}
   notePending=NotePending{};notePending.used=true;notePending.receivedAt=millis();
   snprintf(notePending.id,sizeof(notePending.id),"%s",id);snprintf(notePending.operation,sizeof(notePending.operation),"%s",action);
-  memcpy(notePending.key,activeAckKey,sizeof(notePending.key));publishAck(id,"accepted","NOTE_JOURNAL_ACCEPTED");
+  memcpy(notePending.key,activeAckKey,sizeof(notePending.key));
+  mayapSerialPrintf(false,"[NOTE-JOURNAL] request=%s op=%s stage=RECEIVED generation=%lu\n",id,action,static_cast<unsigned long>(request.generation));
+  publishAck(id,"accepted","NOTE_JOURNAL_ACCEPTED");
 }
 inline void serviceNoteResult(){
   if(!notePending.used||!MayapNoteMailbox::peek(noteResult,noteDocument))return;
@@ -87,5 +93,7 @@ inline void serviceNoteResult(){
   const bool ok=noteResult.code==MayapNoteJournal::Code::Ok;
   if(!publishAck(notePending.id,ok?"applied":"rejected",MayapNoteJournal::codeText(noteResult.code),notePending.operation,
       notePending.receivedAt,millis(),notePending.key))return;
+  mayapSerialPrintf(false,"[NOTE-JOURNAL] request=%s op=%s stage=COMPLETED generation=%lu code=%s addr=0x%04X\n",
+    notePending.id,notePending.operation,static_cast<unsigned long>(noteResult.generation),MayapNoteJournal::codeText(noteResult.code),noteResult.address);
   MayapNoteMailbox::consume();notePending=NotePending{};
 }

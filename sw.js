@@ -1,8 +1,8 @@
 'use strict';
-const CACHE = 'mayap-web-v1.1.1';
+const CACHE = 'mayap-web-v1.1.2';
 const APP_SHELL = [
-  './', './index.html', './styles.css', './landing.css', './account.js', './config.js', './app.js', './protocol_v2.js', './push.js', './manifest.webmanifest',
-  './vendor/jsQR.min.js', './realtime_transport.js', './notes.js', './journal_client.js', './notes.css',
+  './', './index.html', './styles.css', './landing.css', './account.js?v=1.1.2', './config.js?v=1.1.2', './app.js?v=1.1.2', './protocol_v2.js?v=1.1.2', './push.js?v=1.1.2', './manifest.webmanifest',
+  './vendor/jsQR.min.js', './realtime_transport.js?v=1.1.2', './notes.js?v=1.1.2', './journal_client.js?v=1.1.2', './notes.css',
   './docs/MAYAP_Huong_dan_van_hanh_A5_v1.3_E503.pdf',
   './icons/icon-192.png', './icons/icon-512.png', './icons/badge-72.png'
 ];

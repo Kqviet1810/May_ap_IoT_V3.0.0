@@ -171,7 +171,7 @@
     {
       "file": "app.js",
       "signature": "function retrySameRequest(",
-      "sha256": "187f7ab425f93f19c039e3b314fffe92b90ee201b2fdc2034401d6f1ee3a1e6e"
+      "sha256": "b27e4ce3f27facc8306becaa08fa0d0697986d2f18a41af2129057319786ca11"
     },
     {
       "file": "app.js",
@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "fbe643b4120898cd79eff5257dd90cd797c41899f674d84f4513a449db931b71",
+      "sha256": "7c8012ce1e712985b24f606e8cd3e103844f3ce3606042e0b0977a8984784c78",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -353,7 +353,7 @@
     {
       "file": "app.js",
       "signature": "function publish(route, payload, options = {}) {",
-      "sha256": "a84423d5631f9aab4f06d2c591b6dd3d97bc503fb1f298b5d642c18cda0651e6",
+      "sha256": "732cc4e527640482c8abe7d0ddf7e35cbc21b7854ec4451da65cfe744918ba72",
       "copyReplacements": [
         [
           "'Chưa kết nối với máy chủ'",
@@ -450,5 +450,6 @@
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
-  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged."
+  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
+  "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged."
 }

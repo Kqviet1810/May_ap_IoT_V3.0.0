@@ -1906,6 +1906,7 @@ class ExternalEeprom24xx {
   // Per-instance diagnostic snapshot; never prints or changes retry/I2C policy.
   struct WriteTrace { uint16_t address=0; uint8_t reason=0, requested=0, written=0, error=0; };
   WriteTrace lastWriteTrace() const { return writeTrace_; }
+  WriteTrace lastReadTrace() const { return readTrace_; }
   bool begin() const {
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
       if (probe()) {
@@ -1919,6 +1920,7 @@ class ExternalEeprom24xx {
   }
 
   bool readBytes(uint16_t address, void *destination, size_t length) const {
+    readTrace_=WriteTrace{};
     if (!destination || !rangeValid(address, length)) return false;
     for (uint8_t attempt = 0U; attempt < EEPROM_IO_RETRIES; ++attempt) {
       if (readBytesOnce(address, destination, length)) {
@@ -1960,7 +1962,7 @@ class ExternalEeprom24xx {
 
  private:
   mutable uint32_t softRetryEvents_ = 0U;
-  mutable WriteTrace writeTrace_{};
+  mutable WriteTrace writeTrace_{},readTrace_{};
   static void finiteRetryPause() {
     if (EEPROM_RETRY_GAP_MS != 0U) {
       vTaskDelay(pdMS_TO_TICKS(EEPROM_RETRY_GAP_MS));
@@ -1983,20 +1985,22 @@ class ExternalEeprom24xx {
     bool ok = true;
     while (length && ok) {
       const uint8_t chunk = static_cast<uint8_t>(std::min<size_t>(length, 32U));
-      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { ok = false; break; }
+      if (!mayapI2cLock(I2C_STORAGE_LOCK_TIMEOUT_MS)) { readTrace_.address=address;readTrace_.reason=1;readTrace_.requested=chunk;ok = false; break; }
       Wire.beginTransmission(EEPROM_I2C_ADDRESS);
       Wire.write(static_cast<uint8_t>(address >> 8U));
       Wire.write(static_cast<uint8_t>(address & 0xFFU));
-      if (Wire.endTransmission(false) != 0U) { mayapI2cUnlock(); ok = false; break; }
+      const uint8_t wireResult=Wire.endTransmission(false);
+      if (wireResult != 0U) { readTrace_.address=address;readTrace_.reason=3;readTrace_.requested=chunk;readTrace_.error=wireResult;mayapI2cUnlock(); ok = false; break; }
       const size_t got = Wire.requestFrom(EEPROM_I2C_ADDRESS, chunk, true);
       if (got != chunk) {
+        readTrace_.address=address;readTrace_.reason=2;readTrace_.requested=chunk;readTrace_.written=static_cast<uint8_t>(got);
         while (Wire.available()) (void)Wire.read();
         mayapI2cUnlock();
         ok = false;
         break;
       }
       for (uint8_t i = 0U; i < chunk; ++i) {
-        if (!Wire.available()) { ok = false; break; }
+        if (!Wire.available()) { readTrace_.address=address;readTrace_.reason=5;readTrace_.requested=chunk;readTrace_.written=i;ok = false; break; }
         out[i] = static_cast<uint8_t>(Wire.read());
       }
       mayapI2cUnlock();

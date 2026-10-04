@@ -1689,7 +1689,7 @@
     if (options.awaitAck) return new Promise((resolve, reject) => {
       try {
         state.realtime.send(route, payload, error => {
-          if (error) { error.code = 'UNCERTAIN'; reject(error); }
+          if (error) { reject(error); }
           else {
             const pending = state.pending.get(options.requestId) || state.uncertain.get(options.requestId);
             if (pending && pending.tHubForwarded == null) pending.tHubForwarded = performance.now();
@@ -1804,8 +1804,11 @@
       if (state.realtimeConnected && !state.realtime?.pending?.has(id)) {
         ++pending.retryAttempts;
         // Never re-sign, extend expiry or invent a new requestId after uncertainty.
-        publish(route, envelope, { awaitAck: true, requestId: id }).catch(error =>
-          console.warn('[TX retry]', pending.operation, error));
+        publish(route, envelope, { awaitAck: true, requestId: id }).catch(error => {
+          if(pending.kind==='journal'){pending.hubCode=error.hubCode||pending.hubCode;
+            journalLog(id,pending,error.hubCode?'RETRY_HUB_REJECTED':'EXACT_RETRY_UNCONFIRMED',error.hubCode);}
+          else console.warn('[TX retry]', pending.operation, error);
+        });
       }
       pending.retryTimer = setTimeout(retry, 3500);
     };
@@ -1941,49 +1944,79 @@
   const journalErrors={NOTE_JOURNAL_IO:'Không đọc kiểm chứng được AT24C512. Nội dung vẫn được giữ để thử lại.',
     NOTE_JOURNAL_CORRUPT:'Journal không hợp lệ. Không ghi đè dữ liệu máy.',NOTE_JOURNAL_FULL:'Máy đã đủ 16 ghi chú.',
     NOTE_JOURNAL_CONFLICT:'Dữ liệu máy vừa thay đổi. Bấm Làm mới trước khi lưu.',NOTE_JOURNAL_INVALID:'Nội dung hoặc Nhắc nhở không hợp lệ.',
-    NOTE_JOURNAL_BUSY:'Máy đang xử lý journal. Thử lại sau.'};
+    NOTE_JOURNAL_BUSY:'Máy đang xử lý journal. Thử lại sau.',NOTE_JOURNAL_MOUNTING:'Đang khởi tạo bộ nhớ ghi chú…'};
+  const hubJournalErrors={ACCESS_DENIED:'Hub từ chối quyền truy cập',DEVICE_OFFLINE:'Hub không thấy máy online',
+    INVALID_SIGNATURE_OR_EXPIRY:'Hub từ chối chữ ký hoặc hạn yêu cầu',CONNECTION_CHANGED:'Kết nối máy đã thay đổi',
+    DEVICE_REAUTH_REQUIRED:'Máy cần xác thực lại',DEVICE_SEND_FAILED:'Hub không gửi được xuống máy',
+    REPLAY:'Hub từ chối yêu cầu replay',BUSY:'Hub đang bận'};
+  function journalLog(id,pending,stage,hubCode=null,status=null){
+    pending.journalStages ||= new Set();if(pending.journalStages.has(stage))return;
+    pending.journalStages.add(stage);
+    console.info('[JOURNAL]',{requestId:id,operation:pending.operation,stage,hubCode:hubCode||pending.hubCode||null,
+      tCreated:pending.tCreated,tPublished:pending.tPublished??null,tHubForwarded:pending.tHubForwarded??null,
+      tDeviceReceived:pending.tDeviceReceived??null,tDeviceCompleted:pending.tDeviceCompleted??null,terminal:status});
+  }
   async function exchangeJournal(deviceId,action,body,recovery=false){
     const device=state.devices.find(d=>d.id===deviceId);
-    if(!device||deviceId!==state.selectedId||device.notesJournal!==2)throw new Error('Cần nạp firmware journal mới cho máy đang chọn.');
-    if(!controlReady(device))throw new Error('Máy chưa sẵn sàng kết nối. Thử lại khi máy online.');
+    if(!device||deviceId!==state.selectedId||device.notesJournal!==2)throw Object.assign(new Error('Cần nạp firmware journal mới cho máy đang chọn.'),{code:'NOTE_JOURNAL_UNSUPPORTED',definitive:true});
+    if(!controlReady(device))throw Object.assign(new Error('Web chưa kết nối máy; chưa gửi yêu cầu.'),{code:'TRANSPORT_ERROR',definitive:true});
+    if(device.notesReady!==true&&(!['notes.list','notes.reminders.read'].includes(action)||!device.notesError))throw Object.assign(new Error(device.notesError?journalErrors[device.notesError]||device.notesError:
+      'Đang khởi tạo bộ nhớ ghi chú… Chờ máy báo sẵn sàng.'),{code:device.notesError||'NOTE_JOURNAL_MOUNTING',definitive:true});
     const id=requestId('jnl');
     return new Promise(async (resolve,reject)=>{
       const pending=startTransaction(id,{kind:'journal',operation:action,deviceId,resolve,reject,journalRead:{action,body},journalRecovery:recovery},30000);
+      journalLog(id,pending,'CREATED');
       pending.onTimeout=()=>{if(state.pending.get(id)!==pending)return;moveToUncertain(id,pending);
-        const stage=pending.journalDiagnostic==='DATA_SIGNATURE_INVALID'?'Dữ liệu trả về không xác thực được':
-          pending.journalDiagnostic==='ACK_SIGNATURE_INVALID'?'ACK từ máy không xác thực được':
-          pending.journalAck?'Máy đã xác nhận nhưng thiếu dữ liệu trả về':
-          pending.tDeviceReceived?'Máy đã nhận yêu cầu nhưng chưa trả kết quả':
-          pending.tHubForwarded!=null?'Hub đã chuyển yêu cầu nhưng chưa nhận phản hồi xác thực từ máy':'Chưa xác nhận được yêu cầu đã tới máy';
-        console.warn('[JOURNAL]',{operation:action,stage});
-        reject(new Error(stage+'. Nội dung vẫn giữ lại; bấm Thử lại để đọc lại.'));};
+        const code=pending.journalDiagnostic||'UNCERTAIN';
+        const stage=code==='DATA_SIGNATURE_INVALID'?'Dữ liệu trả về không xác thực được':
+          code==='ACK_SIGNATURE_INVALID'?'ACK từ máy không xác thực được':
+          pending.journalAck?'Máy đã xác nhận lưu nhưng thiếu DATA':
+          pending.journalData?'Đã nhận DATA xác thực nhưng thiếu terminal ACK':
+          pending.tDeviceReceived!=null?'Máy đã nhận, chưa có kết quả hoàn tất':
+          pending.tHubForwarded!=null?'Hub đã forward; chưa có ACK xác thực từ ESP32':
+          pending.hubCode?`${hubJournalErrors[pending.hubCode]||'Hub từ chối retry'} (${pending.hubCode}); lần gửi trước chưa đối soát`:
+          'Thiếu forwarding receipt từ Hub; chưa xác định máy đã nhận hay chưa';
+        const failureStage=pending.journalDiagnostic|| (pending.journalAck?'DATA_MISSING':pending.journalData?'TERMINAL_ACK_MISSING':
+          pending.tDeviceReceived!=null?'DEVICE_PROCESSING':pending.tHubForwarded!=null?'DEVICE_RECEIPT_MISSING':
+          pending.hubCode?'RETRY_HUB_REJECTED':'HUB_RECEIPT_MISSING');
+        journalLog(id,pending,failureStage,null,'UNRESOLVED');
+        reject(Object.assign(new Error(stage+'. Nội dung vẫn giữ lại; đang đọc đối soát trên máy.'),
+          {code,hubCode:pending.hubCode,stage:failureStage}));};
       try{
         const envelope=await signRealtimeWrite(device,'notes/request',{v:PROTOCOL_VERSION,requestId:id,action,
           expiresAt:Math.floor(Date.now()/1000)+30,...body});
-        armTransaction(id);transactionPublished(id);retrySameRequest(id,{deviceId,channel:'notes/request'},envelope);
+        armTransaction(id);transactionPublished(id);journalLog(id,pending,'PUBLISHED');
+        retrySameRequest(id,{deviceId,channel:'notes/request'},envelope);
         await publish({deviceId,channel:'notes/request'},envelope,{awaitAck:true,requestId:id});
+        journalLog(id,pending,'HUB_FORWARDED');
       }catch(error){if(pendingOutcomeKnown(id))return;
-        if(error.code==='UNCERTAIN'){pending.onTimeout();return;}
+        if(error.hubCode){pending.hubCode=error.hubCode;journalLog(id,pending,'HUB_REJECTED',error.hubCode);
+          if(pending.retryAttempts>0||pending.tHubForwarded!=null||pending.tDeviceReceived!=null||pending.journalData)return;
+          error.message=`${hubJournalErrors[error.hubCode]||'Hub từ chối yêu cầu'} (${error.hubCode}). Chưa forward lần gửi này.`;
+          error.definitive=true;
+        }else if(error.code==='UNCERTAIN'){journalLog(id,pending,error.stage||'FORWARD_RECEIPT_MISSING');return;}
+        else{error.definitive=true;journalLog(id,pending,'WEB_NOT_SENT');}
         clearPending(id);reject(error);}
     });
   }
-  const notesUiStorage=window.MayapJournalClient.create(exchangeJournal);
+  const notesUiStorage=window.MayapJournalClient.create(exchangeJournal,{storage:localStorage,prefix:()=>STORAGE});
   async function handleJournalData(device,frame){
     const id=String(frame?.requestId||''),pending=state.pending.get(id)||state.uncertain.get(id);
     if(!pending||pending.kind!=='journal'||pending.deviceId!==device.id||frame.v!==2||
        frame.bootId!==device.bootId||frame.operation!==pending.operation||typeof frame.body!=='string'||
-       encoder.encode(frame.body).length>=1700||!pending.ackKey||!/^[a-f0-9]{64}$/.test(frame.sig||''))return;
+       encoder.encode(frame.body).length>=1700||!pending.ackKey)return;
+    if(!/^[a-f0-9]{64}$/.test(frame.sig||'')){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';journalLog(id,pending,'DATA_SIGNATURE_INVALID');return;}
     const bytes=new Uint8Array(frame.sig.match(/../g).map(h=>parseInt(h,16)));
     const text=['mayap-note-journal:v2',device.id,frame.bootId,id,frame.operation,frame.body].join('\n');
-    if(!await crypto.subtle.verify('HMAC',pending.ackKey,bytes,encoder.encode(text))){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';return;}
+    if(!await crypto.subtle.verify('HMAC',pending.ackKey,bytes,encoder.encode(text))){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';journalLog(id,pending,'DATA_SIGNATURE_INVALID');return;}
     if((state.pending.get(id)||state.uncertain.get(id))!==pending||frame.bootId!==device.bootId)return;
     try{const data=JSON.parse(frame.body);if(!Number.isInteger(data.generation)||data.generation<0||data.generation>0xffffffff)return;
-      pending.journalData=data;if(pending.journalAck)handleAck(device,pending.journalAck);
+      pending.journalData=data;journalLog(id,pending,'DATA_VERIFIED');if(pending.journalAck)handleAck(device,pending.journalAck);
     }catch{}
   }
 
   function recoverJournalRead(device,id,pending,ack){
-    if(pending.journalRecovery||pending.journalRecoveryTimer||
+    if(pending.journalDiagnostic||pending.journalRecovery||pending.journalRecoveryTimer||
        !['notes.list','notes.reminders.read'].includes(pending.operation))return;
     // A terminal ACK proves the read completed. Firmware's terminal cache only
     // replays ACK, so recover lost DATA with one fresh, generation-fenced READ.
@@ -2039,6 +2072,9 @@
       telemetrySetStatus('Thiếu gói lịch sử · sẽ đọc lại');
       return;
     }
+    if(pending.kind==='journal'&&ack.phase==='completed'){
+      pending.tDeviceCompleted=performance.now();journalLog(id,pending,'DEVICE_COMPLETED',null,ack.code);
+    }
     if(pending.kind==='journal'&&ack.phase==='completed'&&ack.ok===true){
       if(!pending.journalData){pending.journalAck=ack;
         if(ack.operation===pending.operation&&ack.bootId===device.bootId&&Number.isInteger(ack.revision))recoverJournalRead(device,id,pending,ack);
@@ -2060,6 +2096,7 @@
       if (pending.phase === 'UNCERTAIN') return;
       pending.phase = 'RECEIVED';
       pending.tDeviceReceived = performance.now();
+      if(pending.kind==='journal')journalLog(id,pending,'DEVICE_RECEIVED');
       if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu vào bộ nhớ máy…');
       else toast('Máy đã nhận yêu cầu · đang thực hiện');
       return;
@@ -2110,7 +2147,13 @@
     else clearPending(id);
     if(pending.kind==='journal'){
       if(ok)pending.resolve(pending.journalData);
-      else pending.reject(new Error(journalErrors[ack.code]||message));
+      else {
+        // An I/O failure can follow a committed seal; an expired/replay ACK
+        // after retries does not establish the outcome of the first attempt.
+        const definitive=['NOTE_JOURNAL_FULL','NOTE_JOURNAL_CONFLICT','NOTE_JOURNAL_INVALID','NOTE_JOURNAL_BUSY','NOTE_JOURNAL_MOUNTING'].includes(ack.code);
+        pending.reject(Object.assign(new Error(`${journalErrors[ack.code]||message} (${ack.code})`),
+          {code:ack.code,stage:'DEVICE_COMPLETED',definitive,deviceCompleted:true,revision:ack.revision}));
+      }
       return;
     }
     if (pending.kind === 'config') {
@@ -2418,9 +2461,10 @@
   }
 
   function handlePresence(device, presence) {
-    const previousJournal=device.notesJournal;
+    const previousJournal=`${device.notesJournal}:${device.notesReady}:${device.notesError}`;
     device.notesJournal=Number(presence.notesJournal)===2?2:0;
-    if(previousJournal!==device.notesJournal&&device.id===state.selectedId)notesUi?.contextChanged();
+    device.notesReady=presence.notesReady===true;device.notesError=String(presence.notesError||'');
+    const journalChanged=previousJournal!==`${device.notesJournal}:${device.notesReady}:${device.notesError}`;
     device.presence = presence;
     device.presenceAt = Date.now();
     device.presenceEpoch = state.subscriptionEpoch;
@@ -2435,7 +2479,7 @@
       device.remindersLoaded = false;
     }
     persistRuntimeCache(device, true);
-    if (device.id === state.selectedId) renderDevice();
+    if (device.id === state.selectedId) {renderDevice();if(journalChanged)notesUi?.contextChanged();}
   }
 
   function handleBootstrap(device, hint) {
@@ -4000,7 +4044,9 @@
         const device = currentDevice();
         return { deviceId: device?.id || '', deviceName: device?.name || '',
           batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning),
-          notesWritable: device?.notesJournal===2&&controlReady(device) };
+          notesWritable: device?.notesJournal===2&&device?.notesReady===true&&controlReady(device),
+          notesMounting: device?.notesJournal===2&&device?.notesReady!==true&&!device?.notesError,
+          notesStatus: device?.notesError?journalErrors[device.notesError]||device.notesError:device?.notesReady!==true?'Đang khởi tạo bộ nhớ ghi chú…':'Máy chưa sẵn sàng kết nối.' };
       }
     });
     renderSelector();

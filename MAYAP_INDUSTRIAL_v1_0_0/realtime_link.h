@@ -299,6 +299,8 @@ inline void serviceHistoryResponse() {
   }
 }
 
+static MayapNoteMailbox::MountState announcedJournalState=MayapNoteMailbox::MountState::Mounting;
+static MayapNoteJournal::Code announcedJournalCode=MayapNoteJournal::Code::Ok;
 inline void publishPresence(bool online) {
   JsonDocument doc;
   doc["online"] = online;
@@ -314,7 +316,10 @@ inline void publishPresence(bool online) {
   caps.add("control.session"); caps.add("history.chunk");
   doc["hw"] = MAYAP_HARDWARE_REVISION;
   doc["notesJournal"]=2;
-  publishJson("presence", doc, true);
+  MayapNoteJournal::Code journalCode;const auto journalState=MayapNoteMailbox::status(journalCode);
+  doc["notesReady"]=journalState==MayapNoteMailbox::MountState::Ready;
+  doc["notesError"]=journalState==MayapNoteMailbox::MountState::Failed?MayapNoteJournal::codeText(journalCode):"";
+  if(publishJson("presence", doc, true)){announcedJournalState=journalState;announcedJournalCode=journalCode;}
 }
 
 inline bool publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
@@ -1546,6 +1551,8 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   if (!batchOperation) return;
   serviceSnapshotPublish(postLoopNow); serviceConfigPublish(); serviceReminderPublish();
   serviceEventLogPublish(); serviceHistoryResponse(); serviceNoteResult();
+  MayapNoteJournal::Code journalCode;const auto journalState=MayapNoteMailbox::status(journalCode);
+  if(journalState!=announcedJournalState||journalCode!=announcedJournalCode)publishPresence(true);
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------

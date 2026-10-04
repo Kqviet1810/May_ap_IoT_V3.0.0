@@ -152,7 +152,8 @@
       meta.append(time,el('span','noteType', note.type === 'batch' ? 'Mẻ hiện tại':'Máy / bảo trì')); c.append(meta);
       if (note.title) c.append(el('h3','',note.title)); c.append(el('p','noteContent',note.content));
       const actions = el('div','noteActions');
-      actions.append(button('Sửa','ghost',() => form(note)),button('Xóa','ghost',() => remove(note))); c.append(actions); return c;
+      const deleteButton=button('Xóa','ghost',() => remove(note));deleteButton.disabled=!writable();
+      actions.append(button('Sửa','ghost',() => form(note)),deleteButton); c.append(actions); return c;
     }
     function status(text, detail, action, label) {
       const empty = el('div','notesEmpty'); empty.append(icon(),el('h3','',text)); if (detail) empty.append(el('p','',detail));
@@ -163,13 +164,14 @@
       body.replaceChildren(); title.textContent = all ? 'Tất cả ghi chú':'Ghi chú'; setCount(); position();
       if (loading) { const area = el('div','notesList'); area.setAttribute('role','status'); area.setAttribute('aria-label','Đang tải ghi chú'); area.append(el('div','notesSkeleton'),el('div','notesSkeleton')); body.append(area); return; }
       if (error) {
+        if(context().notesMounting){const status=el('p','notesNotice',context().notesStatus);status.setAttribute('role','status');body.append(status);return;}
         body.append(el('p','notesError',error));
         body.append(button('Thử lại','ghost',load));
         return;
       }
       const create = button('+ Ghi chú mới','primary full',() => form());
       body.append(create);
-      if (!writable()) body.append(el('small','notesNotice','Cần firmware journal mới và máy online để lưu.'));
+      if (!writable()) body.append(el('small','notesNotice',context().notesStatus||'Máy chưa sẵn sàng lưu.'));
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -210,10 +212,11 @@
       const failure = el('p','notesError'); failure.setAttribute('role','alert'); f.append(failure);
       const actions = el('div','notesFormActions'); const cancel = button('Hủy','ghost',async () => { if (await discard()) { view = 'list'; if (scope !== currentScope()) load(); else render(); } });
       const save = el('button','primary',note ? 'Lưu thay đổi':'Lưu'); save.type = 'submit'; actions.append(cancel,save); f.append(actions); body.append(f);
+      save.disabled=!writable();if(!writable())failure.textContent=context().notesStatus||'Máy chưa sẵn sàng lưu Ghi chú.';
       original = JSON.stringify(formValues(f));
       f.addEventListener('submit',async event => {
         event.preventDefault(); if (busy || !content.value.trim()) return;
-        if (!writable()) { failure.textContent = 'Chức năng lưu đang tạm tắt trong lúc thay kiến trúc lưu trữ.'; return; }
+        if (!writable()) { failure.textContent = context().notesStatus || 'Máy chưa sẵn sàng lưu Ghi chú.'; return; }
         // A device switch must never save a draft to another machine.
         if (scope !== currentScope()) { failure.textContent = 'Máy đang chọn đã thay đổi. Hủy bản nháp và mở lại Ghi chú.'; return; }
         if (type.value === 'batch' && !context().batchRunning && note?.type !== 'batch') { failure.textContent = 'Mẻ đã kết thúc. Chọn Máy / bảo trì để lưu.'; return; }
@@ -260,7 +263,9 @@
     dialog.addEventListener('click',event => { if (event.target === dialog) { const r = dialog.getBoundingClientRect(); if (event.clientX < r.left || event.clientX > r.right || event.clientY < r.top || event.clientY > r.bottom) requestClose(); } });
     position();
     return { open, close:requestClose, contextChanged() {
-      if (busy || confirmPending || scope === currentScope()) return;
+      if (busy || confirmPending) return;
+      if(scope===currentScope()&&view==='form'){const save=body.querySelector('button[type=submit]');if(save)save.disabled=!writable();
+        const error=body.querySelector('.notesError');if(error)error.textContent=writable()?'':context().notesStatus||'Máy chưa sẵn sàng lưu Ghi chú.';return;}
       if (panel.hidden) { generation++; records = []; badge.hidden = true; return; }
       // Keep a draft bound to its original device until cancelled.
       if (view === 'form') return;

@@ -115,3 +115,52 @@ Check normal config/batch/history preservation and reminder execution afterward.
 These host tests prove software failure handling, not the electrical condition,
 capacity or writeability of the installed chip. No remote deploy, OTA release or
 physical flash is performed by the test commands.
+
+## Journal transaction audit — 2026-10-04
+
+The audit found three source defects behind misleading browser outcomes: transport and `publish()` erased Hub rejection codes; pre-forward Hub rejection paths omitted requestId, leaving the browser's receipt waiter unanswered; presence announced the protocol without announcing mount completion. These are reproducible code defects. They do not establish which stage failed on an unobserved physical device.
+
+Hub errors now retain `code`, `hubCode` and `stage=HUB_REJECTED`. Every pre-forward write rejection includes a bounded requestId for correlation only, without treating the unsigned ID as authentication. BUSY reports its code before the existing close/admission policy. A forwarding receipt still only establishes queuing to the device. Missing receipt or connection loss remains uncertain; exact retries continue within the original expiry and attempt bound rather than converting the first missing receipt into immediate failure. Neither the 8-second receipt deadline nor the 30-second journal deadline is extended.
+
+Journal Web logs contain requestId, operation, stage, Hub code, created/published/forwarded/received/completed timestamps and terminal result. Received/completed timestamps in these Web logs use the browser monotonic clock; existing TX latency logs separately identify ESP32 clock values. Serial logs correlate requestId/operation/generation/result/address. The EEPROM driver adds a per-instance read failure snapshot (lock, short read, Wire address failure, missing byte) without changing I/O, locking or retry behavior. No content, title, credentials or signing keys are logged.
+
+For mutations, the browser writes a per-account/device unresolved guard before publication: operation, note ID, original generation/version and SHA-256 of the intended fields. This is not note storage and contains no note content, title, envelope, signature or key. Reload only permits authenticated reads to reconcile this guard; it cannot create another mutation while the old result is unknown. Storage denial or malformed guards fail closed before publication.
+
+After bounded exact retries, an uncertain mutation runs a fresh signed READ. Notes are paginated under a single generation fence, each page requiring authenticated DATA plus authenticated terminal ACK at the same generation. A save succeeds only when ID/title/content/type match its intent hash, its version is not older and generation is not older than the attempted snapshot. Delete requires the ID absent; Reminder reconciliation requires the exact ordered day/label list and nondecreasing generation/version. Reconciliation never re-signs a mutation. Mismatch remains unresolved and blocks writes. Invalid DATA/ACK signatures do not automatically become success: the guard remains for a subsequent verified read.
+
+A terminal I/O failure can occur after writing the seal. It therefore retains the unresolved guard and the verified completed generation. A fresh verified snapshot can confirm the desired state, or establish a different state after the original writer has completed. The latter clears the guard but asks the user to refresh/edit explicitly; it never silently issues another mutation. Expired/replay/auth ACKs alone do not prove a previous attempt was unapplied.
+
+ESP32 `notesJournal=2` remains the capability. New `notesReady` is true only after boot scan/readback finishes successfully; `notesError` identifies mount/storage failures. Status uses the existing mailbox lock and is republished on transition, retrying a failed queue operation. Firmware rejects mutations during mount or failure. Read requests can remount failed storage; Web permits these reads but disables writes. Mounting is shown as initialization, and readiness changes update the open form without losing its draft.
+
+Web cache is `mayap-web-v1.1.2`; HTML and cached core script URLs share `?v=1.1.2`, separating old unqualified caches. Core assets remain network-first. The EEPROM reservation, on-chip schema, CRC/seal/readback, boot/request/revision fencing, signed DATA/ACK domains, controller/safety behavior, and D1 contents are unchanged. Physical commissioning needs this firmware for readiness fields; there is no remote OTA rollout.
+
+Remaining limits: without a verified terminal result and with a snapshot that differs from intent (for example, a concurrent editor changed it), the browser conservatively keeps the unresolved guard. It cannot infer that an unobserved writer never ran. Losing/clearing browser storage removes the local guard; device generation/version/idempotence and signed request fences remain authoritative. No host test proves the electrical behavior of the installed EEPROM or the original user's transaction outcome.
+
+Validation mapping: normal/Hub refusal/missing received ACK/missing DATA/missing terminal ACK/signature failures/network interruption are covered by the actual app bridge browser fixture and transport tests; reload/uncertain guards and Reminder reconciliation by journal-client tests; exact retry/admission/ownership by DeviceHub and actual runtime/workerd tests; generation/version conflict, capacity, tombstone retries and 4,731 byte-position power cuts by the native journal; mount failure/recovery and bounded physical driver I/O by runtime-note-journal and single-eeprom tests. Browser timeout tests invoke the production timeout handler after a deliberate exact retry; they do not wait 30 seconds or claim WAN/hardware timing.
+
+Changed files in this audit:
+
+- `MAYAP_INDUSTRIAL_v1_0_0/machine_control.h`
+- `MAYAP_INDUSTRIAL_v1_0_0/note_mailbox.h`
+- `MAYAP_INDUSTRIAL_v1_0_0/note_realtime.h`
+- `MAYAP_INDUSTRIAL_v1_0_0/note_storage.h`
+- `MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h`
+- `app.js`
+- `cloudflare/src/device-hub.js`
+- `docs/single-c512-storage.md`
+- `index.html`
+- `journal_client.js`
+- `notes.js`
+- `realtime_transport.js`
+- `release-manifest.json`
+- `sw.js`
+- `tests/device-hub.test.cjs`
+- `tests/journal-client.test.cjs`
+- `tests/note-journal.cpp`
+- `tests/realtime-transport.test.cjs`
+- `tests/runtime-note-journal.cpp`
+- `tests/runtime-preservation.json`
+- `tests/single-eeprom.cpp`
+- `tests/web-experience.test.cjs`
+- `tests/web-shell.test.cjs`
+- `tools/test_web_experience.cjs`

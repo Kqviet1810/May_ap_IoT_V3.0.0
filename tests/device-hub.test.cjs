@@ -262,3 +262,11 @@ test('journal DATA is a transaction reply delivered even without a telemetry wat
  await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,runtime:{temperature:37.5}}});
  assert.equal(events(b.ws,'snapshot').length,0,'Telemetry still needs a watch lease');
 });
+test('Hub pre-forward offline/access rejects correlate the original requestId',async()=>{
+ const h=await fixture(),b=await h.browser(),frame=await h.command(1,'jnl-correlated',123,'notes/request',{action:'notes.list',cursor:0});
+ await h.message(b.ws,frame);let error=b.ws.sent.filter(m=>m.kind==='error').at(-1);
+ assert.equal(error.code,'DEVICE_OFFLINE');assert.equal(error.requestId,'jnl-correlated');
+ const d=await h.device();h.sql.prepare('DELETE FROM user_devices').run();
+ await h.message(b.ws,frame);error=b.ws.sent.filter(m=>m.kind==='error').at(-1);
+ assert.equal(error.code,'ACCESS_DENIED');assert.equal(error.requestId,'jnl-correlated');assert.equal(events(d.ws,'notes/request').length,0);
+});

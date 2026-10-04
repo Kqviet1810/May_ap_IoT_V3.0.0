@@ -28,9 +28,11 @@ inline void update(){
     reminderRevision=journal.result().generation;reminderReady=true;portEXIT_CRITICAL(&mux);
   }
   portENTER_CRITICAL(&mux);result=journal.result();if(result.hasNote)document=journal.document();ready=true;portEXIT_CRITICAL(&mux);
-  if(bootStarted&&!bootFinished){bootFinished=true;consume();}
-  if(result.code==MayapNoteJournal::Code::Io){const auto trace=io.lastWriteTrace();
-    mayapSerialPrintf(false,"[NOTE-JOURNAL] io addr=0x%04X reason=%u requested=%u written=%u wire=%u\n",trace.address,trace.reason,trace.requested,trace.written,trace.error);}
+  if(bootStarted&&!bootFinished){mounted(result.code);bootFinished=true;consume();}
+  else if(result.code==MayapNoteJournal::Code::Io||result.code==MayapNoteJournal::Code::Corrupt||result.code==MayapNoteJournal::Code::Ok)mounted(result.code);
+  if(result.code==MayapNoteJournal::Code::Io){const auto trace=io.lastWriteTrace();const auto read=io.lastReadTrace();
+    mayapSerialPrintf(false,"[NOTE-JOURNAL] io addr=0x%04X reason=%u requested=%u written=%u wire=%u\n",trace.address,trace.reason,trace.requested,trace.written,trace.error);
+    mayapSerialPrintf(false,"[NOTE-JOURNAL] read addr=0x%04X reason=%u requested=%u got=%u wire=%u\n",read.address,read.reason,read.requested,read.written,read.error);}
   mayapSerialPrintf(false,"[NOTE-JOURNAL] code=%s seq=%lu addr=0x%04X\n",MayapNoteJournal::codeText(result.code),static_cast<unsigned long>(result.generation),result.address);
 }
 }

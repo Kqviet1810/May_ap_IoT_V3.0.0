@@ -129,3 +129,12 @@ test('same ticket is renewed once and reconnect/resume storms share one open att
  h.sockets[0].close();for(let i=0;i<30;i++)h.client.resume();await flush();
  assert.equal(h.refreshes,1);assert.equal(h.sockets.length,2);h.client.end();
 });
+test('every correlated Hub rejection preserves its code and stage rather than fake UNCERTAIN',async()=>{
+ const h=fixture();await flush();h.ready();
+ for(const code of ['ACCESS_DENIED','DEVICE_OFFLINE','INVALID_SIGNATURE_OR_EXPIRY','CONNECTION_CHANGED','DEVICE_REAUTH_REQUIRED','DEVICE_SEND_FAILED','REPLAY','BUSY']){
+  let outcome;h.client.send(route,wire(code),e=>outcome=e);h.sockets[0].message({kind:'error',code,requestId:code});
+  assert.equal(outcome.code,code);assert.equal(outcome.hubCode,code);assert.equal(outcome.stage,'HUB_REJECTED');
+  assert.equal(h.client.pending.size,0);
+ }
+ h.client.end();
+});

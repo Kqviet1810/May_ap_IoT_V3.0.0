@@ -14,6 +14,12 @@ inline bool takeReminders(ReminderSet &r,uint32_t &revision){portENTER_CRITICAL(
 inline uint32_t verifiedRevision(){portENTER_CRITICAL(&mux);const uint32_t r=reminderRevision;portEXIT_CRITICAL(&mux);return r;}
 inline uint32_t appliedRevision(){portENTER_CRITICAL(&mux);const uint32_t r=reminderApplied;portEXIT_CRITICAL(&mux);return r;}
 inline void applied(uint32_t revision){portENTER_CRITICAL(&mux);reminderApplied=revision;portEXIT_CRITICAL(&mux);}
+enum class MountState:uint8_t {Mounting,Ready,Failed};
+static MountState mountState=MountState::Mounting;
+static MayapNoteJournal::Code mountCode=MayapNoteJournal::Code::Ok;
+inline MountState status(MayapNoteJournal::Code &code){portENTER_CRITICAL(&mux);const auto value=mountState;code=mountCode;portEXIT_CRITICAL(&mux);return value;}
+inline void mounted(MayapNoteJournal::Code code){portENTER_CRITICAL(&mux);mountCode=code;
+  mountState=code==MayapNoteJournal::Code::Ok?MountState::Ready:MountState::Failed;portEXIT_CRITICAL(&mux);}
 static bool busy=false,started=false,ready=false;
 inline bool submit(const MayapNoteJournal::Request &r){
   portENTER_CRITICAL(&mux);const bool accepted=!busy;

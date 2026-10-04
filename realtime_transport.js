@@ -50,7 +50,7 @@
       else if (msg.kind === 'forwarded' || msg.kind === 'error') {
         const pending = this.pending.get(msg.requestId);
         if (pending) { this.pending.delete(msg.requestId); this.clearTimer(pending.timer);
-          pending.callback(msg.kind === 'error' ? Object.assign(new Error(msg.code), { code: 'UNCERTAIN' }) : null); }
+          pending.callback(msg.kind === 'error' ? Object.assign(new Error(msg.code), { code: msg.code, hubCode: msg.code, stage: 'HUB_REJECTED' }) : null); }
         if (msg.kind === 'error') this.emit('error', new Error(msg.code));
       } else if (msg.v === 1 && typeof msg.channel === 'string' && msg.payload && typeof msg.payload === 'object') {
         if (Number.isSafeInteger(msg.deliveryId)) {
@@ -69,7 +69,7 @@
         try { id = JSON.parse(payload.body).requestId; } catch { throw new Error('INVALID_WRITE'); }
         if (this.pending.size >= MAX_PENDING || this.pending.has(id)) throw new Error('PENDING_LIMIT');
         const timer = this.setTimer(() => { const p = this.pending.get(id); if (!p) return; this.pending.delete(id);
-          p.callback(Object.assign(new Error('FORWARD_RECEIPT_TIMEOUT'), { code: 'UNCERTAIN' })); }, 8000);
+          p.callback(Object.assign(new Error('FORWARD_RECEIPT_TIMEOUT'), { code: 'UNCERTAIN', stage: 'FORWARD_RECEIPT_MISSING' })); }, 8000);
         this.pending.set(id, { callback, timer });
       }
       try { this.socket.send(text); } catch (error) {
@@ -116,7 +116,7 @@
       ++this.generation; this.opening = false; this.refreshing = false; this.refreshAt = 0;
       this.clearTimer(this.timer); this.clearTimer(this.probeTimer); this.probeTimer = 0;
       this.connected = false; this.socket = null;
-      for (const p of this.pending.values()) { this.clearTimer(p.timer); p.callback(Object.assign(new Error('CONNECTION_LOST'), { code: 'UNCERTAIN' })); }
+      for (const p of this.pending.values()) { this.clearTimer(p.timer); p.callback(Object.assign(new Error('CONNECTION_LOST'), { code: 'UNCERTAIN', stage: 'CONNECTION_LOST' })); }
       this.pending.clear(); this.emit('close');
       if (!this.active()) return;
       const delay = this.backoff + Math.floor(this.random() * this.backoff / 4);

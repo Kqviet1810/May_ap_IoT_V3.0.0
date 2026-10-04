@@ -52,6 +52,12 @@ export class DeviceHub {
         this.event(ws, channel, payload, cached);
     }
   }
+  requestId(frame) {
+    // Correlation only: this does not authenticate or authorize the body.
+    try { const id = JSON.parse(frame?.payload?.body).requestId;
+      return typeof id === 'string' && /^[a-zA-Z0-9_-]{1,64}$/.test(id) ? id : '';
+    } catch { return ''; }
+  }
   reject(ws, code, requestId = '') {
     // Transport errors are deliberately NOT device ACKs or applied outcomes.
     this.send(ws, { kind: 'error', code, requestId });
@@ -175,7 +181,10 @@ export class DeviceHub {
     if (attachment(ws)?.kind === 'device' || frame?.kind === 'received' || frame?.channel === 'session')
       return this.message(ws, text);
     try { return await this.serial(ws, () => this.message(ws, text)); }
-    catch { try { ws.close(1013, 'BUSY'); } catch {} }
+    catch (error) {
+      if (error.message === 'BUSY') { this.reject(ws, 'BUSY', this.requestId(frame));try { ws.close(1013, 'BUSY'); } catch {} }
+      else { try { ws.close(1011, 'INTERNAL_ERROR'); } catch {} }
+    }
   }
   async message(ws, text) {
     let a = attachment(ws);
@@ -231,14 +240,15 @@ export class DeviceHub {
       if (a.watchUntil && d?.bootstrap) this.event(ws, 'bootstrap', d.bootstrap, true);
       return;
     }
-    if (!WRITE_CHANNELS.has(msg.channel) || a.role === 'viewer') return this.reject(ws, 'ACCESS_DENIED');
+    const requestId = this.requestId(msg);
+    if (!WRITE_CHANNELS.has(msg.channel) || a.role === 'viewer') return this.reject(ws, 'ACCESS_DENIED', requestId);
     const permission = await livePermission(this.env, a, true);
-    if (!permission || !this.authorized(ws, epoch)) return this.reject(ws, 'ACCESS_DENIED');
+    if (!permission || !this.authorized(ws, epoch)) return this.reject(ws, 'ACCESS_DENIED', requestId);
     if (device && attachment(device).keyHash !== permission.device_key_hash) {
       device.close(4003, 'CREDENTIAL_ROTATED');
-      return this.reject(ws, 'DEVICE_REAUTH_REQUIRED');
+      return this.reject(ws, 'DEVICE_REAUTH_REQUIRED', requestId);
     }
-    if (!device || now - attachment(device).lastAt >= DEVICE_STALE_MS) return this.reject(ws, 'DEVICE_OFFLINE');
+    if (!device || now - attachment(device).lastAt >= DEVICE_STALE_MS) return this.reject(ws, 'DEVICE_OFFLINE', requestId);
     const body = await verifyWrite(this.env, a.deviceId, a.clientId, msg.channel, msg.payload, attachment(device).bootId);
     if (!body) return this.reject(ws, 'INVALID_SIGNATURE_OR_EXPIRY', typeof msg.payload.body === 'string' ? (() => { try { return JSON.parse(msg.payload.body).requestId; } catch { return ''; } })() : '');
     // Revalidate after external awaits; reconnect/rotation/revocation cannot

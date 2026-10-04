@@ -23,11 +23,12 @@ class String:public std::string {
   size_t write(const uint8_t*p,size_t n){append(reinterpret_cast<const char*>(p),n);return n;}
 };
 static uint32_t clockMs=100;uint32_t millis(){return clockMs;}
-static std::vector<uint8_t> bytes(65536,0xff);static int ioCalls=0,writes=0;static bool wp=false;
+static std::vector<uint8_t> bytes(65536,0xff);static int ioCalls=0,writes=0;static bool wp=false,readFail=false;
 namespace Mayap {class ExternalEeprom24xx {public:
  struct WriteTrace {uint16_t address=0;uint8_t reason=0,requested=0,written=0,error=0;};
  WriteTrace lastWriteTrace()const{return {};}
- bool readBytes(uint16_t a,void*p,size_t n){assert(!depth&&n<=32);++ioCalls;memcpy(p,&bytes[a],n);return true;}
+ WriteTrace lastReadTrace()const{return {};}
+ bool readBytes(uint16_t a,void*p,size_t n){assert(!depth&&n<=32);++ioCalls;if(readFail)return false;memcpy(p,&bytes[a],n);return true;}
  bool writeBytes(uint16_t a,const void*p,size_t n){assert(!depth&&n<=32);++ioCalls;++writes;if(wp)return false;memcpy(&bytes[a],p,n);return true;}
 };}
 constexpr uint32_t EEPROM_ADDR_TEMP_HISTORY=0x1000,TEMP_HISTORY_STORAGE_BYTES=8064,EEPROM_CAPACITY_BYTES=65536;
@@ -55,8 +56,12 @@ void finishStorage(){for(int i=0;i<10000&&!MayapNoteMailbox::ready;i++)step();as
 JsonDocument request(const char*action,uint32_t generation=0){JsonDocument d;d["requestId"]="jnl-1";d["action"]=action;d["expiresAt"]=time(nullptr)+30;d["generation"]=generation;return d;}
 void apply(){ReminderSet r;uint32_t version;assert(MayapNoteMailbox::takeReminders(r,version));MayapNoteMailbox::applied(version);}
 int main(){
+ auto early=request("notes.save");handleNoteRequest(early);
+ assert(ackCodes.back()=="NOTE_JOURNAL_MOUNTING"&&!MayapNoteMailbox::busy);
+ MayapNoteJournal::Code mountCode;assert(MayapNoteMailbox::status(mountCode)==MayapNoteMailbox::MountState::Mounting);
  for(int i=0;i<1000&&!MayapNoteStorage::bootFinished;i++){step();}
  assert(MayapNoteStorage::bootFinished&&!MayapNoteMailbox::busy);apply();
+ assert(MayapNoteMailbox::status(mountCode)==MayapNoteMailbox::MountState::Ready);
  auto d=request("notes.reminders.save");d["version"]=0;auto list=d["reminders"].to<JsonArray>();auto entry=list.add<JsonObject>();entry["day"]=7;entry["label"]="Soi trứng: tiếng Việt ư, đ";
  handleNoteRequest(d);assert(notePending.used&&MayapNoteMailbox::busy);handleNoteRequest(d);assert(ackCodes.back()=="NOTE_JOURNAL_BUSY");finishStorage();
  serviceNoteResult();assert(dataFrames.empty()&&notePending.used); // No ACK until controller applied.
@@ -80,5 +85,13 @@ int main(){
  assert(revision==2&&!MayapNoteMailbox::busy);
  trusted=false;auto read=request("notes.reminders.read");handleNoteRequest(read);assert(!MayapNoteMailbox::busy&&ackCodes.back()=="NOTE_JOURNAL_AUTH");trusted=true;
  read["expiresAt"]=time(nullptr)-1;handleNoteRequest(read);assert(!MayapNoteMailbox::busy&&ackCodes.back()=="NOTE_JOURNAL_EXPIRED");
+ // A failed mount is advertised as failed, never a ready capability.
+ new (&MayapNoteStorage::journal) decltype(MayapNoteStorage::journal)(MayapNoteStorage::io);
+ MayapNoteStorage::bootStarted=MayapNoteStorage::bootFinished=false;readFail=true;
+ for(int i=0;i<1000&&!MayapNoteStorage::bootFinished;i++)step();
+ assert(MayapNoteMailbox::status(mountCode)==MayapNoteMailbox::MountState::Failed&&mountCode==MayapNoteJournal::Code::Io);
+ auto blocked=request("notes.save");handleNoteRequest(blocked);assert(ackCodes.back()=="NOTE_JOURNAL_IO"&&!notePending.used);
+ readFail=false;auto restore=request("notes.reminders.read");handleNoteRequest(restore);finishStorage();apply();serviceNoteResult();
+ assert(MayapNoteMailbox::status(mountCode)==MayapNoteMailbox::MountState::Ready);
  puts("Actual shared journal pipeline: offline boot restore, verified runtime application before ACK, busy, failed DATA/ACK retention, no-op, maximum escaping, write protection and auth/expiry PASS");
 }

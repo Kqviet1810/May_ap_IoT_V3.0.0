@@ -8,9 +8,9 @@ using namespace MayapNoteJournal;
 struct Cut {};
 struct Memory {
   std::vector<uint8_t> bytes=std::vector<uint8_t>(65536,0xFF);
-  int budget=-1,calls=0;bool falseAck=false,protectedWrite=false,failedRead=false;
+  int budget=-1,calls=0,writeCalls=0;bool falseAck=false,protectedWrite=false,failedRead=false;
   bool readBytes(uint16_t a,void *p,size_t n){++calls;assert(n<=32);if(failedRead)return false;memcpy(p,&bytes[a],n);return true;}
-  bool writeBytes(uint16_t a,const void *p,size_t n){++calls;assert(a>=Base&&a+n<=End&&n<=32&&(a%128)+n<=128);
+  bool writeBytes(uint16_t a,const void *p,size_t n){++calls;++writeCalls;assert(a>=Base&&a+n<=End&&n<=32&&(a%128)+n<=128);
     if(protectedWrite)return false;
     for(size_t i=0;i<n;++i){if(budget==0)throw Cut{};if(budget>0)--budget;bytes[a+i]=static_cast<const uint8_t *>(p)[i];}
     return !falseAck;
@@ -43,6 +43,13 @@ int main(){
     assert(std::equal(committed.begin(),committed.begin()+Base,damaged.bytes.begin()));
     assert(std::equal(committed.begin()+End,committed.end(),damaged.bytes.begin()+End));
   }
+  // Tombstone is atomic too: power loss exposes the old note or absence.
+  for(int cut=0;cut<=writes;++cut){Memory damaged;damaged.bytes=committed;damaged.budget=cut;Journal<Memory> writer(damaged);
+    Request del;del.operation=Operation::Remove;del.generation=oldG;del.note=save(1,oldG,oldG).note;
+    try{run(writer,damaged,del);}catch(const Cut&){}
+    damaged.budget=-1;Journal<Memory> reboot(damaged);auto notes=list(reboot,damaged,g);
+    assert(notes.empty()||(notes.size()==1&&notes[0].version==oldG));
+  }
   // Fill, edit past wrap, delete/recreate with distinct IDs and reboot often.
   for(unsigned id=2;id<=Capacity;++id){auto out=run(j,m,save(id,oldG));assert(out.code==Code::Ok);oldG=out.generation;}
   assert(run(j,m,save(100,oldG)).code==Code::Full);
@@ -62,6 +69,7 @@ int main(){
   }
   for(unsigned cycle=0;cycle<100;++cycle){Journal<Memory> reboot(m);auto notes=list(reboot,m,g);assert(notes.size()==Capacity);
     Request del;del.operation=Operation::Remove;del.generation=g;del.note=notes.front();auto out=run(reboot,m,del);assert(out.code==Code::Ok);
+    const int beforeRetry=m.writeCalls;assert(run(reboot,m,del).code==Code::Ok&&m.writeCalls==beforeRetry);
     auto stale=save(200+cycle,g);assert(run(reboot,m,stale).code==Code::Conflict);
     out=run(reboot,m,save(200+cycle,out.generation));assert(out.code==Code::Ok);
   }
@@ -84,5 +92,5 @@ int main(){
   m.failedRead=true;assert(run(afterFail,m,Request{}).code==Code::Io);m.failedRead=false;
   auto invalid=save(77,g);strcpy(invalid.note.content," \t\n\xC2\xA0");assert(run(afterFail,m,invalid).code==Code::Invalid);
   assert(!textValid("\xC0\xAF",3,300,true));assert(!textValid("\xED\xA0\x80",4,300,true));
-  std::puts("Shared journal: 1577 power-cut positions each for notes and 10 reminders, tiny page I/O, false write-ACK recovery, 100 reclaim/reboots, revision/no-op/UTF8/WP/failure isolation PASS");
+  std::puts("Shared journal: 1577 power-cut positions each for notes, tombstones and 10 reminders, tiny page I/O, false write-ACK recovery, 100 reclaim/reboots, revision/no-op/UTF8/WP/failure isolation PASS");
 }

@@ -47,7 +47,7 @@ test('normal network remains fresh-first and cleans the fallback timer', async (
 
 test('offline startup includes cached public config hardening; error pages do not replace code', async () => {
   const source = fs.readFileSync(require.resolve('../sw.js'),'utf8');
-  assert.match(source, /'\.\/config\.js'/);
+  assert.match(source, /'\.\/config\.js\?v=1\.1\.2'/);
   const w = worker(async()=> {throw new Error('offline');}, {'https://web.test/config.js':'public security wrapper'});
   assert.equal(await (await w.request('https://web.test/config.js').response).text(),'public security wrapper');
   const failed = worker(async()=>new Response('server error',{status:503}), {'https://web.test/app.js':'good code'});
@@ -64,4 +64,13 @@ test('Cloud auth requests never enter shell cache and pinned QR scanner reuses t
   assert.equal(w.request('https://worker.test/config.js').response,undefined);
   assert.equal(await (await w.request('https://web.test/vendor/jsQR.min.js').response).text(),'pinned');
   assert.equal(calls,0);
+});
+
+test('journal/core scripts share one release-qualified asset set and cache',()=>{
+ const html=fs.readFileSync(require.resolve('../index.html'),'utf8'),sw=fs.readFileSync(require.resolve('../sw.js'),'utf8');
+ const version=JSON.parse(fs.readFileSync(require.resolve('../release-manifest.json'),'utf8')).web;
+ assert.ok(sw.includes(`mayap-web-v${version}`));
+ for(const name of ['app','realtime_transport','journal_client','notes','protocol_v2']){
+  assert.ok(html.includes(`./${name}.js?v=${version}`));assert.ok(sw.includes(`./${name}.js?v=${version}`));
+ }
 });
