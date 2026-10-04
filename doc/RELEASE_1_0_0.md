@@ -23,8 +23,9 @@
   xác minh checksum và ECDSA trước Update.end(false).
 - Cổng ArduinoOTA LAN chỉ mở khi máy rảnh và nguồn nhiệt đã tắt. Upload
   đang chạy vẫn được phục vụ đến hết; lỗi trả máy khỏi trạng thái bảo trì.
-- build_secrets.h có sẵn, rỗng trên Git; không cần đổi tên. Tuyệt đối không
-  push file đã điền thông tin thật. Tag v1.0.0 tạo binary ký bằng GitHub Secrets.
+- ArduinoOTA chỉ có một điểm cấu hình `MAYAP_OTA_PASSWORD` trong
+  `build_public.h`; bản trên Git phải để rỗng và không được commit mật khẩu thật.
+  Release CI chỉ inject GitHub Secret tạm thời vào chính macro này trong workspace.
 
 ## Panic: kết luận có giới hạn
 

@@ -160,9 +160,9 @@ operation; remote controls become unavailable/uncertain and fail closed.
    if necessary. No Google client secret is required. Web/config uses same origin.
 5. Use an isolated pilot Worker + D1 for bench testing. Copy wrangler config to
    an operator-owned pilot config, set a different Worker name, D1 ID and allowed
-   origin, and set its secrets separately. Override MAYAP_CLOUD_API_HOST only in
-   the one bench firmware's ignored build_secrets.local.h (undef/redefine). Do
-   not point the pilot at customer D1 or rotate real-device identities. Stage
+   origin, and set its secrets separately. For an isolated bench build, change
+   MAYAP_CLOUD_API_HOST only in that worktree's build_public.h and do not commit
+   the bench override. Do not point the pilot at customer D1 or rotate real-device identities. Stage
    public assets with `python3 tools/build_web_assets.py`, then deploy using that
    explicit pilot config. This external resource creation was not possible here.
 6. GitHub repository secrets: CLOUDFLARE_API_TOKEN (Workers Scripts Edit and D1

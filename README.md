@@ -123,7 +123,7 @@ Thermostat/thermal relay phải có khả năng cắt coil contactor trực ti�
 
 Có hai đường OTA độc lập:
 
-- **ArduinoOTA LAN**: chỉ bật khi cấu hình `MAYAP_OTA_PASSWORD`.
+- **ArduinoOTA LAN**: chỉ bật khi cấu hình `MAYAP_OTA_PASSWORD`. Điểm nhập duy nhất khi build bằng Arduino IDE là `MAYAP_INDUSTRIAL_v1_0_0/build_public.h`; để rỗng sẽ tắt OTA.
 - **Internet OTA**: GitHub Release → Cloudflare Worker → ESP32. Firmware kiểm kích thước/thời gian, SHA-256 và chữ ký ECDSA trước khi flash.
 
 Web không được tự flash máy. Operator phải xác nhận trực tiếp tại HMI; rollback cũng là thao tác local.
