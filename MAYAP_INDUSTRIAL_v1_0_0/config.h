@@ -1322,6 +1322,9 @@ struct MachineRuntime {
   uint32_t alarmMask = AlarmNone;
   AutoTuneState autoTuneState = AutoTuneState::Idle;
   uint8_t autoTuneProgress = 0;
+  // Numeric AutoTuneReason (0..13). Kept as a byte because config.h is
+  // included before thermal_control.h defines the service-diagnostic enum.
+  uint8_t autoTuneReason = 0;
   MachineStateCode stateCode = MachineStateCode::Boot;
   uint16_t primaryFaultCode = 0;
   uint8_t activeFaultCount = 0;

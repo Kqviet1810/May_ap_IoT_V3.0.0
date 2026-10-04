@@ -7068,6 +7068,7 @@ class MachineController {
     runtime_.sirenOn = outputs_.state().siren;
     runtime_.autoTuneState = autotune_.state();
     runtime_.autoTuneProgress = autotune_.progress();
+    runtime_.autoTuneReason = static_cast<uint8_t>(autotune_.reason());
     runtime_.primaryFaultCode = static_cast<uint16_t>(faults_.primary());
     runtime_.activeFaultCount = faults_.activeCount();
     runtime_.activeFaultDisplayCount = faults_.copyActiveForHmi(
