@@ -49,7 +49,7 @@ struct HTTPClient {
   }
 };
 #include "actual-bounded_http.inc"
-constexpr uint8_t CLOUD_OUTBOX_SIZE=8;
+constexpr uint8_t CLOUD_OUTBOX_SIZE=16;
 namespace MayapCloudInternal {
 enum class NotifyLevel : uint8_t { Info, Warning, Critical, System };
 #include "actual-cloud-outbox.inc"
@@ -95,10 +95,14 @@ int main() {
     MayapTlsOperation other; assert(!other);
     MayapNetworkBatchOperation bulk; assert(!bulk); }
   assert(!mayapTlsBusy());
-  ESP.free=73727;
+  ESP.free=65535;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud && !mayapTlsBusy()); }
-  ESP.free=73728;
+  ESP.free=65536;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud); }
+  ESP.free=73727;
+  { MayapTlsOperation ota(MayapTlsKind::Ota); assert(!ota && !mayapTlsBusy()); }
+  ESP.free=73728;
+  { MayapTlsOperation ota(MayapTlsKind::Ota); assert(ota); }
   ESP.free=85000; ESP.largest=24575;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud); }
   ESP.largest=24576;
