@@ -568,6 +568,9 @@ test('landing has no duplicated top nav and Auto Tune exposes cancel while runni
   assert.match(css, /grid-template-rows:minmax\(0,1fr\) auto 30px/);
   assert.match(app, /textContent = 'Hủy tự dò PID'/);
   assert.match(app, /sendCommand\('autotune_cancel'\)/);
+  assert.match(app, /autoTuneReason/);
+  assert.match(app, /Kết quả PID nằm ngoài vùng an toàn hỗ trợ/);
+  assert.match(app, /PID cũ được giữ nguyên/);
 });
 
 

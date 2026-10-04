@@ -11,7 +11,7 @@
 | Release / baseline mã nguồn | 1.1.3 |
 | ESP32 firmware | 1.1.3 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.1 |
+| Web PWA | 1.1.2 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
