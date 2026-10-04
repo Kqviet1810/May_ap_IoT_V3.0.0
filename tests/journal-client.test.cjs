@@ -111,3 +111,12 @@ test('I/O terminal failure keeps guard until a fresh authenticated snapshot esta
   assert.equal(storage.data.size,0);assert.equal(writes,1);
  }
 });
+
+test('known forwarding/device stages retain specific codes and still reconcile with READ only',async()=>{
+ for(const code of ['JOURNAL_DATA_MISSING','JOURNAL_TERMINAL_ACK_MISSING','JOURNAL_COMPLETION_MISSING','JOURNAL_DEVICE_RECEIPT_MISSING']){
+  let stored=null,generation=0,writes=0;
+  const client=create(async(_,op,b)=>{if(op==='notes.list')return {generation,next:24,done:true,...(stored?{note:stored}:{})};
+   writes++;stored={...b.note,version:++generation};throw Object.assign(new Error(code),{code});});
+  assert.equal((await client.save('A',note)).id,note.id);assert.equal(writes,1);
+ }
+});

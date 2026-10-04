@@ -1967,7 +1967,9 @@
       const pending=startTransaction(id,{kind:'journal',operation:action,deviceId,resolve,reject,journalRead:{action,body},journalRecovery:recovery},30000);
       journalLog(id,pending,'CREATED');
       pending.onTimeout=()=>{if(state.pending.get(id)!==pending)return;moveToUncertain(id,pending);
-        const code=pending.journalDiagnostic||'UNCERTAIN';
+        const code=pending.journalDiagnostic||(pending.journalAck?'JOURNAL_DATA_MISSING':
+          pending.journalData?'JOURNAL_TERMINAL_ACK_MISSING':pending.tDeviceReceived!=null?'JOURNAL_COMPLETION_MISSING':
+          pending.tHubForwarded!=null?'JOURNAL_DEVICE_RECEIPT_MISSING':'UNCERTAIN');
         const stage=code==='DATA_SIGNATURE_INVALID'?'Dữ liệu trả về không xác thực được':
           code==='ACK_SIGNATURE_INVALID'?'ACK từ máy không xác thực được':
           pending.journalAck?'Máy đã xác nhận lưu nhưng thiếu DATA':

@@ -95,7 +95,7 @@
         }
         // DATA + terminal ACK of a fresh generation-fenced READ are required.
         // Never create/re-sign another mutation, including after page reload.
-        if(error.code==='UNCERTAIN')return reconcile(id,s,item);
+        if(['UNCERTAIN','JOURNAL_DATA_MISSING','JOURNAL_TERMINAL_ACK_MISSING','JOURNAL_COMPLETION_MISSING','JOURNAL_DEVICE_RECEIPT_MISSING'].includes(error.code))return reconcile(id,s,item);
         throw error;
       }
     }
