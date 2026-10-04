@@ -59,7 +59,7 @@ test('online service failure degrades without controller restart authority', () 
   for (const file of ['i2c_supervisor.h', 'service_recovery.h', 'runtime_recovery_policy.h', 'network_service.h'])
     assert.doesNotMatch(read(dir + file), /\bmayapRestart\(/);
 });
-test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {
+test('shared I2C recovery has one bus reset owner and never clears physical faults', () => {
   const hmi = read(dir + 'hmi.h');
   assert.doesNotMatch(hmi, /recoverI2cBusUnlocked|Wire\.end\(|Wire\.begin\(/);
   const bus = body(read(dir + 'i2c_supervisor.h'), 'inline void mayapI2cSupervisorUpdate(');
