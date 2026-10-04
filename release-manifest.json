@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Thermal final hardening: fixed Test Mode High/Emergency protection, fail-safe calibration/freshness policy, running-batch thermal envelope invariants, zero-authority PID rejection, E114 diagnostics and narrow stale-default envelope repair. Web cache bumped for the matching safety UI. No merge, OTA, Cloudflare deploy or physical rollout is implied."
+  "notes": "Thermal final hardening is merged in release candidate 1.1.2: Test Mode High/Emergency protection, fail-safe calibration/freshness policy, running-batch thermal envelope invariants, zero-authority PID rejection, E114 diagnostics and narrow stale-default envelope repair. Web assets are versioned 1.1.2. Source/deploy state does not imply OTA or physical rollout to machines."
 }
