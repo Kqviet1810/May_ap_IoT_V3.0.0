@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "c74c90f0e49074a556f5273fc982cb271649c7fa368fe86827caa1ee9aab811d",
+      "sha256": "74c215516b2653ec61ef95d8eff13e8c8218161b8101830582ca495be27a462ecbbb9d5d629a292a9159015a152fecd8673326678eb44a87db0c2e0d47b5481dae5f9156cf6c85d32f73477d6d1826ca8b43d457e360b5961c4560026f196331d94ebeb10cc4a611261dc1f25815a7be70b7ed67a1513c6944f93635720dcdfdb467369eca320b7534e0d42e49c7d9bd87abb9f2c463a2fcec3fc3f327277f6d610bebf27420b49ed1fd8a33e4773594092197f61b530c95869d6342eee52e4f1107668921fba37b43ab9fb675a9f91d86305019d7cd817307fe00ff379f513f66b651a8764ab842a4b06be1c3578c15d2962a531e039f40857b7beea29bf2de",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "1e55271036143c7ceed67539092bbdcdc4b985cf352f8e1c58dd90af48dc6382",
+      "sha256": "046660650613baed89c35536887bec1c3446b18f976f32f9975c8036b1a05abdcbbb9d5d629a292a9159015a152fecd8673326678eb44a87db0c2e0d47b5481dae5f9156cf6c85d32f73477d6d1826ca8b43d457e360b5961c4560026f196331d94ebeb10cc4a611261dc1f25815a7be70b7ed67a1513c6944f93635720dcdfdb467369eca320b7534e0d42e49c7d9bd87abb9f2c463a2fcec3fc3f327277f6d610bebf27420b49ed1fd8a33e4773594092197f61b530c95869d6342eee52e4f1107668921fba37b43ab9fb675a9f91d86305019d7cd817307fe00ff379f513f66b651a8764ab842a4b06be1c3578c15d2962a531e039f40857b7beea29bf2de",
       "signature": "class MachineController {"
     },
     {
@@ -451,5 +451,6 @@
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
-  "autoTuneFinalSafetyReviewNote": "2026-10-04: reviewed AutoTune final safety gate. Tyreus-Luyben output is accepted only when the raw identified Kp/Ki/Kd already fit the supported controller envelope; uniform post-identification gain scaling is removed so out-of-range plant identifications cannot be auto-saved as a different controller. Existing relay identification, safety aborts, GPIO path, EEPROM atomicity and public state codes remain unchanged."
+  "autoTuneFinalSafetyReviewNote": "2026-10-04: reviewed AutoTune final safety gate. Tyreus-Luyben output is accepted only when the raw identified Kp/Ki/Kd already fit the supported controller envelope; uniform post-identification gain scaling is removed so out-of-range plant identifications cannot be auto-saved as a different controller. Existing relay identification, safety aborts, GPIO path, EEPROM atomicity and public state codes remain unchanged.",
+  "autoTuneReasonUxReviewNote": "2026-10-04: reviewed RAM-only AutoTune terminal-reason propagation through MachineRuntime, realtime snapshot, Web and HMI. No EEPROM schema, command numbering or public AutoTuneState value changed; Web cache bumped only to deliver the diagnostic UI."
 }
