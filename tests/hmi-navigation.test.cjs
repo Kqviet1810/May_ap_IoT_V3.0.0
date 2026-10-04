@@ -83,3 +83,13 @@ test('running Auto Tune short press offers an explicit cancel confirmation', () 
   assert.match(execute, /ConfirmAction::AutoTuneCancel[\s\S]*?HmiCommandType::AutoTuneCancel/);
   assert.match(config, /BatchOverdueContinue,\s*[\s\S]*?AutoTuneCancel/);
 });
+
+
+test('HMI rejects PID without P/I authority and protects shifted thermal envelope during a batch', () => {
+  const commit = bodyOf('void commitSetting()');
+  assert.match(commit, /mayapPidHasAuthority\(candidate\)/);
+  assert.match(commit, /KP\/KI KHONG CUNG 0/);
+  assert.match(commit, /resumeConfirmationRequired/);
+  assert.match(commit, /envelopePreserved/);
+  assert.match(commit, /SV VUOT BIEN BAO VE/);
+});
