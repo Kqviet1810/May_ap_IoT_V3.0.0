@@ -3469,7 +3469,7 @@ void drawConnectionInfo() {
               u8g2_font_5x8_tf);
 
   if (currentRuntime.networkConnected) {
-    snprintf(text, sizeof(text), "WIFI: %s", WiFi.SSID().c_str());
+    snprintf(text, sizeof(text), "WIFI: DA KET NOI");
   } else {
     snprintf(text, sizeof(text), "WIFI: CHUA KET NOI");
   }
@@ -3477,7 +3477,7 @@ void drawConnectionInfo() {
               u8g2_font_5x8_tf);
 
   if (currentRuntime.networkConnected) {
-    const int32_t dbm = WiFi.RSSI();
+    const int32_t dbm = currentRuntime.networkRssiDbm;
     snprintf(text, sizeof(text), "SONG: %ld dBm (%u/4)",
              static_cast<long>(dbm), rssiToBars(static_cast<int8_t>(constrain(dbm, -127L, 0L))));
   } else snprintf(text, sizeof(text), "SONG: CHUA KET NOI");
