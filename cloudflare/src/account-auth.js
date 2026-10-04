@@ -32,7 +32,6 @@ export async function session(request, env) {
 export async function deviceList(env, sub) {
   const { results } = await env.DB.prepare(`SELECT d.device_id, d.device_name, d.status, d.last_seen,
     d.batch_running, ud.role, (SELECT COUNT(*) FROM push_subscriptions ps
-      JOIN user_sessions s ON s.id=ps.user_session_id AND s.revoked_at IS NULL AND s.expires_at>unixepoch()*1000
       WHERE ps.device_id=d.device_id AND ps.user_sub=ud.user_sub) AS linked_browsers
     FROM user_devices ud JOIN devices d ON d.device_id=ud.device_id
     LEFT JOIN device_inventory i ON i.device_id=d.device_id

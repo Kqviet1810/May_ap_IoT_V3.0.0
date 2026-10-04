@@ -449,7 +449,11 @@ export default {
   async scheduled(event,env,ctx) {
     await env.DB.batch([
       env.DB.prepare('DELETE FROM google_login_challenges WHERE expires_at<?').bind(Date.now()),
-      env.DB.prepare('DELETE FROM push_subscriptions WHERE user_session_id IN (SELECT id FROM user_sessions WHERE revoked_at IS NOT NULL OR expires_at<?)').bind(Date.now()),
+      // Push installation outlives the 24h Web login session. Explicit session
+      // revoke/logout already deletes subscriptions owned by that session; cron only
+      // sweeps historical revoked rows and must never remove a healthy endpoint just
+      // because the bearer session expired.
+      env.DB.prepare('DELETE FROM push_subscriptions WHERE user_session_id IN (SELECT id FROM user_sessions WHERE revoked_at IS NOT NULL)'),
     ]);
     return physicalWorker.scheduled(event,env,ctx);
   },

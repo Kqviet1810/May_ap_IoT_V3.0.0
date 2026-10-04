@@ -87,8 +87,7 @@ export async function setDeviceStatus(db, deviceId, status) {
 export async function getSubscriptionsForDevice(db, deviceId) {
   const { results } = await db
     .prepare(`SELECT ps.* FROM push_subscriptions ps
-      JOIN user_sessions s ON s.id=ps.user_session_id AND s.revoked_at IS NULL AND s.expires_at>unixepoch()*1000
-      JOIN users u ON u.google_sub=s.user_sub AND u.disabled=0
+      JOIN users u ON u.google_sub=ps.user_sub AND u.disabled=0
       JOIN user_devices ud ON ud.user_sub=ps.user_sub AND ud.device_id=ps.device_id
       WHERE ps.device_id = ?1`)
     .bind(deviceId)
