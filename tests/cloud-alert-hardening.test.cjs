@@ -27,9 +27,10 @@ test('Cloud deferred admission is paced and is not treated as a network failure'
 test('fault notifications are protected and cannot be marked queued until accepted',()=>{
   assert.match(cloud,/bool protectedEvent = false/);
   assert.match(cloud,/queueFaultActive\(FaultTrack &track/);
-  assert.match(cloud,/if \(!enqueueLevel\(alarmType, levelForSeverity\(track\.severity\), body, true\)\) return false/);
+  assert.match(cloud,/if \(!enqueueProtectedLevel\(alarmType, levelForSeverity\(track\.severity\), body\)\) return false/);
   assert.match(cloud,/if \(!track\.activeQueued && !queueFaultActive\(track, now, false\)\) continue/);
   assert.match(cloud,/if \(queueFaultResolved\(track\)\) track = FaultTrack\{\}/);
+  assert.match(cloud,/inline void enqueueLevel\(/);
   assert.doesNotMatch(cloud,/outboxCriticalDropped/);
 });
 
