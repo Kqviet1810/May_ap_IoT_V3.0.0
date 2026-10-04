@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "d3d63bd3f564727920de02c9aa25ccd9d0cf323640ab36d697d4ceb261716b0c"
+      "sha256": "61e884c1fb2ffb5e21cc26b61f574abc8c7f61351d8093e8485641b75fa5d569"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "1c77a42fd58be3ce17feac0d9d6cba664154893cfc227a190a3229129eb22604",
+      "sha256": "08b930d188c3288f935479b0d07d5d4aa220cf08c64814596e0591916018caf4",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "1e55271036143c7ceed67539092bbdcdc4b985cf352f8e1c58dd90af48dc6382",
+      "sha256": "1872e61d1121ffade33c9debe4e5e2e314fa8f6eda6e7e593ce92829b693be35",
       "signature": "class MachineController {"
     },
     {
@@ -372,7 +372,7 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
       "signature": "class RelayAutoTune {",
-      "sha256": "034f80dbb8b5379b1c5b3e070d3485cd1b45e8d6112c808a4e5329a71f62418e"
+      "sha256": "5dd17716a91be5d477da0b3e363d5688104ddb5f4d90cade9fea4be6c1c2846e"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
@@ -450,5 +450,6 @@
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
-  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged."
+  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
+  "autoTuneDiagnosticsReviewNote": "2026-10-04: reviewed diagnostic-only AutoTune hardening. Existing public state codes, PID coefficients, relay power, safety gates and actuator path are unchanged. Added stable phase/reason telemetry, split heating/cooling timeout causes, HMI/Web rendering and regression coverage; no automatic power escalation."
 }
