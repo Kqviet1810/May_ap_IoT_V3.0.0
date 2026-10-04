@@ -3148,6 +3148,17 @@ void drawHomeMain() {
   if (currentRuntime.activeFaultCount) {
     snprintf(text, sizeof(text), "!E%03u %.18s",
              currentRuntime.primaryFaultCode, currentRuntime.machineState);
+  } else if (onlineServiceDegradedMaskSeen) {
+    snprintf(text, sizeof(text), "ONLINE LOI - MAY VAN CHAY");
+  } else if (currentRuntime.connectivityMode == ConnectivityMode::Online &&
+             currentRuntime.networkConfigured &&
+             !currentRuntime.networkConnected &&
+             currentRuntime.wifiPortalState == WifiPortalState::Idle) {
+    snprintf(text, sizeof(text), "MAT WIFI - MAY VAN CHAY");
+  } else if (currentRuntime.connectivityMode == ConnectivityMode::Online &&
+             currentRuntime.networkConnected &&
+             currentRuntime.networkRssiDbm <= WIFI_RSSI_WEAK_DBM) {
+    snprintf(text, sizeof(text), "WIFI YEU - MAY VAN CHAY");
   } else {
     snprintf(text, sizeof(text), "%.25s", currentRuntime.machineState);
   }
@@ -4498,6 +4509,11 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
                before.nextTurnMinutes != after.nextTurnMinutes ||
                before.nextTurnScheduled != after.nextTurnScheduled ||
                before.turningLockdown != after.turningLockdown ||
+               before.connectivityMode != after.connectivityMode ||
+               before.networkConfigured != after.networkConfigured ||
+               before.networkConnected != after.networkConnected ||
+               before.networkRssiDbm != after.networkRssiDbm ||
+               before.wifiPortalState != after.wifiPortalState ||
                fixedTextChanged(before.machineState, after.machineState,
                                 sizeof(before.machineState));
       }
