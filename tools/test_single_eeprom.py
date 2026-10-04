@@ -1,4 +1,4 @@
-"""Host fault injection of production single-EEPROM driver and reminder persistence."""
+"""Host fault injection of production single-EEPROM driver."""
 import argparse
 import re
 import subprocess
@@ -27,8 +27,7 @@ def body(source, signature):
 constants = []
 for name in ('EEPROM_I2C_ADDRESS', 'EEPROM_CAPACITY_BYTES', 'EEPROM_PAGE_SIZE',
              'EEPROM_MAX_WRITE_CHUNK', 'EEPROM_WRITE_TIMEOUT_MS', 'EEPROM_IO_RETRIES',
-             'EEPROM_RETRY_GAP_MS', 'I2C_STORAGE_LOCK_TIMEOUT_MS', 'MAX_CUSTOM_REMINDERS',
-             'CUSTOM_REMINDER_LABEL_LEN', 'EEPROM_ADDR_REMINDERS_A', 'EEPROM_ADDR_REMINDERS_B'):
+             'EEPROM_RETRY_GAP_MS', 'I2C_STORAGE_LOCK_TIMEOUT_MS'):
     match = re.search(rf'constexpr\s+\w+\s+{name}\s*=.*?;', config + '\n' + machine)
     assert match, name
     constants.append(match.group())

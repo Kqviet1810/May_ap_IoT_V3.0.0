@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "7af94230db52abc1a863c47fc36f80c91db14b7dbc22ac0db5b8ddcae6b01900",
+      "sha256": "43fca8cbaa8279a7d2af3b1548be703ad4407071f7c2cb10c3ed5b5307f1d886",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "1e55271036143c7ceed67539092bbdcdc4b985cf352f8e1c58dd90af48dc6382",
+      "sha256": "dfc82ba7d98122e650e385e60f785c5333f49ae2e4b7c9bfff3bbda6789c72eb",
       "signature": "class MachineController {"
     },
     {
@@ -155,7 +155,7 @@
     {
       "file": "app.js",
       "signature": "async function signRealtimeWrite(",
-      "sha256": "ab569114880782b3532376f161506c1d80982b7a6b7bbc653df48f36f252a7eb",
+      "sha256": "d5efdd1ed05ae2a8e726a937450cf4f0da76f8299e4e67228e3403072922e9bf",
       "copyReplacements": [
         [
           "'Đang nhận dữ liệu từ máy; vui lòng chờ một chút'",
@@ -171,12 +171,12 @@
     {
       "file": "app.js",
       "signature": "function retrySameRequest(",
-      "sha256": "b27e4ce3f27facc8306becaa08fa0d0697986d2f18a41af2129057319786ca11"
+      "sha256": "bd44858a6481e47ee096d7442acd2013ce0272112f21dd395dce6aaacaa923d3"
     },
     {
       "file": "app.js",
       "signature": "function clearPending(",
-      "sha256": "bc33f08fa1d579464a6a75a7df7e9d59671820bef41d907d5fd1b52d5a22396f"
+      "sha256": "7189b83b486c9ddf0341cb83082fec4a29f0ef2b9cfa9c22c630e0bd9d38f72d"
     },
     {
       "file": "app.js",
@@ -278,7 +278,7 @@
     {
       "file": "app.js",
       "signature": "function handleAck(device, ack) {",
-      "sha256": "09ef5a4e5cd08d1f9ace7bb45548447d470c3d9d84ebc90cf2cd1a13e005c06a",
+      "sha256": "4630e15c7b393cddaa2bca7d0f18fbbbc8f4ec94c0f6465e3991f20ab76fa768",
       "copyReplacements": [
         [
           "'Máy gửi phản hồi chưa hợp lệ. Chưa xác nhận được thao tác.'",
@@ -344,11 +344,6 @@
           "'Đã lưu cấu hình vào ESP32'"
         ]
       ]
-    },
-    {
-      "file": "app.js",
-      "signature": "function handleReminderReport(device, report) {",
-      "sha256": "32eb493f794afe60878d5aebd2f7e84978691033c2cd38f530f6cd367593f3b8"
     },
     {
       "file": "app.js",
@@ -453,5 +448,6 @@
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
   "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
   "journalV2WireReviewNote": "2026-10-04: field evidence showed notes.list rejected by DeviceHub as INVALID_SIGNATURE_OR_EXPIRY because exchangeJournal supplied PROTOCOL_VERSION=1 while verifyWrite requires body.v=2. signRealtimeWrite now centrally normalizes all V2 wire bodies to v=2; notes/request gets a 15s execution expiry to stay inside the server's 30s bound with modest clock skew. This also fixes legacy-shaped history/request bodies. HMAC domain/key, requestId, seq/nonce, exact retry, journal EEPROM layout and firmware safety/control are unchanged.",
-  "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes."
+  "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes.",
+  "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged."
 }

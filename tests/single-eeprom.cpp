@@ -64,7 +64,6 @@ struct FakeWire {
   int read() { return available() ? rx[cursor++] : -1; }
 } Wire;
 #include "actual-single-eeprom.inc"
-#include "note_journal.h"
 
 int main() {
   ExternalEeprom24xx driver;
@@ -79,23 +78,6 @@ int main() {
   assert(driver.readBytes(0xFFFF, &result, 1) && result == byte);
   assert(!driver.writeBytes(0xFFFF, pattern.data(), 2));
   assert(driver.writeBytes(0xFFFF, &byte, 0));
-  // The shared production journal uses the actual C512/Wire driver, not a
-  // second persistence implementation. Notes and reminders occupy distinct IDs.
-  using namespace MayapNoteJournal;
-  Journal<ExternalEeprom24xx> journal(driver);
-  auto run=[&](const Request &request){assert(journal.begin(request));for(int i=0;i<10000&&!journal.ready();++i)journal.step();assert(journal.ready());return journal.result();};
-  Request note;note.operation=Operation::Save;note.note.createdAt=1750000000000ULL;
-  strcpy(note.note.id,"11111111-1111-4111-8111-111111111111");strcpy(note.note.content,"Lưu trên driver C512 thực");
-  assert(run(note).code==Code::Ok);
-  Request reminders;reminders.operation=Operation::SaveReminders;reminders.generation=1;
-  strcpy(reminders.note.id,ReminderId);reminders.note.createdAt=1;
-  ReminderPayload payload;payload.items[0].day=7;strcpy(payload.items[0].label,"Soi trứng ngày 7");
-  memcpy(reminders.note.content,&payload,sizeof(payload));assert(run(reminders).code==Code::Ok);
-  Journal<ExternalEeprom24xx> reboot(driver);Request read;read.operation=Operation::ReadReminders;strcpy(read.note.id,ReminderId);
-  assert(reboot.begin(read));for(int i=0;i<10000&&!reboot.ready();++i)reboot.step();assert(reboot.ready()&&reboot.result().hasNote);
-  assert(!memcmp(reboot.document().content,&payload,sizeof(payload)));
-  Wire.wp=true;reminders.generation=2;reminders.note.version=2;payload.items[1].day=10;strcpy(payload.items[1].label,"Kiểm tra khay");
-  memcpy(reminders.note.content,&payload,sizeof(payload));assert(run(reminders).code==Code::Io);Wire.wp=false;
   // ACK polling regression is a driver property, independent of any feature.
   // A delayed task resume must probe the chip once more before declaring timeout.
   uint8_t timingPayload[64]{}, timingReadback[64]{};
@@ -120,5 +102,5 @@ int main() {
   assert(readTrace.address==0x3000&&readTrace.reason==3&&readTrace.error==2);
   Wire.off=false;assert(driver.readBytes(0x3000,&result,1));assert(driver.lastReadTrace().reason==0);
   std::puts("C512 ACK polling: generic driver, 5ms write cycle, delayed task wake-up and millis wrap PASS");
-  std::puts("C512: page/Wire boundary, 0xFFFF/range, shared journal notes/reminders reboot/readback and WP PASS");
+  std::puts("C512: page/Wire boundary, 0xFFFF/range, generic EEPROM driver bounds/readback PASS");
 }

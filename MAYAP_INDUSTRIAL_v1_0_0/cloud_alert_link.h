@@ -85,13 +85,6 @@ static MachineConfig knownConfig{};
 static bool knownConfigValid = false;
 static MachineConfig processingConfig{};
 
-// Danh sach nhac nho tuy chinh (v3.7.0) - cung mailbox pattern, dung cho
-// checkCustomReminders() ben duoi bao khi ngay hien tai cham/vuot ngay nguoi
-// dung dat cho tung muc.
-static ReminderSet knownReminders{};
-static bool knownRemindersValid = false;
-static ReminderSet processingReminders{};
-
 // Backoff RIENG cho Cloud Push - hoan toan doc lap voi backoff cua MQTT
 // (realtime_link.h) va STA Wi-Fi (network_service.h). Dung chung cho ca 3
 // loai goi HTTPS (register/heartbeat/alarm) vi ca 3 cung phan anh cung 1 cau
@@ -513,60 +506,6 @@ inline void checkBatchSchedule(uint32_t now) {
   }
 }
 
-// --------------- Nhac nho tuy chinh (v3.7.0, nguoi dung tu tao) --------------
-// Web da lam TOAN BO viec "phan tich" (hieu cau nhap tu nhien, loc trung/
-// khong hop le tren form) - o day CHI can 1 viec don gian: ngay hien tai
-// (processingRuntime.currentDay) cham/vuot ngay da dat cho tung muc thi bao 1
-// LAN. Phan biet "me MOI thuc su bat dau" (cho phep bao ngay ca ngay 1, neu
-// nguoi dung dat nhac "ngay 1") voi "vua khoi dong lai giua 1 me dang chay"
-// (OTA/health-restart/mat dien...) - truong hop sau phai dat "co so" theo
-// ngay hien tai truoc, KHONG bao dong loat cac muc da qua ngay tu truoc do.
-static bool reminderFired[MAX_CUSTOM_REMINDERS] = {};
-static bool reminderLastBatchRunning = false;
-static bool reminderHaveLastBatchRunning = false;
-
-inline void checkCustomReminders(uint32_t now) {
-  (void)now;
-  const bool running = processingRuntime.batchRunning;
-
-  if (!reminderHaveLastBatchRunning) {
-    reminderHaveLastBatchRunning = true;
-    reminderLastBatchRunning = running;
-    if (running) {
-      const uint8_t current = processingRuntime.currentDay;
-      for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-        reminderFired[i] = current >= processingReminders.items[i].day;
-      }
-    } else {
-      for (bool &fired : reminderFired) fired = false;
-    }
-    return;
-  }
-
-  if (running && !reminderLastBatchRunning) {
-    // Me MOI thuc su bat dau (KHONG-CHAY -> DANG-CHAY trong cung phien nguon
-    // dien nay) - reset toan bo de nhac "ngay 1" van bao duoc ngay hom nay.
-    for (bool &fired : reminderFired) fired = false;
-  }
-  reminderLastBatchRunning = running;
-  if (!running) return;
-
-  const uint8_t current = processingRuntime.currentDay;
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    const uint8_t day = processingReminders.items[i].day;
-    if (day == 0U || reminderFired[i]) continue;
-    if (current < day) continue;
-    reminderFired[i] = true;
-    char alarmType[24];
-    snprintf(alarmType, sizeof(alarmType), "REMINDER_%u", static_cast<unsigned>(i));
-    char body[160];
-    const char *label = processingReminders.items[i].label;
-    snprintf(body, sizeof(body), "Nhắc ngày %u: %s", static_cast<unsigned>(day),
-             label[0] ? label : "(không có tên)");
-    enqueueLevel(alarmType, NotifyLevel::Info, body);
-  }
-}
-
 // ------------------------- Canh bao: Wi-Fi tin hieu yeu ---------------------
 static bool wifiWeakTracking = false;
 static uint32_t wifiWeakSinceAt = 0;
@@ -912,8 +851,6 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     if (valid) processingRuntime = knownRuntime;
     const bool configValid = knownConfigValid;
     if (configValid) processingConfig = knownConfig;
-    const bool remindersValid = knownRemindersValid;
-    if (remindersValid) processingReminders = knownReminders;
     portEXIT_CRITICAL(&cloudMux);
     if (valid) {
       checkFaults(now);
@@ -924,7 +861,6 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
         checkBatchSchedule(now);
         checkTurnCycleMissed(now);
       }
-      if (remindersValid) checkCustomReminders(now);
     }
     checkWifiSignal(now);
   }
@@ -961,15 +897,6 @@ inline void mayapCloudSetConfig(const MachineConfig &config) {
   portEXIT_CRITICAL(&cloudMux);
 }
 
-// Cung noi/cung nhip voi mayapWebSetReminders() cua realtime_link.h - cho
-// checkCustomReminders() biet danh sach nhac nho hien co.
-inline void mayapCloudSetReminders(const ReminderSet &reminders) {
-  using namespace MayapCloudInternal;
-  portENTER_CRITICAL(&cloudMux);
-  knownReminders = reminders;
-  knownRemindersValid = true;
-  portEXIT_CRITICAL(&cloudMux);
-}
 
 // Trang thai SONG cua kenh Cloud Push (khac voi mayapPrintNetworkConfig() la
 // cau hinh TINH) - dung cho lenh Serial CONFIG de debug day du: da dang ky

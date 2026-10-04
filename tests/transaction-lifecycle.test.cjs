@@ -8,7 +8,7 @@ const { TransactionLedger, PacketPolicy } = require('../protocol_v2.js');
 function browser() {
   const source = readFileSync(require.resolve('../app.js'), 'utf8').replace(/  init\(\);\s*\}\)\(\);\s*$/, `
     Object.assign(window.hooks, { state, transactions, startTransaction, handleAck,
-      verifyDeviceAck, handleJournalData, sweepUncertain, handleConfigReport, handleReminderReport,
+      verifyDeviceAck, sweepUncertain, handleConfigReport,
       moveToUncertain, publish, retrySameRequest, resumeExactRetries, clearPending, telemetryChart, storeControlSession,
       signRealtimeWrite, controlSession, controlSessions, handleSnapshot, CONFIG_KEYS,
       buildConfig, validateHumidifierForm, syncHumidifierFeatureUi,
@@ -18,7 +18,7 @@ function browser() {
   let nextTimer = 0;
   let time = 0;
   const elements = new Map();
-  const window = { MayapJournalClient: require('../journal_client.js'), addEventListener() {}, MayapProtocolV2: {
+  const window = { addEventListener() {}, MayapProtocolV2: {
     TransactionLedger: class extends TransactionLedger { constructor() { super(() => time); } },
     PacketPolicy },
     MAYAP_WEB_CONFIG: { cloudApiBase: 'https://test.invalid' }, hooks: {} };
@@ -105,15 +105,14 @@ test('invalid HMAC, operation mismatch and replay cannot complete late transacti
 test('bounded uncertain cleanup includes every operation and late ACK after observation', async () => {
   const h = browser();
   for (const [id, kind, operation] of [
-    ['c', 'config', 'config.save'], ['r', 'reminders', 'reminders.save'],
+    ['c', 'config', 'config.save'],
     ['h', 'history', 'history.read'], ['b', 'command', 'batch.start']]) {
     const pending = h.startTransaction(id, { kind, operation, deviceId: h.device.id,
       action: kind === 'command' ? 'batch_start' : undefined,
-      formId: 'quickForm', revision: 1, patch: { targetTemp: 37 },
-      nextList: [{ day: 1, label: 'X' }] }, 100);
+      formId: 'quickForm', revision: 1, patch: { targetTemp: 37 } }, 100);
     pending.onTimeout();
   }
-  assert.equal(h.state.uncertain.size, 4);
+  assert.equal(h.state.uncertain.size, 3);
   h.advance(PacketPolicy.UNCERTAIN_TTL_MS + 1);
   h.sweepUncertain();
   assert.equal(h.state.uncertain.size, 0);
@@ -295,21 +294,4 @@ test('signed terminal history ACK cannot complete a transaction with missing chu
  h.handleAck(h.device,ack);assert.equal(pending.phase,'UNCERTAIN');assert.equal(h.state.uncertain.has('history-missing'),true);
  h.telemetryChart.historyGap=false;h.telemetryChart.historyLoaded=true;h.handleAck(h.device,ack);
  assert.equal(pending.phase,'APPLIED');assert.equal(h.state.uncertain.has('history-missing'),false);
-});
-
-test('journal success requires authentic DATA and terminal ACK with matching revision',async()=>{
- const h=browser(),{key,pending}=await start(h,'journal','notes.save');let applied=false;
- pending.kind='journal';pending.retryWire={bootId:h.device.bootId};pending.resolve=()=>{applied=true;};pending.reject=()=>assert.fail('Unexpected journal rejection');
- const ack=await signedAck(h,'journal','notes.save',true,key,{revision:5});
- assert.equal(await h.verifyDeviceAck(h.device,ack),true);h.handleAck(h.device,ack);assert.equal(applied,false);
- const body=JSON.stringify({generation:5,next:24,done:true}),frame={v:2,requestId:'journal',bootId:123,operation:'notes.save',body};
- frame.sig=Buffer.from(await webcrypto.subtle.sign('HMAC',key,new TextEncoder().encode(['mayap-note-journal:v2',h.device.id,123,'journal','notes.save',body].join('\n')))).toString('hex');
- await h.handleJournalData(h.device,{...frame,sig:'00'.repeat(32)});assert.equal(applied,false);
- await h.handleJournalData(h.device,{...frame,bootId:124});assert.equal(applied,false);
- await h.handleJournalData(h.device,frame);assert.equal(applied,true);
-});
-test('journal rejects a signed DATA/ACK revision mismatch without claiming success',async()=>{
- const h=browser(),{key,pending}=await start(h,'journal-mismatch','notes.reminders.save');let error;
- pending.kind='journal';pending.retryWire={bootId:h.device.bootId};pending.journalData={generation:4};pending.resolve=()=>assert.fail('Must not claim persistence');pending.reject=e=>error=e;
- const ack=await signedAck(h,'journal-mismatch','notes.reminders.save',true,key,{revision:5});h.handleAck(h.device,ack);assert.match(error.message,/không khớp/);
 });

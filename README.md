@@ -11,7 +11,7 @@
 | Release / baseline mã nguồn | 1.1.2 |
 | ESP32 firmware | 1.1.2 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.3 |
+| Web PWA | 1.1.4 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
@@ -58,7 +58,7 @@ SQLite Durable Object: DeviceHub (1 hub / 1 máy)
 - **ESP32 là controller duy nhất.** Cloudflare/DeviceHub chỉ xác thực, định tuyến và giới hạn phiên; không điều khiển heater hay state machine.
 - Mất Internet/Cloudflare/Web không làm mất điều khiển cục bộ: PID, heater safety, đảo trứng, batch, HMI, alarm và recovery vẫn chạy trên ESP32.
 - `DeviceHub` gửi `forwarded` chỉ có nghĩa frame đã được chuyển tới socket thiết bị. **Chỉ terminal ACK đã xác minh từ ESP32 mới là kết quả thao tác.**
-- Command/config/reminder giữ transaction V2 với `bootId`, `clientId`, sequence, nonce, expiry, HMAC, replay protection và exact retry.
+- Command/config/history giữ transaction V2 với `bootId`, `clientId`, sequence, nonce, expiry, HMAC, replay protection và exact retry.
 - TLS verification là bắt buộc; production không được dùng `setInsecure()`.
 
 ### Tên legacy còn tồn tại
@@ -185,7 +185,7 @@ Tag release phải khớp chính xác `MAYAP_FIRMWARE_VERSION`.
 5. Node transaction/account/Web/DeviceHub regressions;
 6. real local Cloudflare `workerd` + Chromium realtime test;
 7. Web connection/UX QA;
-8. PID/autotune, staged boot, runtime recovery, buses và EEPROM/reminder regressions;
+8. PID/autotune, staged boot, runtime recovery, buses và EEPROM driver regressions;
 9. compile ATtiny13A với trần 1 KiB flash / 64 B static RAM;
 10. compile ESP32-S3 và kiểm linked GPIO ISR cache safety;
 11. khi build tag: ký ECDSA và tạo GitHub Release.

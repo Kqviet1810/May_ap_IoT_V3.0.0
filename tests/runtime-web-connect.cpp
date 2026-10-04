@@ -20,8 +20,8 @@ constexpr uint32_t WEB_SESSION_MAX_TTL_MS = 60000;
 static int webMux;
 struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0; };
 static WebClientLease webClientLeases[8];
-static bool webSessionActive = false, knownConfigValid = true, knownRemindersValid = true;
-static bool configDirty = false, remindersDirty = false, eventSnapshotDirty = false, forceSnapshotPublish = false;
+static bool webSessionActive = false, knownConfigValid = true;
+static bool configDirty = false, eventSnapshotDirty = false, forceSnapshotPublish = false;
 static struct { bool humidifierInstalled = false; } knownConfig;
 static uint32_t lastSnapshotPublishAt = 99, lastPublishedEventSequence = 7;
 struct Fault { uint16_t code = 112; uint8_t severity = 3; };
@@ -58,11 +58,11 @@ bool publishJson(const char *suffix, const JsonDocument &doc, bool retain) {
 }
 #include "actual-web-connect.inc"
 void session(const char *id, bool active, bool sync = false, bool legacy = false,
-             bool config = false, bool reminders = false, bool log = false, uint32_t ttlMs = 15000) {
+             bool config = false, bool log = false, uint32_t ttlMs = 15000) {
   JsonDocument doc;
   doc["clientId"] = id; doc["active"] = active; doc["ttlMs"] = ttlMs; doc["sync"] = sync;
   if (!legacy) doc["scope"] = "runtime";
-  doc["config"] = config; doc["reminders"] = reminders; doc["log"] = log;
+  doc["config"] = config; doc["log"] = log;
   handleSessionMessage(doc);
 }
 int main() {
@@ -93,15 +93,15 @@ int main() {
   assert(!cadence.due(5000, b)); cadence.reset(); assert(cadence.due(5000, b));
 
   session("browser-0001", true, true);
-  assert(webSessionActive && forceSnapshotPublish && !configDirty && !remindersDirty && !eventSnapshotDirty);
+  assert(webSessionActive && forceSnapshotPublish && !configDirty && !eventSnapshotDirty);
   assert(lastPublishedEventSequence == 7);
   session("browser-0001", true, true, false, true);
-  assert(configDirty && !remindersDirty && !eventSnapshotDirty); configDirty = false;
-  session("browser-0001", true, true, false, false, true, true);
-  assert(remindersDirty && eventSnapshotDirty && lastPublishedEventSequence == 0);
-  configDirty = remindersDirty = eventSnapshotDirty = false;
+  assert(configDirty && !eventSnapshotDirty); configDirty = false;
+  session("browser-0001", true, true, false, false, true);
+  assert(eventSnapshotDirty && lastPublishedEventSequence == 0);
+  configDirty = eventSnapshotDirty = false;
   session("browser-0001", true, true, true);
-  assert(configDirty && remindersDirty && eventSnapshotDirty); // Existing Web remains compatible.
+  assert(configDirty && eventSnapshotDirty); // Existing Web remains compatible.
 
   PerformanceGrace grace;
   assert(grace.update(clockMs, webSessionActive));
@@ -135,9 +135,9 @@ int main() {
   PerformanceGrace warmGrace;
   for (uint32_t elapsed = 0; elapsed < 300000U; elapsed += 15000U) {
     clockMs = hiddenStart + elapsed;
-    session("hidden-00001", true, false, false, false, false, false,
+    session("hidden-00001", true, false, false, false, false,
             300000U - elapsed < 45000U ? 300000U - elapsed : 45000U);
-    session("visible-0001", true, false, false, false, false, false, 45000U);
+    session("visible-0001", true, false, false, false, false, 45000U);
     serviceSessionTimeout(clockMs);
     assert(webSessionActive && warmGrace.update(clockMs, webSessionActive));
   }

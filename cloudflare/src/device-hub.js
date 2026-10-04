@@ -48,7 +48,7 @@ export class DeviceHub {
   broadcast(channel, payload, cached = false) {
     for (const ws of this.sockets('browser')) {
       const a = attachment(ws);
-      if (a.until > Date.now() && (a.watchUntil > Date.now() || ['presence', 'ack', 'notes/reported'].includes(channel)))
+      if (a.until > Date.now() && (a.watchUntil > Date.now() || ['presence', 'ack'].includes(channel)))
         this.event(ws, channel, payload, cached);
     }
   }
@@ -155,7 +155,7 @@ export class DeviceHub {
         const a = attachment(ws);
         if (a.watchUntil > now) this.event(server, 'session', { clientId: a.clientId, active: true,
           ttlMs: Math.min(60000, a.watchUntil - now), sync: true, scope: 'runtime',
-          config: !!(a.scopeFlags & 1), reminders: !!(a.scopeFlags & 2), log: !!(a.scopeFlags & 4) });
+          config: !!(a.scopeFlags & 1), log: !!(a.scopeFlags & 4) });
       }
     } else {
       this.save(server, { kind: 'browser', deviceId: claims.deviceId, clientId: claims.clientId,
@@ -198,7 +198,7 @@ export class DeviceHub {
       if (++a.rateCount > 160) { ws.close(1008, 'DEVICE_RATE_LIMIT'); return; }
       if (this.device() !== ws || msg.v !== 1 || !DEVICE_CHANNELS.has(msg.channel) ||
           !msg.payload || typeof msg.payload !== 'object' || Array.isArray(msg.payload)) return this.reject(ws, 'INVALID_CHANNEL');
-      if (['presence', 'bootstrap', 'snapshot', 'ack', 'config/reported', 'reminders/reported', 'history/reported', 'notes/reported'].includes(msg.channel) && msg.payload.bootId !== a.bootId)
+      if (['presence', 'bootstrap', 'snapshot', 'ack', 'config/reported', 'history/reported'].includes(msg.channel) && msg.payload.bootId !== a.bootId)
         return this.reject(ws, 'STALE_BOOT');
       a.lastAt = now;
       if (msg.channel === 'presence') a.presence = msg.payload;
@@ -231,11 +231,11 @@ export class DeviceHub {
       if (msg.payload.clientId !== a.clientId) return this.reject(ws, 'CLIENT_MISMATCH');
       const ttl = Math.min(60000, Math.max(1000, Number(msg.payload.ttlMs) || 1000));
       a.watchUntil = msg.payload.active === true && msg.payload.foreground !== false ? now + ttl : 0;
-      a.scopeFlags = (msg.payload.config === true ? 1 : 0) | (msg.payload.reminders === true ? 2 : 0) | (msg.payload.log === true ? 4 : 0);
+      a.scopeFlags = (msg.payload.config === true ? 1 : 0) | (msg.payload.log === true ? 4 : 0);
       this.save(ws, a);
       if (device) this.event(device, 'session', { clientId: a.clientId, active: a.watchUntil > now,
         ttlMs: ttl, sync: msg.payload.sync === true, scope: 'runtime', config: !!(a.scopeFlags & 1),
-        reminders: !!(a.scopeFlags & 2), log: !!(a.scopeFlags & 4) });
+        log: !!(a.scopeFlags & 4) });
       const d = device && attachment(device);
       if (a.watchUntil && d?.bootstrap) this.event(ws, 'bootstrap', d.bootstrap, true);
       return;
@@ -257,7 +257,7 @@ export class DeviceHub {
         Date.now() - attachment(device).lastAt >= DEVICE_STALE_MS)
       return this.reject(ws, 'CONNECTION_CHANGED', body.requestId);
     const commitSec = Math.floor(Date.now() / 1000);
-    if (Number(msg.payload.grant.split('|')[1]) < commitSec || (['command','notes/request'].includes(msg.channel) && body.expiresAt < commitSec))
+    if (Number(msg.payload.grant.split('|')[1]) < commitSec || (msg.channel === 'command' && body.expiresAt < commitSec))
       return this.reject(ws, 'INVALID_SIGNATURE_OR_EXPIRY', body.requestId);
     this.sql.exec('DELETE FROM realtime_replay WHERE expiry<=?', now);
     const key = JSON.stringify([a.sessionId, a.clientId]);

@@ -18,14 +18,13 @@ void controller();void enter(int *p){if(p==&hmiApiMux)++hmiDepth;}
 void leave(int *p){if(p==&hmiApiMux)--hmiDepth;if(autoRun&&!hmiDepth&&!inController)controller();}
 #define portENTER_CRITICAL(p) enter(p)
 #define portEXIT_CRITICAL(p) leave(p)
-constexpr uint8_t COMMAND_QUEUE_SIZE=4,MAX_CUSTOM_REMINDERS=10;
+constexpr uint8_t COMMAND_QUEUE_SIZE=4;
 constexpr size_t WEB_REQUEST_ID_CAPACITY=40;
 constexpr uint32_t AlarmNone=0,ALARM_KNOWN_MASK=0xffff,WEB_COMMAND_ACK_TIMEOUT_MS=8000,WEB_CONFIG_SAVE_ACK_TIMEOUT_MS=8000;
 constexpr uint16_t COMMAND_DEFAULT_VALID_MS=5000,COMMAND_AUTOTUNE_VALID_MS=5000;
 enum class HmiCommandType{None,LightToggle,AutoTuneStart,AlarmAck,FirmwareRollback};
 enum class HmiCommandSource{Local,Remote};enum class BuzzerCue{Error};
 struct HmiCommand{uint32_t id=0;HmiCommandType type=HmiCommandType::None;uint32_t createdAt=0;uint16_t validForMs=0,actuatorLeaseMs=0;uint32_t alarmMask=0;HmiCommandSource source=HmiCommandSource::Local;};
-struct ReminderItem{uint8_t day=0;char label[40]="";};struct ReminderSet{ReminderItem items[10];};
 struct MachineConfig{};
 static HmiCommand commandQueue[4];static uint8_t commandTail=0,commandHead=0,commandCount=0,commandOutstandingCount=0;static uint32_t nextCommandId=1;
 bool commandConflictLocked(HmiCommandType){return false;}void showToast(const char*,bool){}void buzzerPlayCue(BuzzerCue){}
@@ -76,7 +75,7 @@ void reset(){autoRun=false;for(auto &p:pendingCommands)p=PendingCommand{};for(au
  pendingConfigSave=PendingConfigSave{};
  for(auto &t:terminalCache) { t=TerminalResult{}; }
  terminalCursor=0;
- commandTail=commandHead=commandCount=commandOutstandingCount=0;noteAckRevision=0;executions=saves=0;acks.clear();clockMs=100;}
+ commandTail=commandHead=commandCount=commandOutstandingCount=0;executions=saves=0;acks.clear();clockMs=100;}
 JsonDocument command(){JsonDocument d;d["v"]=2;d["requestId"]="cmd";d["bootId"]=123;d["expiresAt"]=time(nullptr)+20;d["action"]="light_toggle";return d;}
 int main(){
  reset();autoRun=true;handleCommandMessage(command());assert(executions==1&&pendingCommands[0].completed&&pendingCommands[0].commandId!=0);flushCompletedTransactions();assert(!pendingCommands[0].used&&ackOutbox[0].signedAck&&!strcmp(ackOutbox[0].requestId,"cmd"));
@@ -91,6 +90,5 @@ int main(){
  reset();failSend=false;publishAck("cache","expired","");assert(terminalCursor==0);publishAck("cache","accepted","");assert(terminalCursor==0);publishAck("cache","applied","APPLIED","light.toggle");assert(terminalCursor==1);
  for(int i=0;i<100;i++) { assert(replayTerminal("cache")); }
  assert(terminalCursor==1&&!strcmp(terminalCache[0].requestId,"cache")&&!strcmp(terminalCache[0].result,"applied"));
- reset();noteAckRevision=3;publishAck("note-cache","applied","NOTE_JOURNAL_OK","notes.save");noteAckRevision=99;assert(replayTerminal("note-cache")&&lastAckRevision==3);
  puts("Actual transactions: immediate-controller admission, saturated trackers/outbox, late completion and failed history chunks PASS");
 }

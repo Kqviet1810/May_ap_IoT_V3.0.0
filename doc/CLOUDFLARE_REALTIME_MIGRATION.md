@@ -43,7 +43,7 @@ there is no credential in a URL or static configuration. The server selects
 Messages are UTF-8 JSON `{v:1,channel,payload}`. Channel names preserve the V2
 application protocol: session, command, config/set, reminders/set,
 history/request; device presence/bootstrap/snapshot/config/reported/
-reminders/reported/ack/log/history/reported. Writes retain the original signed
+ack/log/history/reported. Writes retain the original signed
 body, grant, grantSig and sig. Both Hub and ESP32 validate clientId, bootId,
 sequence, nonce, grant expiry and HMAC; commands also have their original short
 execution expiry. The Hub serializes checks per browser across async D1/crypto awaits; credits, visibility and device telemetry keep flowing independently. Generation/authorization fences guard the synchronous commit.

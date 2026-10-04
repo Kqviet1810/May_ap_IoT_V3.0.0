@@ -29,7 +29,7 @@ function browser(overrides = {}, initialStorage = {}) {
   class BrowserDate extends Date { static now() { return wall; } }
   const timers = new Map(), elements = new Map(), clients = [], events = new Map();
   const storage = new Map(Object.entries(initialStorage));
-  const window = { MayapJournalClient: require('../journal_client.js'), hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
+  const window = { hooks: {}, renders: [], addEventListener(name, fn) { events.set(name, fn); }, MayapProtocolV2: protocol,
     MAYAP_WEB_CONFIG: { cloudApiBase:'https://test.invalid', realtimeUrl: 'wss://test.invalid/realtime', realtimeUsername: 'test', realtimePassword: 'test', sessionRefreshMs: 3000, ...overrides },
     MayapRealtime: { Client: class extends EventEmitter {
       constructor(options) { super(); this.deviceId=options.deviceId; this.connected=false; this.resumes=0; clients.push(this); }
@@ -211,7 +211,7 @@ test('pairing keeps the page and auth; production loads the native WebSocket cli
   const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
   assert.doesNotMatch(app, /window\.location\.reload/);
   assert.match(app, /await verifyDevicePin\(id, pin\)/);
-  assert.match(html, /defer src="\.\/realtime_transport\.js\?v=1\.1\.3"/);
+  assert.match(html, /defer src="\.\/realtime_transport\.js\?v=1\.1\.4"/);
   assert.ok(html.indexOf('realtime_transport.js') < html.indexOf('./app.js'));
 });
 
@@ -351,7 +351,7 @@ test('fresh presence/config cannot mask stale device telemetry or reset a health
 test('on-demand synchronization requests only opened data on the admitted socket', async () => {
   const h=browser(); connected(h); await h.requestDeviceData('config');
   const body=h.published.at(-1).body;
-  assert.equal(body.scope,'runtime'); assert.equal(body.config,true); assert.equal(body.reminders,false); assert.equal(body.log,false);
+  assert.equal(body.scope,'runtime'); assert.equal(body.config,true); assert.equal(body.reminders,undefined); assert.equal(body.log,false);
 });
 
 test('pageshow/visibility/online storms reuse a healthy socket and restore one lease timer', async () => {
@@ -378,16 +378,11 @@ test('cached grant signs commands without HTTP; expired grant rejects without an
     expiresAt: Math.floor(Date.now() / 1000) + 300, grant: 'test|grant', grantSig: '08'.repeat(32) });
   const a = await h.signRealtimeWrite(h.device, 'command', { requestId: 'a', action: 'light_toggle' });
   const b = await h.signRealtimeWrite(h.device, 'command', { requestId: 'b', action: 'light_toggle' });
-  const journal = await h.signRealtimeWrite(h.device, 'notes/request', { v: 1, requestId: 'jnl-a', action: 'notes.list' });
   const history = await h.signRealtimeWrite(h.device, 'history/request', { v: 1, requestId: 'hist-a', minutes: 30 });
   const bodyA = JSON.parse(a.body), bodyB = JSON.parse(b.body);
-  const journalBody = JSON.parse(journal.body), historyBody = JSON.parse(history.body);
+  const historyBody = JSON.parse(history.body);
   assert.equal(a.v, 2); assert.equal(bodyA.bootId, 123);
-  assert.equal(journalBody.v, 2, 'journal wire body must be V2 before HMAC');
   assert.equal(historyBody.v, 2, 'history wire body must be V2 before HMAC');
-  assert.ok(Number.isSafeInteger(journalBody.expiresAt));
-  assert.ok(journalBody.expiresAt > Math.floor(Date.now() / 1000));
-  assert.ok(journalBody.expiresAt <= Math.floor(Date.now() / 1000) + 15);
   assert.ok(bodyB.seq > bodyA.seq);
   assert.notEqual(bodyA.nonce, bodyB.nonce);
   assert.match(a.sig, /^[a-f0-9]{64}$/);

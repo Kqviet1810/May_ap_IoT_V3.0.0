@@ -46,8 +46,8 @@ test('hibernation restores attachments and automatic ping response without telem
  assert.equal(events(b.ws,'snapshot').length,1);assert.equal(h.queries,0);assert.equal(h.ctx.auto.response,'{"kind":"pong"}');
 });
 test('device reconnect replaces old generation and restores foreground viewer leases',async()=>{
- const h=await fixture(),d=await h.device(),b=await h.browser();await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:45000,reminders:true,log:true}});
- const next=await h.device(124);assert.equal(d.ws.code,4001);assert.equal(events(next.ws,'session').length,1);assert.equal(events(next.ws,'session')[0].payload.reminders,true);assert.equal(events(next.ws,'session')[0].payload.log,true);
+ const h=await fixture(),d=await h.device(),b=await h.browser();await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:45000,log:true}});
+ const next=await h.device(124);assert.equal(d.ws.code,4001);assert.equal(events(next.ws,'session').length,1);assert.equal(events(next.ws,'session')[0].payload.reminders,undefined);assert.equal(events(next.ws,'session')[0].payload.log,true);
  await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123}});assert.equal(events(b.ws,'snapshot').length,0);
  await h.message(next.ws,{v:1,channel:'snapshot',payload:{bootId:123}});assert.equal(lastError(next.ws),'STALE_BOOT');
 });
@@ -239,34 +239,25 @@ test('device freshness is rechecked after a slow external write validation',asyn
  finally{Date.now=real;}
 });
 
-test('shared journal notes/reminders route retains auth, replay and boot fencing; legacy save is rejected',async()=>{
- const h=await fixture(),d=await h.device(),b=await h.browser();
- await h.message(b.ws,{v:1,channel:'session',payload:{clientId:h.claims.clientId,active:true,ttlMs:45000}});
- const msg=await h.command(1,'journal-one',123,'notes/request',{action:'notes.reminders.save',generation:0,version:0,reminders:[{day:7,label:'Soi trứng'}]});
- await h.message(b.ws,msg);assert.equal(events(d.ws,'notes/request').length,1);
- await h.message(b.ws,msg);assert.equal(events(d.ws,'notes/request').length,2); // Same authenticated envelope retry.
- const bad=await h.command(2,'journal-bad',123,'notes/request',{action:'notes.save'});bad.payload.sig='00'.repeat(32);
- await h.message(b.ws,bad);assert.equal(events(d.ws,'notes/request').length,2);
- const legacy=await h.command(2,'old-reminder',123,'reminders/set');await h.message(b.ws,legacy);
- assert.equal(events(d.ws,'reminders/set').length,0);
- await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:122,requestId:'journal-one'}});assert.equal(events(b.ws,'notes/reported').length,0);
- await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-one',body:'{}',sig:'07'.repeat(32)}});
- assert.equal(events(b.ws,'notes/reported').length,1);
-});
-
-test('journal DATA is a transaction reply delivered even without a telemetry watch lease',async()=>{
- const h=await fixture(),d=await h.device(),b=await h.browser();
- assert.equal(b.ws.deserializeAttachment().watchUntil,0);
- await h.message(d.ws,{v:1,channel:'notes/reported',payload:{v:2,bootId:123,requestId:'journal-response',operation:'notes.list',body:'{"generation":0,"next":24,"done":true}',sig:'07'.repeat(32)}});
- assert.equal(events(b.ws,'notes/reported').length,1);
- await h.message(d.ws,{v:1,channel:'snapshot',payload:{bootId:123,runtime:{temperature:37.5}}});
- assert.equal(events(b.ws,'snapshot').length,0,'Telemetry still needs a watch lease');
-});
 test('Hub pre-forward offline/access rejects correlate the original requestId',async()=>{
- const h=await fixture(),b=await h.browser(),frame=await h.command(1,'jnl-correlated',123,'notes/request',{action:'notes.list',cursor:0});
+ const h=await fixture(),b=await h.browser(),frame=await h.command(1,'cmd-correlated',123,'command',{action:'light_toggle'});
  await h.message(b.ws,frame);let error=b.ws.sent.filter(m=>m.kind==='error').at(-1);
- assert.equal(error.code,'DEVICE_OFFLINE');assert.equal(error.requestId,'jnl-correlated');
+ assert.equal(error.code,'DEVICE_OFFLINE');assert.equal(error.requestId,'cmd-correlated');
  const d=await h.device();h.sql.prepare('DELETE FROM user_devices').run();
  await h.message(b.ws,frame);error=b.ws.sent.filter(m=>m.kind==='error').at(-1);
- assert.equal(error.code,'ACCESS_DENIED');assert.equal(error.requestId,'jnl-correlated');assert.equal(events(d.ws,'notes/request').length,0);
+ assert.equal(error.code,'ACCESS_DENIED');assert.equal(error.requestId,'cmd-correlated');assert.equal(events(d.ws,'command').length,0);
+});
+
+test('removed Notes and Reminders channels cannot reach a device or browser',async()=>{
+ const h=await fixture(),d=await h.device(),b=await h.browser();
+ for(const channel of ['notes/request','reminders/set']){
+  await h.message(b.ws,await h.command(1,'removed-channel',123,channel));
+  assert.equal(events(d.ws,channel).length,0);
+  assert.equal(lastError(b.ws),'ACCESS_DENIED');
+ }
+ for(const channel of ['notes/reported','reminders/reported']){
+  await h.message(d.ws,{v:1,channel,payload:{bootId:123}});
+  assert.equal(events(b.ws,channel).length,0);
+  assert.equal(lastError(d.ws),'INVALID_CHANNEL');
+ }
 });

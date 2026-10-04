@@ -63,7 +63,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     end = realtime.index('inline void serviceConfigPublish()', start)
     (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
     parts = []
-    for begin, end in (('inline bool publishBootstrap(', 'static uint32_t noteAckRevision=0;'),
+    for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),
                        ('inline void serviceSessionTimeout(', '// realtime owner is'),
                        ('inline void serviceSnapshotPublish(', 'inline void serviceEventLogPublish(')):
@@ -99,7 +99,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         ('inline void handleCommandMessage(',
          'inline void flushCompletedTransactions(', 'inline void expirePendingCommands(',
          'inline void serviceHistoryResponse(')), encoding='utf-8')
-    start = realtime.index('static uint32_t noteAckRevision=0;')
+    start = realtime.index('struct TerminalResult {')
     stop = realtime.index('inline bool replayTerminal(', start)
     (out / 'actual-transaction-terminal.inc').write_text(realtime[start:stop] + '\n' +
         function(realtime, 'inline bool publishAck(const char *requestId') + '\n' +
@@ -138,14 +138,13 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions', 'runtime-note-journal'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
-        if test in ('runtime-transactions', 'runtime-note-journal'): command[1] = '-std=c++17'
-        if test in ('runtime-web-connect', 'runtime-transactions', 'runtime-note-journal'):
+        if test == 'runtime-transactions': command[1] = '-std=c++17'
+        if test in ('runtime-web-connect', 'runtime-transactions'):
             command += ['-I', str(json_include)]
-        if test == 'runtime-note-journal': command += ['-fno-sanitize-recover=all']
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
         subprocess.run(command, check=True)

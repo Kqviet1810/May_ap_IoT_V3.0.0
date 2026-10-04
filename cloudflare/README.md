@@ -32,7 +32,7 @@ Endpoints:
 
 Browser ticket đi trong `Sec-WebSocket-Protocol` (`mayap.v1`, `ticket.<...>`), không nằm trong URL. Browser Origin phải khớp chính xác `ALLOWED_ORIGIN`.
 
-Wire frame là JSON bounded với `v`, `channel`, `payload`. Command/config/reminder/notes tiếp tục dùng signed V2 body/grant/signature và được ESP32 kiểm lại.
+Wire frame là JSON bounded với `v`, `channel`, `payload`. Command/config/history tiếp tục dùng signed V2 body/grant/signature và được ESP32 kiểm lại.
 
 **`forwarded` chỉ là transport receipt.** Thành công/thất bại của thao tác chỉ được chốt bằng terminal ACK do ESP32 ký/xác thực. Mất socket hoặc timeout được coi là `UNCERTAIN`; retry phải giữ exact payload/request identity.
 
@@ -107,7 +107,7 @@ Pipeline deploy:
 1. checkout đúng SHA/ref;
 2. Node/release/reliability checks;
 3. pnpm frozen-lockfile;
-4. account/transaction/realtime/notes regressions;
+4. account/transaction/realtime regressions;
 5. local `workerd` integration;
 6. stage reviewed Static Assets;
 7. apply D1 migrations remote;

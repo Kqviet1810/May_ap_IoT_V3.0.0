@@ -45,7 +45,6 @@ window.MayapRealtime = { Client: function(options) {
             const cfg = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.concat(h.VENT_PROFILE_KEYS).map(k => [k, window.__defaults[k] ?? 0]));
             client.deliver('config/reported', { bootId: 123, revision: 1, config: cfg });
           }
-          if (body.reminders) client.deliver('reminders/reported', { bootId: 123, revision: 1, reminders: [] }, true);
         }, 25);
       }
       if (topic==='command') (async () => {
@@ -213,7 +212,8 @@ async function main() {
       assert.ok(await page.evaluate(()=>window.__transport.sessions.some(s=>s.config)));
       assert.equal(await page.evaluate(()=>window.__transport.sessions.some(s=>s.reminders || s.log)),false);
       await page.evaluate(()=>document.getElementById('remindersForm').closest('details').open=true);
-      await page.waitForFunction(()=>window.__qa.state.devices[0].remindersLoaded);
+      assert.equal(await page.locator('#addReminderBtn').isDisabled(),true);
+      assert.equal(await page.evaluate(()=>window.__transport.sessions.some(s=>s.reminders)),false);
       await page.evaluate(()=>window.__qa.showPage('device'));
       await page.evaluate(()=>window.__qa.handlePresence(window.__qa.state.devices[0],{online:false,bootId:123}));
       assert.equal(await page.locator('#onlinePill').innerText(), 'NGOẠI TUYẾN');

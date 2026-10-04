@@ -2604,12 +2604,6 @@ class PersistentStore {
     return true;
   }
 
-  // Khac Config/Batch (luon co fallback schema cu vi thiet bi da ban ra
-  // truoc do CHAC CHAN co du lieu), Reminders la tinh nang MOI - "khong tim
-  // thay ban ghi hop le" don gian nghia la CHUA TUNG luu (thiet bi cu nang
-  // cap len, hoac EEPROM moi), tra ve false la du, ham loadReminders() da tu
-  // dien danh sach rong trong truong hop nay.
-
 
   ExternalEeprom24xx eeprom_{};
   bool ready_ = false;
@@ -3677,14 +3671,6 @@ class MachineController {
     mayapWebSetConfig(config_);
     mayapCloudSetConfig(config_);
 
-    // Nhac nho tuy chinh (v3.7.0) - KHONG bat buoc nhu Config (khong co ban
-    // ghi hop le don gian nghia la "chua tung tao", mac dinh danh sach rong
-    // an toan), nen khong anh huong storageFaultLatched_/faults_ o tren.
-    // New journal restores reminders asynchronously; legacy A/B slots are untouched.
-    reminders_=ReminderSet{};
-    mayapWebSetReminders(reminders_);
-    mayapCloudSetReminders(reminders_);
-
     PackedBatchV1 batch{};
     const bool hasBatchRecord = storeReady && store_.loadBatch(batch);
     const bool stopIntentPending = safetyJournal_.stopIntentPending();
@@ -3844,7 +3830,6 @@ class MachineController {
 
   const MachineConfig &config() const { return config_; }
   const MachineRuntime &runtime() const { return runtime_; }
-  const ReminderSet &reminders() const { return reminders_; }
   const OutputState &outputs() const { return outputs_.state(); }
   // Doc tu supervisorTask (khac task voi controlTask ghi trong update()) de
   // quyet dinh esp_restart() - xem ghi chu tai khai bao healthRestartRequested_.
@@ -4476,13 +4461,6 @@ class MachineController {
                        requested.turnIntervalMin);
     }
 
-    // Apply read-verified journal data only; no EEPROM/network I/O on controlTask.
-    ReminderSet verifiedReminders{};uint32_t journalRevision=0;
-    if(MayapNoteMailbox::takeReminders(verifiedReminders,journalRevision)){
-      reminders_=verifiedReminders;
-      mayapWebSetReminders(reminders_);mayapCloudSetReminders(reminders_);
-      MayapNoteMailbox::applied(journalRevision);
-    }
 
     HmiCommand command{};
     uint8_t budget = 0;
@@ -7586,7 +7564,6 @@ class MachineController {
   MachineConfig config_{};
   MachineRuntime runtime_{};
   bool configLoaded_ = false;
-  ReminderSet reminders_{};
 
   uint32_t bootAt_ = 0;
   esp_reset_reason_t resetReason_ = ESP_RST_UNKNOWN;

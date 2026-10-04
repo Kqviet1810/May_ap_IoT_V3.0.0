@@ -15,29 +15,6 @@
   const THEME_STORAGE = 'mayap.theme';
   const PROTOCOL_VERSION = 1;
   const DEVICE_ID_RE = /^MAP-[A-F0-9]{12}$/;
-  // Khop dung MAX_CUSTOM_REMINDERS trong firmware (config.h) - chi de hien thi
-  // "x/10 nhac da dat" va chan them qua tay tren web; ESP32 van tu gioi han
-  // lai (sanitizeReminderSet) neu web nao do gui vuot qua.
-  const MAX_CUSTOM_REMINDERS = 10;
-  // Khop dung CUSTOM_REMINDER_LABEL_LEN - 1 trong firmware (config.h) - day
-  // la GIOI HAN BYTE UTF-8 (khong phai so ky tu), vi tieng Viet co dau ton
-  // nhieu byte hon 1 ky tu binh thuong (vd "ầ" = 2 byte UTF-8). Dung
-  // utf8ByteLength()/truncateUtf8Bytes() ben duoi, KHONG dung String.slice()
-  // theo so ky tu - se cat sai gioi han that su ma firmware chap nhan.
-  const REMINDER_LABEL_MAX_BYTES = 79;
-
-  function utf8ByteLength(str) {
-    return new TextEncoder().encode(str).length;
-  }
-
-  // Cat NGUYEN KY TU (khong cat dut giua 1 ky tu UTF-8 nhieu byte) cho toi
-  // khi vua vuot qua maxBytes - dung khi CAN cat (hien thi phong ngua), con
-  // luc nguoi dung tu nhap thi bao loi va bat tu rut gon thay vi tu y cat.
-  function truncateUtf8Bytes(str, maxBytes) {
-    let result = str;
-    while (utf8ByteLength(result) > maxBytes) result = result.slice(0, -1);
-    return result;
-  }
   const VENT_PROFILE_KEYS = Object.freeze([
     'ventAutoEnabled', 'ventProfileLevel', 'ventCycleMinutes',
     'ventDutyDay1To3', 'ventDutyDay4To7', 'ventDutyDay8To11',
@@ -438,14 +415,13 @@
       }
       // Every wire body signed with the V2 domain must itself declare V2.
       // Callers may still construct legacy-shaped objects; normalize here so
-      // notes/history cannot be signed as v1 and then rejected by DeviceHub.
+      // history cannot be signed as v1 and then rejected by DeviceHub.
       body.v = 2;
       body.bootId = device.bootId;
       const pending = state.pending.get(String(body.requestId || ''));
       if (pending) pending.ackKey = session.key;
       const nowSec = Math.floor(Date.now() / 1000);
       if (channel === 'command') body.expiresAt = nowSec + 8;
-      else if (channel === 'notes/request') body.expiresAt = nowSec + 15;
       body.clientId = controlClientId;
       body.seq = Math.max(Date.now(), (controlSequences.get(device.id) || 0) + 1);
       controlSequences.set(device.id, body.seq);
@@ -624,7 +600,7 @@
   function routes(deviceId) {
     const route = channel => ({ deviceId, channel });
     return { presence: route('presence'), bootstrap: route('bootstrap'), snapshot: route('snapshot'),
-      report: route('config/reported'), remindersReport: route('reminders/reported'), ack: route('ack'),
+      report: route('config/reported'), ack: route('ack'),
       log: route('log'), historyReport: route('history/reported'), config: route('config/set'),
       command: route('command'), historyRequest: route('history/request'),
       session: route('session') };
@@ -906,7 +882,7 @@
     document.body.dataset.connection = connection;
     document.querySelectorAll('form.stackForm button[type="submit"], #quickForm button[type="submit"]').forEach((button) => {
       const reminder = button.closest('form')?.id === 'remindersForm';
-      button.disabled = !controlReady(device) || (reminder ? !device?.remindersLoaded : !device?.config);
+      button.disabled = !controlReady(device) || (reminder || !device?.config);
     });
     // Defaults must not become an accidental patch while lazy config is loading.
     // Readonly quick fields still accept focus, which initiates their lazy read.
@@ -1811,9 +1787,7 @@
         ++pending.retryAttempts;
         // Never re-sign, extend expiry or invent a new requestId after uncertainty.
         publish(route, envelope, { awaitAck: true, requestId: id }).catch(error => {
-          if(pending.kind==='journal'){pending.hubCode=error.hubCode||pending.hubCode;
-            journalLog(id,pending,error.hubCode?'RETRY_HUB_REJECTED':'EXACT_RETRY_UNCONFIRMED',error.hubCode);}
-          else console.warn('[TX retry]', pending.operation, error);
+          console.warn('[TX retry]', pending.operation, error);
         });
       }
       pending.retryTimer = setTimeout(retry, 3500);
@@ -1947,108 +1921,8 @@
   }
 
 
-  const journalErrors={NOTE_JOURNAL_IO:'Không đọc kiểm chứng được AT24C512. Nội dung vẫn được giữ để thử lại.',
-    NOTE_JOURNAL_CORRUPT:'Journal không hợp lệ. Không ghi đè dữ liệu máy.',NOTE_JOURNAL_FULL:'Máy đã đủ 16 ghi chú.',
-    NOTE_JOURNAL_CONFLICT:'Dữ liệu máy vừa thay đổi. Bấm Làm mới trước khi lưu.',NOTE_JOURNAL_INVALID:'Nội dung hoặc Nhắc nhở không hợp lệ.',
-    NOTE_JOURNAL_BUSY:'Máy đang xử lý journal. Thử lại sau.',NOTE_JOURNAL_MOUNTING:'Đang khởi tạo bộ nhớ ghi chú…'};
-  const hubJournalErrors={ACCESS_DENIED:'Hub từ chối quyền truy cập',DEVICE_OFFLINE:'Hub không thấy máy online',
-    INVALID_SIGNATURE_OR_EXPIRY:'Hub từ chối chữ ký hoặc hạn yêu cầu',CONNECTION_CHANGED:'Kết nối máy đã thay đổi',
-    DEVICE_REAUTH_REQUIRED:'Máy cần xác thực lại',DEVICE_SEND_FAILED:'Hub không gửi được xuống máy',
-    REPLAY:'Hub từ chối yêu cầu replay',BUSY:'Hub đang bận'};
-  function journalLog(id,pending,stage,hubCode=null,status=null){
-    pending.journalStages ||= new Set();if(pending.journalStages.has(stage))return;
-    pending.journalStages.add(stage);
-    console.info('[JOURNAL]',{requestId:id,operation:pending.operation,stage,hubCode:hubCode||pending.hubCode||null,
-      tCreated:pending.tCreated,tPublished:pending.tPublished??null,tHubForwarded:pending.tHubForwarded??null,
-      tDeviceReceived:pending.tDeviceReceived??null,tDeviceCompleted:pending.tDeviceCompleted??null,terminal:status});
-  }
-  async function exchangeJournal(deviceId,action,body,recovery=false){
-    const device=state.devices.find(d=>d.id===deviceId);
-    if(!device||deviceId!==state.selectedId)throw Object.assign(new Error('Máy đang chọn đã thay đổi; chưa gửi yêu cầu.'),{code:'DEVICE_CHANGED',definitive:true});
-    if(!state.realtimeConnected||!state.realtime?.connected||!controlReady(device))throw Object.assign(new Error('Web chưa kết nối máy hoặc quyền điều khiển chưa sẵn sàng; chưa gửi yêu cầu.'),{code:'TRANSPORT_ERROR',definitive:true});
-    if(device.notesJournal!==2||!device.notesReadinessKnown)throw Object.assign(new Error('Cần nạp firmware journal mới có trạng thái sẵn sàng bộ nhớ.'),{code:'NOTE_JOURNAL_UNSUPPORTED',definitive:true});
-    if(device.notesReady!==true&&(!['notes.list','notes.reminders.read'].includes(action)||!device.notesError))throw Object.assign(new Error(device.notesError?journalErrors[device.notesError]||device.notesError:
-      'Đang khởi tạo bộ nhớ ghi chú… Chờ máy báo sẵn sàng.'),{code:device.notesError||'NOTE_JOURNAL_MOUNTING',definitive:true});
-    const id=requestId('jnl');
-    return new Promise(async (resolve,reject)=>{
-      const pending=startTransaction(id,{kind:'journal',operation:action,deviceId,resolve,reject,journalRead:{action,body},journalRecovery:recovery},30000);
-      journalLog(id,pending,'CREATED');
-      pending.onTimeout=()=>{if(state.pending.get(id)!==pending)return;moveToUncertain(id,pending);
-        const code=pending.journalDiagnostic||(pending.journalAck?'JOURNAL_DATA_MISSING':
-          pending.journalData?'JOURNAL_TERMINAL_ACK_MISSING':pending.tDeviceReceived!=null?'JOURNAL_COMPLETION_MISSING':
-          pending.tHubForwarded!=null?'JOURNAL_DEVICE_RECEIPT_MISSING':'UNCERTAIN');
-        const stage=code==='DATA_SIGNATURE_INVALID'?'Dữ liệu trả về không xác thực được':
-          code==='ACK_SIGNATURE_INVALID'?'ACK từ máy không xác thực được':
-          pending.journalAck?'Máy đã xác nhận lưu nhưng thiếu DATA':
-          pending.journalData?'Đã nhận DATA xác thực nhưng thiếu terminal ACK':
-          pending.tDeviceReceived!=null?'Máy đã nhận, chưa có kết quả hoàn tất':
-          pending.tHubForwarded!=null?'Hub đã forward; chưa có ACK xác thực từ ESP32':
-          pending.hubCode?`${hubJournalErrors[pending.hubCode]||'Hub từ chối retry'} (${pending.hubCode}); lần gửi trước chưa đối soát`:
-          'Thiếu forwarding receipt từ Hub; chưa xác định máy đã nhận hay chưa';
-        const failureStage=pending.journalDiagnostic|| (pending.journalAck?'DATA_MISSING':pending.journalData?'TERMINAL_ACK_MISSING':
-          pending.tDeviceReceived!=null?'DEVICE_PROCESSING':pending.tHubForwarded!=null?'DEVICE_RECEIPT_MISSING':
-          pending.hubCode?'RETRY_HUB_REJECTED':'HUB_RECEIPT_MISSING');
-        journalLog(id,pending,failureStage,null,'UNRESOLVED');
-        reject(Object.assign(new Error(stage+'. Nội dung vẫn giữ lại; đang đọc đối soát trên máy.'),
-          {code,hubCode:pending.hubCode,stage:failureStage}));};
-      try{
-        const envelope=await signRealtimeWrite(device,'notes/request',{requestId:id,action,...body});
-        armTransaction(id);transactionPublished(id);journalLog(id,pending,'PUBLISHED');
-        retrySameRequest(id,{deviceId,channel:'notes/request'},envelope);
-        await publish({deviceId,channel:'notes/request'},envelope,{awaitAck:true,requestId:id});
-        journalLog(id,pending,'HUB_FORWARDED');
-      }catch(error){if(pendingOutcomeKnown(id))return;
-        if(error.hubCode){pending.hubCode=error.hubCode;journalLog(id,pending,'HUB_REJECTED',error.hubCode);
-          if(pending.retryAttempts>0||pending.tHubForwarded!=null||pending.tDeviceReceived!=null||pending.journalData)return;
-          error.message=`${hubJournalErrors[error.hubCode]||'Hub từ chối yêu cầu'} (${error.hubCode}). Chưa forward lần gửi này.`;
-          error.definitive=true;
-        }else if(error.code==='UNCERTAIN'){journalLog(id,pending,error.stage||'FORWARD_RECEIPT_MISSING');return;}
-        else{error.definitive=true;journalLog(id,pending,'WEB_NOT_SENT');}
-        clearPending(id);reject(error);}
-    });
-  }
-  const notesUiStorage=window.MayapJournalClient.create(exchangeJournal,{storage:localStorage,prefix:()=>STORAGE});
-  async function handleJournalData(device,frame){
-    const id=String(frame?.requestId||''),pending=state.pending.get(id)||state.uncertain.get(id);
-    if(!pending||pending.kind!=='journal'||pending.deviceId!==device.id||frame.v!==2||
-       frame.bootId!==device.bootId||frame.operation!==pending.operation||typeof frame.body!=='string'||
-       encoder.encode(frame.body).length>=1700||!pending.ackKey)return;
-    if(!/^[a-f0-9]{64}$/.test(frame.sig||'')){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';journalLog(id,pending,'DATA_SIGNATURE_INVALID');return;}
-    const bytes=new Uint8Array(frame.sig.match(/../g).map(h=>parseInt(h,16)));
-    const text=['mayap-note-journal:v2',device.id,frame.bootId,id,frame.operation,frame.body].join('\n');
-    if(!await crypto.subtle.verify('HMAC',pending.ackKey,bytes,encoder.encode(text))){pending.journalDiagnostic='DATA_SIGNATURE_INVALID';journalLog(id,pending,'DATA_SIGNATURE_INVALID');return;}
-    if((state.pending.get(id)||state.uncertain.get(id))!==pending||frame.bootId!==device.bootId)return;
-    try{const data=JSON.parse(frame.body);if(!Number.isInteger(data.generation)||data.generation<0||data.generation>0xffffffff)return;
-      pending.journalData=data;journalLog(id,pending,'DATA_VERIFIED');if(pending.journalAck)handleAck(device,pending.journalAck);
-    }catch{}
-  }
-
-  function recoverJournalRead(device,id,pending,ack){
-    if(pending.journalDiagnostic||pending.journalRecovery||pending.journalRecoveryTimer||
-       !['notes.list','notes.reminders.read'].includes(pending.operation))return;
-    // A terminal ACK proves the read completed. Firmware's terminal cache only
-    // replays ACK, so recover lost DATA with one fresh, generation-fenced READ.
-    // Never re-sign or repeat a mutation here.
-    pending.journalRecovery=true;
-    pending.journalRecoveryTimer=setTimeout(async()=>{
-      if(pending.journalData||(state.pending.get(id)||state.uncertain.get(id))!==pending)return;
-      clearTimeout(pending.retryTimer);
-      try{
-        const data=await exchangeJournal(device.id,pending.operation,
-          {...pending.journalRead.body,generation:ack.revision},true);
-        if((state.pending.get(id)||state.uncertain.get(id))!==pending||pending.journalData)return;
-        if(data.generation!==ack.revision)throw new Error('Dữ liệu máy đã thay đổi trong lúc đọc lại. Bấm Thử lại.');
-        pending.journalData=data;handleAck(device,ack);
-      }catch(error){
-        if((state.pending.get(id)||state.uncertain.get(id))!==pending||pending.journalData)return;
-        pending.reject(error);state.uncertain.delete(id);clearPending(id);
-      }
-    },250);
-  }
-
   function clearPending(id) {
     const pending = state.pending.get(id);
-    if (pending?.journalRecoveryTimer) clearTimeout(pending.journalRecoveryTimer);
     if (pending?.timeout) clearTimeout(pending.timeout);
     if (pending?.retryTimer) clearTimeout(pending.retryTimer);
     state.pending.delete(id);
@@ -2069,8 +1943,7 @@
     const id = String(ack.requestId || '');
     const pending = state.pending.get(id) || state.uncertain.get(id);
     if (!pending || pending.deviceId !== device.id) return;
-    if(pending.kind==='journal'&&(ack.operation!==pending.operation||ack.bootId!==device.bootId||
-       ack.bootId!==pending.retryWire?.bootId)){journalLog(id,pending,'ACK_FENCE_REJECTED');return;}
+
     if (Number(ack.v) === 2 && ack.operation === pending.operation && ack.phase === 'completed' &&
         ack.ok === true && typeof ack.code === 'string' && pending.kind === 'history' && (telemetryChart.activeRequestId !== id ||
         !telemetryChart.historyLoaded || telemetryChart.historyGap)) {
@@ -2082,15 +1955,8 @@
       telemetrySetStatus('Thiếu gói lịch sử · sẽ đọc lại');
       return;
     }
-    if(pending.kind==='journal'&&ack.phase==='completed'){
-      pending.tDeviceCompleted=performance.now();journalLog(id,pending,'DEVICE_COMPLETED',null,ack.code);
-    }
-    if(pending.kind==='journal'&&ack.phase==='completed'&&ack.ok===true){
-      if(!pending.journalData){pending.journalAck=ack;
-        if(ack.operation===pending.operation&&ack.bootId===device.bootId&&Number.isInteger(ack.revision))recoverJournalRead(device,id,pending,ack);
-        return;}
-      if(pending.journalData.generation!==ack.revision){pending.reject(new Error('Revision journal không khớp ACK.'));clearPending(id);return;}
-    }
+
+
     const transition = Number(ack.v) === 2 ? transactions.ack(id, ack) : null;
     if (transition === 'IGNORED') return;
     if (transition === 'PROTOCOL_ERROR') {
@@ -2106,7 +1972,6 @@
       if (pending.phase === 'UNCERTAIN') return;
       pending.phase = 'RECEIVED';
       pending.tDeviceReceived = performance.now();
-      if(pending.kind==='journal')journalLog(id,pending,'DEVICE_RECEIVED');
       if (pending.kind === 'config') setFormState(pending.formId, 'pending', 'Máy đã nhận · đang lưu vào bộ nhớ máy…');
       else toast('Máy đã nhận yêu cầu · đang thực hiện');
       return;
@@ -2155,17 +2020,7 @@
       tAckBrowser, at: Date.now() });
     if (late) { state.uncertain.delete(id); transactions.remove(id); }
     else clearPending(id);
-    if(pending.kind==='journal'){
-      if(ok)pending.resolve(pending.journalData);
-      else {
-        // An I/O failure can follow a committed seal; an expired/replay ACK
-        // after retries does not establish the outcome of the first attempt.
-        const definitive=['NOTE_JOURNAL_FULL','NOTE_JOURNAL_CONFLICT','NOTE_JOURNAL_INVALID','NOTE_JOURNAL_BUSY','NOTE_JOURNAL_MOUNTING'].includes(ack.code);
-        pending.reject(Object.assign(new Error(`${journalErrors[ack.code]||message} (${ack.code})`),
-          {code:ack.code,stage:'DEVICE_COMPLETED',definitive,deviceCompleted:true,revision:ack.revision}));
-      }
-      return;
-    }
+
     if (pending.kind === 'config') {
       const superseded = Number(device.revision || 0) > Number(ack.revision || pending.revision);
       if (ok) {
@@ -2375,62 +2230,14 @@
     if (device.id === state.selectedId) applyConfigToUi(device);
   }
 
-  function handleReminderReport(device, report) {
-    if (Number(report.revision || 0) < Number(device.remindersRevision || 0)) return;
-    const list = Array.isArray(report.reminders)
-      ? report.reminders
-          .map((item) => ({ day: Number(item.day) || 0, label: truncateUtf8Bytes(String(item.label || ''), REMINDER_LABEL_MAX_BYTES) }))
-          .filter((item) => item.day > 0 && item.label)
-      : [];
-    device.reminders = list;
-    device.remindersRevision = Number(report.revision || 0);
 
 
-
-    if (device.id === state.selectedId) renderReminderList(device);
-  }
-
-  function renderReminderList(device) {
-    const root = $('reminderList');
-    if (!root) return;
-    const list = Array.isArray(device?.reminders) ? device.reminders : [];
-    root.replaceChildren();
+  function renderReminderList() {
+    $('reminderList')?.replaceChildren();
     const summary = $('remindersSummary');
-    if (summary) {
-      summary.textContent = list.length
-        ? `${list.length}/${MAX_CUSTOM_REMINDERS} nhắc đã đặt`
-        : 'Chưa có nhắc nào';
-    }
-    list
-      .slice()
-      .sort((a, b) => a.day - b.day)
-      .forEach((item) => {
-        const row = document.createElement('div');
-        row.className = 'deviceListItem';
-        const text = document.createElement('div');
-        text.innerHTML = `<strong>Ngày ${escapeHtml(String(item.day))}</strong><small>${escapeHtml(item.label)}</small>`;
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.textContent = 'Xóa';
-        remove.disabled = Boolean(device.remindersPending);
-        remove.addEventListener('click', () => {
-          const nextList = list.filter((entry) => !(entry.day === item.day && entry.label === item.label));
-          sendReminders(device, nextList);
-        });
-        row.append(text, remove);
-        root.append(row);
-      });
-    const addBtn = $('addReminderBtn');
-    if (addBtn) addBtn.disabled = Boolean(device.remindersPending);
-  }
-
-  async function sendReminders(device,nextList){
-    if(!device)return;
-    device.remindersPending=true;renderReminderList(device);
-    try{const stored=await notesUiStorage.saveReminders(device.id,nextList);
-      device.reminders=stored.reminders;device.remindersRevision=stored.generation;toast('Đã lưu Nhắc nhở và đọc kiểm chứng trong máy');return true;
-    }catch(error){toast(error.message,5000);return false;}
-    finally{device.remindersPending=false;if(device.id===state.selectedId)renderReminderList(device);}
+    if (summary) summary.textContent = 'Chưa có giao thức lưu Nhắc nhở';
+    const button = $('addReminderBtn');
+    if (button) button.disabled = true;
   }
 
   function handleSnapshot(device, snapshot) {
@@ -2439,7 +2246,6 @@
       device.revision = 0;
       device.config = null;
       device.configAt = device.configRevision = 0;
-      device.remindersLoaded = false;
     }
     const last = state.lastTerminalByDevice.get(device.id);
     if (last) {
@@ -2471,25 +2277,19 @@
   }
 
   function handlePresence(device, presence) {
-    const previousJournal=`${device.notesJournal}:${device.notesReadinessKnown}:${device.notesReady}:${device.notesError}`;
-    device.notesJournal=Number(presence.notesJournal)===2?2:0;
-    device.notesReadinessKnown=typeof presence.notesReady==='boolean';device.notesReady=presence.notesReady===true;device.notesError=String(presence.notesError||'');
-    const journalChanged=previousJournal!==`${device.notesJournal}:${device.notesReadinessKnown}:${device.notesReady}:${device.notesError}`;
     device.presence = presence;
     device.presenceAt = Date.now();
     device.presenceEpoch = state.subscriptionEpoch;
     const nextBoot = Number(presence.bootId || 0);
     if (nextBoot && nextBoot !== device.bootId) {
-      notesUiStorage.reset(device.id);
       device.liveEpoch = -1;
       device.bootId = nextBoot;
       device.revision = 0;
       device.config = null;
       device.configAt = device.configRevision = 0;
-      device.remindersLoaded = false;
     }
     persistRuntimeCache(device, true);
-    if (device.id === state.selectedId) {renderDevice();if(journalChanged)notesUi?.contextChanged();}
+    if (device.id === state.selectedId) renderDevice();
   }
 
   function handleBootstrap(device, hint) {
@@ -2995,7 +2795,6 @@
     const device = state.devices.find(d => d.id === deviceId);
     const needed = {
       config: !warm && device?.requestedData.has('config') && (!device.config || device.configAt < device.configNeededAt),
-      reminders: !warm && device?.requestedData.has('reminders') && !device.remindersLoaded,
       log: !warm && device?.requestedData.has('log') && (device.logSyncAttempts || 0) < 3
     };
     try {
@@ -3073,7 +2872,7 @@
 
   async function requestDeviceData(name) {
     const device = currentDevice();
-    if (!device || !['config', 'reminders', 'history', 'log'].includes(name)) return;
+    if (!device || !['config', 'history', 'log'].includes(name)) return;
     const first = !device.requestedData.has(name);
     device.requestedData.add(name);
     if (name === 'config' && device.config && Number(device.snapshot?.revision) > Number(device.configRevision || 0))
@@ -3156,24 +2955,18 @@
         if (device.configAt !== before) device.configRevision = device.revision;
         if (device.id === state.selectedId) renderDevice();
       }
-      else if (route.channel === 'reminders/reported') {
-        if (device.liveEpoch === state.subscriptionEpoch && Number(payload.bootId) && Number(payload.bootId) !== device.bootId) return;
-        handleReminderReport(device, payload); device.remindersLoaded = true;
-        if (device.id === state.selectedId) renderDevice();
-      }
+
       else if (route.channel === 'ack') {
         verifyDeviceAck(device, payload).then((valid) => {
           if (valid) handleAck(device,payload);
           else if (state.pending.has(String(payload.requestId || '')) ||
               state.uncertain.has(String(payload.requestId || ''))) {
             const pending=state.pending.get(String(payload.requestId||''))||state.uncertain.get(String(payload.requestId||''));
-            if(pending?.kind==='journal')pending.journalDiagnostic='ACK_SIGNATURE_INVALID';
             console.warn('[TX] PROTOCOL_ERROR: ACK không xác thực được');
           }
         }).catch((error) => console.error('[TX] ACK verify', error));
       }
       else if (route.channel === 'log') handleLog(device, payload);
-      else if(route.channel==='notes/reported')handleJournalData(device,payload);
       else if (route.channel === 'history/reported') handleTemperatureHistory(device, payload);
     });
   }
@@ -3499,47 +3292,9 @@
       controlSession(currentDevice()).catch((error) => console.warn('[SESSION]', error.code || 'TRANSPORT_ERROR'));
     });
 
-    $('remindersForm').addEventListener('submit', async (event) => {
+    $('remindersForm').addEventListener('submit', (event) => {
       event.preventDefault();
-      const device = currentDevice();
-      clearInvalid('remindersForm');
-      if (!device) return toast('Hãy thêm máy trước');
-      if (device.remindersPending) return;
-
-      const dayInput = $('reminderDayInput');
-      const labelInput = $('reminderLabelInput');
-      const day = Math.round(Number(dayInput.value));
-      const label = labelInput.value.trim();
-      const existing = Array.isArray(device.reminders) ? device.reminders : [];
-
-      if (!Number.isFinite(day) || day < 1 || day > 99) {
-        return invalidate('remindersForm', 'reminderDayInput', 'Số ngày phải từ 1 đến 99.');
-      }
-      if (!label) {
-        return invalidate('remindersForm', 'reminderLabelInput', 'Hãy nhập nội dung nhắc.');
-      }
-      // Bao loi va bat nguoi dung tu rut gon thay vi AM THAM cat bot noi
-      // dung - nguoi dung tung phan anh bi cat mat noi dung can nho ma
-      // khong biet, "lam thong minh len" o day nghia la NOI RO ngay tu luc
-      // nhap, khong phai tu y sua sau lung.
-      const labelBytes = utf8ByteLength(label);
-      if (labelBytes > REMINDER_LABEL_MAX_BYTES) {
-        return invalidate('remindersForm', 'reminderLabelInput',
-            `Nội dung dài ${labelBytes} byte, vượt quá tối đa ${REMINDER_LABEL_MAX_BYTES} byte (chữ có dấu tốn nhiều byte hơn số chữ hiển thị) - hãy rút gọn lại.`);
-      }
-      if (existing.length >= MAX_CUSTOM_REMINDERS) {
-        return invalidate('remindersForm', 'reminderDayInput', `Đã đủ tối đa ${MAX_CUSTOM_REMINDERS} nhắc nhở - hãy xóa bớt trước khi thêm.`);
-      }
-      if (existing.some((item) => item.day === day)) {
-        return invalidate('remindersForm', 'reminderDayInput', `Đã có 1 nhắc nhở ở ngày ${day} - hãy xóa hoặc đổi ngày khác.`);
-      }
-
-      const nextList = [...existing, { day, label }];
-      const originalDay=dayInput.value,originalLabel=labelInput.value;
-      if(await sendReminders(device,nextList)){
-        if(dayInput.value===originalDay)dayInput.value='';
-        if(labelInput.value===originalLabel)labelInput.value='';
-      }
+      toast('Chưa có giao thức lưu Nhắc nhở.');
     });
 
     $('renameDeviceForm').addEventListener('submit', async (event) => {
@@ -3611,7 +3366,7 @@
 
     $('quickForm').addEventListener('focusin', () => requestDeviceData('config'));
     $('remindersForm').closest('details')?.addEventListener('toggle', (event) => {
-      if (event.currentTarget.open) requestDeviceData('reminders');
+      if (event.currentTarget.open) renderReminderList(currentDevice());
     });
     $('batchLogList')?.closest('details')?.addEventListener('toggle', (event) => {
       if (event.currentTarget.open) requestDeviceData('log');
@@ -4049,14 +3804,13 @@
     applyDeepLinkDevice();
     bindUi();
     notesUi = window.MayapNotes?.mount({
-      confirm: confirmAction, storage: notesUiStorage,
+      confirm: confirmAction,
       getContext: () => {
         const device = currentDevice();
         return { deviceId: device?.id || '', deviceName: device?.name || '',
           batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning),
-          notesWritable: device?.notesJournal===2&&device?.notesReady===true&&controlReady(device),
-          notesMounting: device?.notesJournal===2&&device?.notesReadinessKnown&&device?.notesReady!==true&&!device?.notesError,
-          notesStatus: !controlReady(device)?'Máy hoặc quyền điều khiển chưa sẵn sàng.':!device?.notesReadinessKnown?'Cần nạp firmware journal mới có trạng thái sẵn sàng bộ nhớ.':device?.notesError?journalErrors[device.notesError]||device.notesError:device?.notesReady!==true?'Đang khởi tạo bộ nhớ ghi chú…':'Máy chưa sẵn sàng kết nối.' };
+          notesWritable: false,
+          notesStatus: 'Chưa có giao thức lưu Ghi chú.' };
       }
     });
     renderSelector();

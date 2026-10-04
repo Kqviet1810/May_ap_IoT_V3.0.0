@@ -7,7 +7,6 @@
 #include "websocket_transport.h"
 #include "protocol_limits.h"
 #include "web_realtime_policy.h"
-#include "note_mailbox.h"
 #include <ArduinoJson.h>
 #include <esp_wifi.h>
 #include <mbedtls/md.h>
@@ -101,13 +100,6 @@ static uint32_t lastVerifiedConfigRevision = 0U;
 
 static MachineRuntime knownRuntime{};
 static bool knownRuntimeValid = false;
-
-// Danh sach nhac nho tuy chinh (v3.7.0) - cung mailbox pattern voi knownConfig
-// o tren, nhung DOC LAP hoan toan (khong dan xen voi luu cau hinh dieu khien).
-static ReminderSet knownReminders{};
-static bool knownRemindersValid = false;
-static bool remindersDirty = false;
-static uint32_t webRemindersRevision = 0U;
 
 // --------------------- Tuong quan lenh/luu cau hinh voi web --------------------
 // pendingCommands/pendingConfigSave duoc GHI boi realtime owner (khi nhan lenh tu
@@ -299,8 +291,6 @@ inline void serviceHistoryResponse() {
   }
 }
 
-static MayapNoteMailbox::MountState announcedJournalState=MayapNoteMailbox::MountState::Mounting;
-static MayapNoteJournal::Code announcedJournalCode=MayapNoteJournal::Code::Ok;
 inline void publishPresence(bool online) {
   JsonDocument doc;
   doc["online"] = online;
@@ -315,11 +305,7 @@ inline void publishPresence(bool online) {
   caps.add("transactions"); caps.add("config.patch");
   caps.add("control.session"); caps.add("history.chunk");
   doc["hw"] = MAYAP_HARDWARE_REVISION;
-  doc["notesJournal"]=2;
-  MayapNoteJournal::Code journalCode;const auto journalState=MayapNoteMailbox::status(journalCode);
-  doc["notesReady"]=journalState==MayapNoteMailbox::MountState::Ready;
-  doc["notesError"]=journalState==MayapNoteMailbox::MountState::Failed?MayapNoteJournal::codeText(journalCode):"";
-  if(publishJson("presence", doc, true)){announcedJournalState=journalState;announcedJournalCode=journalCode;}
+  publishJson("presence", doc, true);
 }
 
 inline bool publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
@@ -434,22 +420,6 @@ inline bool publishConfigReport(const MachineConfig &cfg, uint32_t revision) {
   return publishJson("config/reported", chunk, false);
 }
 
-// Danh sach nhac nho tuy chinh hien co - web dung de dong bo lai form khi mo
-// trang/doi thiet bi (giong het vai tro cua "config/reported" voi MachineConfig).
-inline bool publishReminderReport(const ReminderSet &reminders, uint32_t revision) {
-  JsonDocument doc;
-  doc["v"] = 1;
-  doc["bootId"] = bootId;
-  doc["revision"] = revision;
-  JsonArray items = doc["reminders"].to<JsonArray>();
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    if (reminders.items[i].day == 0U) continue;  // O TRONG - khong gui
-    JsonObject item = items.add<JsonObject>();
-    item["day"] = reminders.items[i].day;
-    item["label"] = reminders.items[i].label;
-  }
-  return publishJson("reminders/reported", doc, true);
-}
 
 inline bool publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   JsonDocument doc;
@@ -528,9 +498,7 @@ inline bool publishBootstrap(const MachineRuntime &rt, uint32_t revision) {
   return publishJson("bootstrap", doc, true);
 }
 
-static uint32_t noteAckRevision=0;
 struct TerminalResult {
-  uint32_t noteRevision=0;
   bool used = false;
   char requestId[WEB_REQUEST_ID_CAPACITY] = "";
   char operation[40] = "";
@@ -545,7 +513,6 @@ inline bool replayTerminal(const char *id) {
   if (!id || !id[0]) return false;
   for (const auto &item : terminalCache) {
     if (!item.used || strcmp(item.requestId, id)) continue;
-    if(!strncmp(item.operation,"notes.",6))noteAckRevision=item.noteRevision;
     // Replayed terminal result never executes the controller again.
     publishAck(item.requestId, item.result, item.message, item.operation,
                0U, 0U, item.signedAck ? item.ackKey : nullptr);
@@ -555,7 +522,6 @@ inline bool replayTerminal(const char *id) {
 }
 
 inline const char *ackCode(const char *result, const char *message) {
-  if (message && !strncmp(message, "NOTE_JOURNAL_", 13U)) return message;
   if (message && !strncmp(message, "HISTORY_", 8U)) return message;
   if (message && !strncmp(message, "CONFIG_", 7U)) return message;
   if (!strcmp(result, "applied")) return "APPLIED";
@@ -646,7 +612,6 @@ inline bool publishAck(const char *requestId, const char *result,
     for (auto &item : terminalCache) if (item.used && !strcmp(item.requestId, requestId)) { existing = &item; break; }
     TerminalResult slot{}; // Separate copy avoids aliasing replayTerminal() input.
     slot.used = true;
-    if(!strncmp(op,"notes.",6))slot.noteRevision=noteAckRevision;
     snprintf(slot.requestId, sizeof(slot.requestId), "%s", requestId);
     snprintf(slot.operation, sizeof(slot.operation), "%s", op);
     snprintf(slot.result, sizeof(slot.result), "%s", result);
@@ -669,7 +634,7 @@ inline bool publishAck(const char *requestId, const char *result,
   doc["bootId"] = bootId;
   doc["result"] = result;
   doc["message"] = ackFriendlyMessage(code, message);
-  doc["revision"] = !strncmp(op,"notes.",6) ? noteAckRevision : webConfigRevision;
+  doc["revision"] = webConfigRevision;
   doc["tDeviceReceived"] = receivedAt ? receivedAt : millis();
   doc["tDeviceCompleted"] = completedAt ? completedAt : lastDeviceCompletedAt;
   if (key) {
@@ -1157,13 +1122,6 @@ inline void handleConfigSetMessage(const JsonDocument &doc) {
 }
 
 
-// Web da phan tich/xac thuc TOAN BO o phia web (parse ngay thang tu nhien,
-// bao loi trung/khong hop le tren form...) - firmware CHI nhan mang (day,
-// label) da xu ly san va sanitizeReminderSet() lam luoi an toan cuoi (xem
-// config.h). Luon thay THE TOAN BO danh sach (khong merge tung phan tu),
-// giong het huong tiep can cua "config/set" o tren.
-
-
 // Eight bounded leases are ORed: hiding one tab cannot deactivate another.
 inline void handleSessionMessage(const JsonDocument &doc) {
   const char *client = doc["clientId"] | "";
@@ -1193,7 +1151,6 @@ inline void handleSessionMessage(const JsonDocument &doc) {
   if (sync) {
     portENTER_CRITICAL(&webMux);
     const bool haveConfig = knownConfigValid;
-    const bool haveReminders = knownRemindersValid;
     portEXIT_CRITICAL(&webMux);
     // Mailboxes are drained outside the realtime callback, not a burst of JSON/
     // TLS writes on top of the incoming envelope and signature documents.
@@ -1201,7 +1158,6 @@ inline void handleSessionMessage(const JsonDocument &doc) {
     // Older clients omit scope and retain the original full-sync behavior.
     const bool legacy = doc["scope"].isNull();
     if (haveConfig && (legacy || (doc["config"] | false))) configDirty = true;
-    if (haveReminders && (legacy || (doc["reminders"] | false))) remindersDirty = true;
     if (legacy || (doc["log"] | false)) eventSnapshotDirty = true;
     portEXIT_CRITICAL(&webMux);
     lastSnapshotPublishAt = 0U;  // ep publish snapshot ngay trong vong lap toi
@@ -1220,7 +1176,6 @@ inline void handleSessionMessage(const JsonDocument &doc) {
   }
 }
 
-#include "note_realtime.h"
 
 inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
   if (length > MayapProtocol::FRAME_NORMAL_CAP) return;
@@ -1236,7 +1191,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     bool expired = false;
     if (!v2 || !realtimeVerifyV2(channel, wireDoc, bodyDoc, expired)) {
       if (expired) {
-        const char *op = (!strcmp(channel, "command") || !strcmp(channel,"notes/request")) ? (bodyDoc["action"] | "")
+        const char *op = (!strcmp(channel, "command")) ? (bodyDoc["action"] | "")
             : !strcmp(channel, "config/set") ? "config.save"
             : "history.read";
         char normalized[40];
@@ -1251,7 +1206,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
       return;
     }
     const char *id = bodyDoc["requestId"] | "";
-    const char *op = (!strcmp(channel, "command") || !strcmp(channel,"notes/request")) ? (bodyDoc["action"] | "")
+    const char *op = (!strcmp(channel, "command")) ? (bodyDoc["action"] | "")
                     : !strcmp(channel, "config/set") ? "config.save"
                     : "history.read";
     snprintf(activeOperation, sizeof(activeOperation), "%s", op);
@@ -1264,8 +1219,7 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     }
     if (replayTerminal(id)) { activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
     bool inFlight = (pendingConfigSave.used && !strcmp(id, pendingConfigSave.requestId)) ||
-                    (historyResponsePending && !strcmp(id, historyRequestId)) ||
-                    (notePending.used && !strcmp(id,notePending.id));
+                    (historyResponsePending && !strcmp(id, historyRequestId));
     for (const auto &pending : pendingCommands)
       if (pending.used && !strcmp(id, pending.requestId)) inFlight = true;
     if (inFlight) { publishAck(id, "accepted", ""); activeOperation[0] = '\0'; activeAckKeyValid = false; return; }
@@ -1280,7 +1234,6 @@ inline void realtimeMessageCallback(const uint8_t *payload, size_t length) {
     activeAckKeyValid = false;
   };
 
-  if(!strcmp(channel,"notes/request")){verifyAndDispatch("notes/request",[](const JsonDocument &doc){handleNoteRequest(doc);});return;}
   if (!strcmp(channel, "config/set")) {
     verifyAndDispatch("config/set", [](const JsonDocument &doc) { handleConfigSetMessage(doc); });
     return;
@@ -1442,17 +1395,7 @@ inline void serviceConfigPublish() {
   }
 }
 
-inline void serviceReminderPublish() {
-  portENTER_CRITICAL(&webMux);
-  const bool dirty = remindersDirty;
-  remindersDirty = false;
-  const ReminderSet reminders = knownReminders;
-  const uint32_t revision = webRemindersRevision;
-  portEXIT_CRITICAL(&webMux);
-  if (dirty && !publishReminderReport(reminders, revision)) {
-    portENTER_CRITICAL(&webMux); remindersDirty = true; portEXIT_CRITICAL(&webMux);
-  }
-}
+
 
 inline void serviceSnapshotPublish(uint32_t now) {
   static MayapWebRealtime::BootstrapState idleState{};
@@ -1549,10 +1492,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
   expirePendingCommands(postLoopNow); drainAckOutbox();
   MayapNetworkBatchOperation batchOperation;
   if (!batchOperation) return;
-  serviceSnapshotPublish(postLoopNow); serviceConfigPublish(); serviceReminderPublish();
-  serviceEventLogPublish(); serviceHistoryResponse(); serviceNoteResult();
-  MayapNoteJournal::Code journalCode;const auto journalState=MayapNoteMailbox::status(journalCode);
-  if(journalState!=announcedJournalState||journalCode!=announcedJournalCode)publishPresence(true);
+  serviceSnapshotPublish(postLoopNow); serviceConfigPublish();
 }
 
 // ------------------------- Hooks goi tu controlTask (machine_control.h) --------
@@ -1586,19 +1526,7 @@ inline void mayapWebSetConfig(const MachineConfig &config) {
   portEXIT_CRITICAL(&webMux);
 }
 
-inline void mayapWebSetReminders(const ReminderSet &reminders) {
-  using namespace MayapRealtimeInternal;
-  portENTER_CRITICAL(&webMux);
-  const bool changed = !knownRemindersValid ||
-      memcmp(&reminders, &knownReminders, sizeof(ReminderSet)) != 0;
-  knownReminders = reminders;
-  knownRemindersValid = true;
-  if (changed) {
-    remindersDirty = true;
-    webRemindersRevision=MayapNoteMailbox::verifiedRevision();
-  }
-  portEXIT_CRITICAL(&webMux);
-}
+
 
 inline void mayapWebConfirmCommand(uint32_t commandId, bool ok,
                                    const char *message) {

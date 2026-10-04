@@ -95,10 +95,6 @@ constexpr uint32_t WEB_SNAPSHOT_ACTIVE_INTERVAL_MS = 1000UL;
 constexpr uint32_t WEB_SNAPSHOT_IDLE_INTERVAL_MS = 120000UL;
 constexpr uint32_t WEB_COMMAND_ACK_TIMEOUT_MS = 8000UL;
 constexpr uint32_t WEB_CONFIG_SAVE_ACK_TIMEOUT_MS = 8000UL;
-// Dung chung thoi han cho voi "config/set" - luu danh sach nhac nho tuy
-// chinh (xem "reminders/set" trong realtime_link.h) don gian hon nhieu (chi
-// 1 mang nho, khong dan xen voi dieu khien) nen khong can hang so rieng.
-constexpr uint32_t WEB_REMINDER_SAVE_ACK_TIMEOUT_MS = WEB_CONFIG_SAVE_ACK_TIMEOUT_MS;
 
 // --------------------------- Cloud Push (Cloudflare Worker, doc lap voi Web) ---
 // KENH RIENG, KHONG DI QUA MQTT/WEB: cloud_alert_link.h tu mo ket noi HTTPS
@@ -921,43 +917,20 @@ constexpr int32_t NTP_TIMEZONE_OFFSET_SEC = 7L * 3600L;
 constexpr uint32_t NTP_SYNC_INTERVAL_MS = 12UL * 3600UL * 1000UL;
 constexpr uint32_t NTP_REQUEST_TIMEOUT_MS = 5000UL;
 
-// Danh sach nhac nho tuy chinh (v3.7.0) - nguoi dung tao tren web (vd "4 ngay
-// sau khi bat dau me, nhac kiem tra"), web da phan tich/xac thuc xong het,
-// ESP32 CHI nhan (ngay, ten) da xu ly san va cho tuc thoi ngay den la bao qua
-// Cloud Push - xem cloud_alert_link.h::checkCustomReminders(). Toi da 10 muc
-// tranh phinh to payload MQTT/EEPROM vo ich; ten toi da 23 ky tu (23+1 byte
-// ket thuc) - du cho 1 cau ngan, HMI khong hien thi muc nay nen khong bi rang
-// buoc boi be rong man hinh LCD.
-constexpr uint8_t MAX_CUSTOM_REMINDERS = 10U;
-// 79 ky tu (byte UTF-8) su dung + 1 byte '\0' ket thuc - du cho 1 cau nhac
-// day du kieu "Ngay thu 10 thi can mang khay so 3 ra de kiem tra" (nguoi
-// dung phan anh 23 byte cu qua chat, cat cut mat noi dung that su can nho).
-// Luu y day la GIOI HAN BYTE UTF-8, khong phai so ky tu hien thi - tieng Viet
-// co dau ton nhieu byte hon so ky tu (xem REMINDER_LABEL_MAX_BYTES/
-// utf8ByteLength() trong app.js, dam bao web khong bao gio gui qua gioi han
-// nay va lam dut giua 1 ky tu nhieu byte).
-constexpr uint8_t CUSTOM_REMINDER_LABEL_LEN = 80U;  // gom byte '\0' ket thuc
 
-// Ban do AT24C32, dia chi o nho 16-bit:
-// Config A/B 256 byte; Batch A/B 128 byte; Reminders A/B 1024 byte; phan con
-// lai du phong. Reminders dung BAN GHI RIENG (khong nhap chung vao
-// PackedMachineConfigV1/CONFIG_SCHEMA) de KHONG dung den dia chi Batch A/B da
-// co san - tranh nguy co mat du lieu "tiep tuc me dang do" cua nguoi dung
-// dang ap thuc te ngay luc nang cap len firmware co tinh nang nay (doi dia
-// chi Batch se khien ban ghi batch cu "bien mat" sau OTA vi code moi doc sai
-// vi tri). Vi ly do tuong tu, KHONG bao gio doi cac hang so EEPROM_ADDR_* o
-// tren cho ban ghi da co san trong tuong lai.
+// AT24C512 layout: configuration, batch and history addresses are unchanged.
+// Unused legacy ranges remain reserved; no erase or migration is performed.
 constexpr uint16_t EEPROM_ADDR_CONFIG_A = 0x0000U;
 constexpr uint16_t EEPROM_ADDR_CONFIG_B = 0x0100U;
 constexpr uint16_t EEPROM_ADDR_BATCH_A  = 0x0200U;
 constexpr uint16_t EEPROM_ADDR_BATCH_B  = 0x0280U;
-constexpr uint16_t EEPROM_ADDR_REMINDERS_A = 0x0300U;
-constexpr uint16_t EEPROM_ADDR_REMINDERS_B = 0x0700U;
+constexpr uint16_t EEPROM_ADDR_RESERVED_A = 0x0300U;
+constexpr uint16_t EEPROM_ADDR_RESERVED_B = 0x0700U;
 constexpr uint16_t EEPROM_CONFIG_SLOT_BYTES = 0x0100U;
 constexpr uint16_t EEPROM_BATCH_SLOT_BYTES = 0x0080U;
-constexpr uint16_t EEPROM_REMINDERS_SLOT_BYTES = 0x0400U;
+constexpr uint16_t EEPROM_RESERVED_SLOT_BYTES = 0x0400U;
 
-// AT24C512: giu Config/Batch/Reminders A/B o dia chi cu de bao toan du lieu.
+// AT24C512: keep existing configuration/batch addresses and reserved ranges.
 // 0x0B00..0x0FFF de nguyen (history cu); history moi 0x1000..0x2F7F.
 // 7 ngay, 5 phut/mau; 0x2F80..0xFFFF du phong, KHONG format khi boot.
 constexpr uint16_t EEPROM_ADDR_TEMP_HISTORY = 0x1000U;
@@ -1002,12 +975,12 @@ static_assert(EEPROM_RECOVERY_VERIFY_COUNT > 0U,
 static_assert(EEPROM_ADDR_CONFIG_A + EEPROM_CONFIG_SLOT_BYTES <= EEPROM_ADDR_CONFIG_B, "Config A de len B");
 static_assert(EEPROM_ADDR_CONFIG_B + EEPROM_CONFIG_SLOT_BYTES <= EEPROM_ADDR_BATCH_A, "Config B de len Batch A");
 static_assert(EEPROM_ADDR_BATCH_A + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_BATCH_B, "Batch A de len B");
-static_assert(EEPROM_ADDR_BATCH_B + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_REMINDERS_A,
-              "Batch B de len Reminders A");
-static_assert(EEPROM_ADDR_REMINDERS_A + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_REMINDERS_B,
-              "Reminders A de len B");
-static_assert(EEPROM_ADDR_REMINDERS_B + EEPROM_REMINDERS_SLOT_BYTES <= EEPROM_ADDR_TEMP_HISTORY,
-              "Reminders B de len History");
+static_assert(EEPROM_ADDR_BATCH_B + EEPROM_BATCH_SLOT_BYTES <= EEPROM_ADDR_RESERVED_A,
+              "Batch B de len Reserved A");
+static_assert(EEPROM_ADDR_RESERVED_A + EEPROM_RESERVED_SLOT_BYTES <= EEPROM_ADDR_RESERVED_B,
+              "Reserved A de len B");
+static_assert(EEPROM_ADDR_RESERVED_B + EEPROM_RESERVED_SLOT_BYTES <= EEPROM_ADDR_TEMP_HISTORY,
+              "Reserved B de len History");
 static_assert(EEPROM_ADDR_TEMP_HISTORY + TEMP_HISTORY_STORAGE_BYTES <= EEPROM_CAPACITY_BYTES,
               "History vuot dung luong AT24C512");
 static_assert(EEPROM_PAGE_SIZE % TEMP_HISTORY_RECORD_BYTES == 0U,
@@ -1185,47 +1158,7 @@ inline bool mayapPidHasAuthority(const MachineConfig &cfg) {
   return cfg.kp > 0.0f || cfg.ki > 0.0f || cfg.kd > 0.0f;
 }
 
-// Nhac nho tuy chinh theo ngay (v3.7.0) - nguoi dung tao tren web, tinh tu
-// luc bat dau me (day = 1 la ngay dau tien). day == 0 nghia la O TRONG (chua
-// dat/da xoa) - KHONG dung "count" rieng, giu don gian dung nguyen tac cua
-// cac truong "0 = tat/trong" da co san trong firmware nay (vd batchStartEpoch).
-// Rieng biet voi MachineConfig/CONFIG_SCHEMA - xem ghi chu EEPROM_ADDR_REMINDERS_*.
-struct CustomReminder {
-  uint8_t day = 0;
-  char label[CUSTOM_REMINDER_LABEL_LEN] = "";
-};
-struct ReminderSet {
-  CustomReminder items[MAX_CUSTOM_REMINDERS];
-};
 
-// Sua loi/rang buoc an toan CHO DU LIEU NAY (khong lien quan dieu khien nhiet/
-// dao trung) - luon chay lai o firmware bat ke web da xac thuc chua, giong
-// het nguyen tac sanitizeMachineConfig() ben duoi: khong bao gio tin tuong
-// hoan toan du lieu tu ben ngoai. Web van la noi lam TOAN BO viec "phan tich"
-// (hieu cau nhap tu nhien cua nguoi dung, bao loi trung/khong hop le ngay
-// tren form) - day chi la luoi an toan cuoi cung tren firmware.
-inline void sanitizeReminderSet(ReminderSet &set) {
-  bool seenDay[256] = {};
-  for (uint8_t i = 0; i < MAX_CUSTOM_REMINDERS; ++i) {
-    CustomReminder &item = set.items[i];
-    item.label[CUSTOM_REMINDER_LABEL_LEN - 1U] = '\0';  // luon co '\0' ket thuc
-    if (item.day == 0U || item.label[0] == '\0') {
-      // Ngay 0 hoac ten rong deu coi la O TRONG - dong bo lai ca 2 truong.
-      item.day = 0U;
-      item.label[0] = '\0';
-      continue;
-    }
-    item.day = static_cast<uint8_t>(constrain(static_cast<int>(item.day), 1, 200));
-    if (seenDay[item.day]) {
-      // Trung ngay voi 1 muc da giu truoc do trong CUNG lan luu nay (le ra
-      // web da loc, day la luoi du phong) - bo muc DEN SAU, giu muc dau tien.
-      item.day = 0U;
-      item.label[0] = '\0';
-      continue;
-    }
-    seenDay[item.day] = true;
-  }
-}
 
 struct NetworkStatus {
   ConnectivityMode requestedMode = ConnectivityMode::Offline;
