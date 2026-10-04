@@ -47,9 +47,9 @@ class MayapNetworkBatchOperation {
     uint8_t expected = 0U;
     acquired_ = __atomic_compare_exchange_n(&MayapNetworkIoInternal::tlsBusy,
         &expected, 2U, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-    if (acquired_ &&
-        (ESP.getFreeHeap() < MayapNetworkIoInternal::TLS_LARGEST_BLOCK_MIN ||
-         ESP.getMaxAllocHeap() < MayapNetworkIoInternal::TLS_LARGEST_BLOCK_MIN)) {
+    // Preserve the existing bulk-publication admission behavior; Phase A
+    // changes only transient TLS budgets used by Cloud/OTA/MQTT.
+    if (acquired_ && ESP.getFreeHeap() < MayapNetworkIoInternal::TLS_LARGEST_BLOCK_MIN) {
       __atomic_store_n(&MayapNetworkIoInternal::tlsBusy, 0U, __ATOMIC_RELEASE);
       acquired_ = false;
     }
