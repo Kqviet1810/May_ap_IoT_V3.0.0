@@ -12,6 +12,7 @@ enum class NetworkStateCode { Offline, NotConfigured, Connecting };
 constexpr int WIFI_OFF=0, WIFI_STA=1, WL_CONNECTED=3;
 constexpr const char *NETWORK_WIFI_HOSTNAME="mayap-test";
 static bool portal=false, configured=true;
+static uint8_t portalListeners=0;
 bool mayapWifiPortalExclusiveRequested() { return portal; }
 struct FakeWifi {
   unsigned off=0, sta=0, disconnects=0, reconnects=0, begins=0;
@@ -20,7 +21,7 @@ struct FakeWifi {
   int getMode() { return radioMode; }
   bool isConnected() { return connected; }
   int status() { return connected ? WL_CONNECTED : 0; }
-  bool softAPdisconnect(bool) { assert(mayapOnlineOwnersDrained()); return true; }
+  bool softAPdisconnect(bool) { assert(mayapOnlineOwnersDrained()); assert(portalListeners==0); return true; }
   bool setAutoReconnect(bool enabled) { assert(!enabled); return true; }
   bool disconnect(bool eraseRadio, bool eraseCredentials) {
     assert(mayapOnlineOwnersDrained());
@@ -74,13 +75,13 @@ static uint8_t portalRequestFlag=0,portalCancelFlag=0,portalOtaQuiescedFlag=0;
 static bool pendingCredentialsReady=false;
 static uint32_t portalQuiesceStartedAt_=0,portalOpenedAt=0,portalTestStartedAt=0,portalResultUntil_=0;
 static char portalApName[20]="test",pendingSsid[33]="new",pendingPassword[65]="bad";
-struct Server { void stop(){} void processNextRequest(){} void handleClient(){} } portalServer,portalDns;
+struct Server { uint8_t bit; void stop(){portalListeners &= ~bit;} void processNextRequest(){} void handleClient(){} } portalServer{1},portalDns{2};
 inline bool timeReached(uint32_t now,uint32_t when){return static_cast<int32_t>(now-when)>=0;}
 inline uint32_t elapsedMs(uint32_t now,uint32_t then){return now-then;}
 void portalCrashMark(uint8_t){} void portalCrashClear(){}
 void publishPortalState(WifiPortalState,const char*){}
 bool saveCredentials(const char*,const char*){return true;}
-void portalBeginStarting(uint32_t now){assert(mayapOnlineOwnersDrained());portalPhase=PortalPhase::ApActive;portalOpenedAt=now;}
+void portalBeginStarting(uint32_t now){assert(mayapOnlineOwnersDrained());portalListeners=3;portalPhase=PortalPhase::ApActive;portalOpenedAt=now;}
 void serviceStarting(uint32_t){}
 #include "actual-portal.inc"
 }

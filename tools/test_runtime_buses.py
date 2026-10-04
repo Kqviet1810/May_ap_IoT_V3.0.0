@@ -166,6 +166,19 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
         header.write_text(fixed_gate)
         assert broken.returncode != 0, 'Idle-only drain race was not detected'
         print('Regression proof: idle-only busy flags permit radio mutation before socket closure; owner drain ACKs reject it')
+        portal_header = out / 'actual-portal.inc'
+        fixed_portal = portal_header.read_text()
+        close_first = 'portalServer.stop();\n      portalDns.stop();\n      WiFi.softAPdisconnect(true);'
+        assert close_first in fixed_portal
+        portal_header.write_text(fixed_portal.replace(close_first,
+            'WiFi.softAPdisconnect(true);\n      portalServer.stop();\n      portalDns.stop();'))
+        executable = out / 'runtime-portal-close-regression'
+        subprocess.run([args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                        str(root / 'tests/runtime-network.cpp'), '-o', str(executable)], check=True)
+        broken = subprocess.run([str(executable)], capture_output=True, text=True)
+        portal_header.write_text(fixed_portal)
+        assert broken.returncode != 0, 'Portal listener/radio teardown order was not detected'
+        print('Regression proof: AP teardown before portal HTTP/DNS closure is rejected')
         # Demonstrate that the expanded test actually rejects the logged bug,
         # not merely that the patched source compiles. Only a temporary header
         # is mutated; production files and the Tiny sketch remain untouched.

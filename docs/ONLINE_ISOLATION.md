@@ -6,6 +6,8 @@ The shared `RadioGate` closes admission atomically. Realtime, Cloud and OTA fini
 
 Portal and STA startup/recovery share this gate. Portal success hands over the already initialized STA. Failure/cancel/timeout does not reopen admission before radio cleanup. Failed portal UI is not an exclusive-radio request. An ongoing OTA upload withholds its drain ACK; a verified successful OTA can still reboot intentionally.
 
+The portal owner also closes its own HTTP/DNS listeners before disabling AP, including the successful Wi-Fi-test path. Fault injection rejects the previous AP-first order as well as idle-only closure checks.
+
 Heap critical/sustained-pressure warnings pause Online rather than requesting a controller restart. A 16 KiB instantaneous reserve triggers the same pause; reopening requires 72 KiB free and a 24 KiB allocation block. Memory-pressure flags are nonblocking atomics on the control path. Existing heap fault thresholds remain diagnostic. Optional task-create failure degrades its service; Wi-Fi/realtime initialization readiness has a finite boot-stage timeout, and Cloud/OTA admission cannot hold boot forever.
 
 HMI distinguishes lost/weak Wi-Fi and Wi-Fi connected but realtime unavailable, with bounded notices and recovery messages. PID, output arbitration, sensor, turning, RTC/EEPROM and local watchdog trip behavior remain unchanged.

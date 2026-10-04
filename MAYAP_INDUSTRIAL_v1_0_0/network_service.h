@@ -643,9 +643,9 @@ inline void servicePortal(uint32_t now) {
       portalResultUntil_ = now + 8000UL;
       publishPortalState(WifiPortalState::Success, portalApName);
       // Da co mang moi hoat dong: dong AP ngay, khong can nguoi dung thao tac them.
-      WiFi.softAPdisconnect(true);
       portalServer.stop();
       portalDns.stop();
+      WiFi.softAPdisconnect(true);
       return;
     }
     if (elapsedMs(now, portalTestStartedAt) >= WIFI_PORTAL_TEST_TIMEOUT_MS) {
