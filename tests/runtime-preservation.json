@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "43fca8cbaa8279a7d2af3b1548be703ad4407071f7c2cb10c3ed5b5307f1d886",
+      "sha256": "cbc45a3972fc42c236a664fd0624d7ba6409f1c88a892e618460f406a148b73b",
       "filter": "config"
     },
     {
@@ -449,5 +449,6 @@
   "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
   "journalV2WireReviewNote": "2026-10-04: field evidence showed notes.list rejected by DeviceHub as INVALID_SIGNATURE_OR_EXPIRY because exchangeJournal supplied PROTOCOL_VERSION=1 while verifyWrite requires body.v=2. signRealtimeWrite now centrally normalizes all V2 wire bodies to v=2; notes/request gets a 15s execution expiry to stay inside the server's 30s bound with modest clock skew. This also fixes legacy-shaped history/request bodies. HMAC domain/key, requestId, seq/nonce, exact retry, journal EEPROM layout and firmware safety/control are unchanged.",
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes.",
-  "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged."
+  "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged.",
+  "release113ThermalPolishReviewNote": "2026-10-04: rebuilt on latest main after notes/journal removal. Release 1.1.3 adds only thermal UX/invariant hardening: shifted-envelope validation for target writes; HMI clamp guard; PID requires P or I steady-state authority. Config layout, PID math, PDM, safety thresholds, EEPROM schema, journal-removal changes and output ownership remain unchanged."
 }
