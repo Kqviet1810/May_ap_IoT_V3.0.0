@@ -16,7 +16,8 @@ function browser(overrides = {}, initialStorage = {}) {
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectRealtime, supportsVentProfile,
       swipeDestination, buildConfig, validateTemperatureForm, validateSensorForm,
-      validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
+      validateVentForm, validateAdvancedForm, autoTunePhaseLabel, autoTuneFailureText,
+      REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
       refreshRealtimeSession, requestRealtimeSession, postCloudJson, isDeviceOnline, sendCommand,
       handleBootstrap, handleSnapshot, handlePresence, persistRuntimeCache, freshnessText,
@@ -618,4 +619,16 @@ test('running-batch target edit re-anchors safety and ventilation envelope inste
   assert.ok(Math.abs(cfg.ventOnTemp - 30.5) < 1e-9);
   assert.ok(Math.abs(cfg.ventOffTemp - 30.1) < 1e-9);
   assert.equal(cfg.highTempAlarmWithoutBatch, true);
+});
+
+
+test('Auto Tune runtime exposes phase-specific progress and actionable failure reasons', () => {
+  const h = browser();
+  assert.equal(h.autoTunePhaseLabel(1), 'Đang làm nóng');
+  assert.equal(h.autoTunePhaseLabel(2), 'Đang gia nhiệt');
+  assert.equal(h.autoTunePhaseLabel(3), 'Đang hạ nhiệt');
+  assert.match(h.autoTuneFailureText(14), /Gia nhiệt không vượt được ngưỡng trên/);
+  assert.match(h.autoTuneFailureText(15), /không hạ qua ngưỡng dưới/);
+  assert.match(h.autoTuneFailureText(2), /cảm biến/);
+  assert.match(h.autoTuneFailureText(999), /PID cũ vẫn được giữ nguyên/);
 });
