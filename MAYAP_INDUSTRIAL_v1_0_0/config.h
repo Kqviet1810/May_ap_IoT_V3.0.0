@@ -6,6 +6,7 @@
 #include <math.h>
 
 #include "build_public.h"
+#include "autotune_diagnostics.h"
 
 #if __has_include("build_secrets.h")
 #include "build_secrets.h"
@@ -1049,7 +1050,6 @@ enum class TurnState : uint8_t {
 enum class AutoTuneState : uint8_t {
   Idle = 0, Running = 1, Success = 2, Failed = 3
 };
-
 enum class MachineStateCode : uint8_t {
   Boot = 0, ReadyAuto, ReadyManual, ResumeWait, Prestart, Homing,
   RunningAuto, RunningManual, AutoTune,
@@ -1321,6 +1321,9 @@ struct MachineRuntime {
   uint32_t turnCountBatch = 0;
   uint32_t alarmMask = AlarmNone;
   AutoTuneState autoTuneState = AutoTuneState::Idle;
+  AutoTunePhase autoTunePhase = AutoTunePhase::Idle;
+  AutoTuneReason autoTuneReason = AutoTuneReason::None;
+  AutoTuneReason autoTuneQuality = AutoTuneReason::None;
   uint8_t autoTuneProgress = 0;
   MachineStateCode stateCode = MachineStateCode::Boot;
   uint16_t primaryFaultCode = 0;

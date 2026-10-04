@@ -1,5 +1,7 @@
 #pragma once
 
+#include "autotune_diagnostics.h"
+
 // Pure thermal algorithms. Including code provides MachineConfig, timing,
 // constants and sanitizeMachineConfig; the host test runs these SAME classes.
 //
@@ -120,13 +122,8 @@ class ThermalController {
   float output_ = 0.0f;
 };
 
-// These phases/reasons are service diagnostics, not changes to public state codes.
-enum class AutoTunePhase : uint8_t { Idle, Preheat, Heating, Cooling, Validating, Success, Failed };
-enum class AutoTuneReason : uint8_t {
-  None, SafetyAbort, SensorAbort, ModeAbort, PreheatTimeout, PhaseTimeout,
-  TotalTimeout, NonRepeatable, AmplitudeTooSmall, PeriodTooSmall,
-  InvalidKu, InvalidGains, SaveFailed, Success
-};
+// Diagnostic enum numeric values live in config.h because HMI and Web runtime
+// also expose them. The public AutoTuneState values remain unchanged.
 inline const char *autoTunePhaseName(AutoTunePhase phase) {
   switch(phase) {
     case AutoTunePhase::Idle:return "IDLE";case AutoTunePhase::Preheat:return "PREHEAT";
@@ -145,6 +142,8 @@ inline const char *autoTuneReasonName(AutoTuneReason reason) {
     case AutoTuneReason::AmplitudeTooSmall:return "AMPLITUDE_TOO_SMALL";case AutoTuneReason::PeriodTooSmall:return "PERIOD_TOO_SMALL";
     case AutoTuneReason::InvalidKu:return "INVALID_KU";case AutoTuneReason::InvalidGains:return "INVALID_GAINS";
     case AutoTuneReason::SaveFailed:return "SAVE_FAILED";case AutoTuneReason::Success:return "SUCCESS";
+    case AutoTuneReason::HeatingTimeout:return "HEATING_TIMEOUT";
+    case AutoTuneReason::CoolingTimeout:return "COOLING_TIMEOUT";
   }
   return "UNKNOWN";
 }
@@ -180,8 +179,14 @@ class RelayAutoTune {
     if(elapsedMs(now,startedAt_)>=AUTOTUNE_TOTAL_MAX_MS)abort(AutoTuneReason::TotalTimeout);
     else if(phase_==AutoTunePhase::Preheat && elapsedMs(now,phaseStartedAt_)>=AUTOTUNE_PREHEAT_MAX_MS)
       abort(AutoTuneReason::PreheatTimeout);
-    else if(phase_!=AutoTunePhase::Preheat && elapsedMs(now,phaseStartedAt_)>=AUTOTUNE_PHASE_MAX_MS)
-      abort(AutoTuneReason::PhaseTimeout);
+    else if(elapsedMs(now,phaseStartedAt_)>=AUTOTUNE_PHASE_MAX_MS) {
+      // Distinguish a heater that cannot re-cross the upper band from a
+      // chamber that cannot coast below the lower band. Never auto-escalate
+      // heater power/cooling from this diagnostic; commissioning decides.
+      if(phase_==AutoTunePhase::Heating) abort(AutoTuneReason::HeatingTimeout);
+      else if(phase_==AutoTunePhase::Cooling) abort(AutoTuneReason::CoolingTimeout);
+      else abort(AutoTuneReason::PhaseTimeout);
+    }
   }
   bool update(uint32_t now,float input,const MachineConfig &cfg,MachineConfig &tunedOut) {
     if(!running())return false;

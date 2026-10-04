@@ -466,6 +466,9 @@ inline bool publishSnapshot(const MachineRuntime &rt, uint32_t revision) {
   r["turnState"] = static_cast<uint8_t>(rt.turnState);
   r["nextTurnMinutes"] = rt.nextTurnMinutes;
   r["autoTuneState"] = static_cast<uint8_t>(rt.autoTuneState);
+  r["autoTunePhase"] = static_cast<uint8_t>(rt.autoTunePhase);
+  r["autoTuneReason"] = static_cast<uint8_t>(rt.autoTuneReason);
+  r["autoTuneQuality"] = static_cast<uint8_t>(rt.autoTuneQuality);
   r["autoTuneProgress"] = rt.autoTuneProgress;
   JsonObject adapt=r["adaptiveThermal"].to<JsonObject>();
   adapt["enabled"]=rt.adaptiveEnabled;adapt["state"]=rt.adaptiveState;

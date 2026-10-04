@@ -39,10 +39,25 @@ int main() {
   assert(result.controlMode == ControlMode::Pid);
   assert(result.kp > 0 && result.kp <= 100 && result.ki > 0 && result.ki <= 20);
   assert(result.kd > 0 && result.kd <= 200);
-  // Restart must forget prior successes and fail cold/no-response with heater OFF.
+  // Restart must forget prior successes and classify bounded timeouts without
+  // guessing plant physics or automatically escalating heater power.
   tune.start(1000, 25);
-  assert(!tune.update(AUTOTUNE_PHASE_MAX_MS + 1000, 25, cfg, result));
+  tune.checkTimeout(1000 + AUTOTUNE_PREHEAT_MAX_MS);
   assert(tune.state() == AutoTuneState::Failed && tune.power() == 0);
+  assert(tune.reason() == AutoTuneReason::PreheatTimeout);
+
+  tune.start(1000, 37.3f);
+  assert(!tune.update(1000, 37.3f, cfg, result));
+  assert(tune.phase() == AutoTunePhase::Heating);
+  tune.checkTimeout(1000 + AUTOTUNE_PHASE_MAX_MS);
+  assert(tune.reason() == AutoTuneReason::HeatingTimeout && tune.power() == 0);
+
+  tune.start(1000, 37.8f);
+  assert(!tune.update(1000, 37.8f, cfg, result));
+  assert(tune.phase() == AutoTunePhase::Cooling);
+  tune.checkTimeout(1000 + AUTOTUNE_PHASE_MAX_MS);
+  assert(tune.reason() == AutoTuneReason::CoolingTimeout && tune.power() == 0);
+
   tune.start(1000, 36.9f);
   tune.update(1000, 37.3f, cfg, result);
   for (uint32_t i = 0; i < 16; ++i) {
