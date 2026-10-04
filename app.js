@@ -1135,6 +1135,31 @@
     }, Math.max(0, expectedUntil - Date.now() + 50));
   }
 
+  function autoTunePhaseLabel(value) {
+    return ['Sẵn sàng', 'Đang làm nóng', 'Đang gia nhiệt', 'Đang hạ nhiệt',
+      'Đang kiểm tra', 'Hoàn tất', 'Thất bại'][Number(value)] || 'Đang tự dò';
+  }
+
+  function autoTuneFailureText(value) {
+    const messages = {
+      1: 'Mạch an toàn đã ngắt quá trình tự dò',
+      2: 'Mất hoặc lỗi dữ liệu cảm biến',
+      3: 'Điều kiện vận hành đã thay đổi',
+      4: 'Làm nóng ban đầu quá lâu',
+      5: 'Một pha đo kéo dài quá giới hạn',
+      6: 'Tổng thời gian tự dò đã hết',
+      7: 'Các chu kỳ đo không lặp lại ổn định',
+      8: 'Biên độ dao động nhiệt quá nhỏ',
+      9: 'Chu kỳ dao động quá ngắn',
+      10: 'Không xác định được Ku hợp lệ',
+      11: 'Thông số PID tính được không hợp lệ',
+      12: 'Không lưu được thông số PID',
+      14: 'Gia nhiệt không vượt được ngưỡng trên trong thời gian cho phép',
+      15: 'Nhiệt độ không hạ qua ngưỡng dưới trong thời gian cho phép'
+    };
+    return messages[Number(value)] || 'Tự dò không hoàn tất; PID cũ vẫn được giữ nguyên';
+  }
+
   function applySnapshotToUi(device) {
     const runtime = device?.snapshot?.runtime;
     if (!runtime) {
@@ -1254,10 +1279,12 @@
     }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));
+    const autoTunePhase = autoTunePhaseLabel(runtime.autoTunePhase);
+    const autoTuneFailure = autoTuneFailureText(runtime.autoTuneReason);
     $('tuneBar').style.width = `${autoTuneProgress}%`;
     if (autoTuneState === 1) {
-      $('tuneText').textContent = `Đang chạy · ${autoTuneProgress}%`;
-      $('pidSummary').textContent = `Đang tự dò · ${autoTuneProgress}%`;
+      $('tuneText').textContent = `${autoTunePhase} · ${autoTuneProgress}%`;
+      $('pidSummary').textContent = `${autoTunePhase} · ${autoTuneProgress}%`;
       $('startTune').disabled = false;
       $('startTune').textContent = 'Hủy tự dò PID';
       $('startTune').classList.remove('primary');
@@ -1271,8 +1298,8 @@
         $('tuneText').textContent = 'Hoàn tất · thông số đã được máy lưu';
         $('pidSummary').textContent = 'Đã hoàn tất và tự lưu';
       } else if (autoTuneState === 3) {
-        $('tuneText').textContent = 'Tự dò không hoàn tất';
-        $('pidSummary').textContent = 'Tự dò thất bại';
+        $('tuneText').textContent = autoTuneFailure;
+        $('pidSummary').textContent = 'Tự dò thất bại · xem nguyên nhân';
       } else {
         $('tuneText').textContent = 'Sẵn sàng';
         $('pidSummary').textContent = 'Máy tự tìm và lưu thông số';
