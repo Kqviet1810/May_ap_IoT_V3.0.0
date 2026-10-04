@@ -1,4 +1,4 @@
-/* MAYAP notes UI. Storage is supplied by the signed device transaction bridge. */
+/* MAYAP notes UI. Durable content is stored by the authenticated Cloudflare D1 API. */
 (function (root) {
   'use strict';
   const POSITION_KEY = 'mayap.notes.position.v1';
@@ -19,7 +19,7 @@
   function button(text, cls, action) {
     const b = el('button', cls, text); b.type = 'button'; b.addEventListener('click', action); return b;
   }
-  function mount({ getContext, confirm }) {
+  function mount({ getContext, confirm, listNotes, saveNote, deleteNote }) {
     if (document.getElementById('notesBubble')) return;
     let records = [], view = 'list', editing = null, original = '', busy = false, confirmPending = false;
     let error = '', loading = false, all = false, query = '', filter = 'all', scope = '';
@@ -106,10 +106,28 @@
     document.addEventListener('scroll', () => { if (!scrollFrame) scrollFrame = root.requestAnimationFrame(() => { scrollFrame = 0; position(); }); }, { passive:true, capture:true });
     root.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('resize', position, { passive:true }); root.visualViewport?.addEventListener('scroll', position, { passive:true });
     function context() { return getContext() || {}; }
-    function writable() { return false; }
+    function writable() { return Boolean(context().notesWritable && listNotes && saveNote && deleteNote); }
     function currentScope() { return context().deviceId || 'unpaired'; }
-    function load() {
-      scope = currentScope(); records = []; loading = false; error = ''; render();
+    function uuid() {
+      if (root.crypto?.randomUUID) return root.crypto.randomUUID();
+      const bytes=root.crypto.getRandomValues(new Uint8Array(16));bytes[6]=(bytes[6]&15)|64;bytes[8]=(bytes[8]&63)|128;
+      const h=[...bytes].map(b=>b.toString(16).padStart(2,'0')).join('');
+      return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+    }
+    async function load() {
+      scope = currentScope(); const token=++generation; records = []; error = '';
+      if (!scope || scope === 'unpaired') { loading=false; render(); return; }
+      loading = true; render();
+      try {
+        const data = await listNotes(scope);
+        if (token !== generation || scope !== currentScope()) return;
+        records = Array.isArray(data?.notes) ? data.notes : [];
+      } catch (cause) {
+        if (token !== generation) return;
+        error = cause?.message || 'Không tải được Ghi chú từ Cloud.';
+      } finally {
+        if (token === generation) { loading=false; render(); }
+      }
     }
     async function open() {
       panel.hidden = false; bubble.setAttribute('aria-expanded','true'); view = 'list'; all = false; position(); await load(); close.focus();
@@ -199,20 +217,40 @@
       const failure = el('p','notesError'); failure.setAttribute('role','alert'); f.append(failure);
       const actions = el('div','notesFormActions'); const cancel = button('Hủy','ghost',async () => { if (await discard()) { view = 'list'; if (scope !== currentScope()) load(); else render(); } });
       const save = el('button','primary',note ? 'Lưu thay đổi':'Lưu'); save.type = 'submit'; actions.append(cancel,save); f.append(actions); body.append(f);
-      save.disabled=!writable();if(!writable())failure.textContent=context().notesStatus||'Máy chưa sẵn sàng lưu Ghi chú.';
+      save.disabled=!writable();if(!writable())failure.textContent=context().notesStatus||'Tài khoản này chỉ có quyền xem.';
       original = JSON.stringify(formValues(f));
-      f.addEventListener('submit', event => {
-        event.preventDefault();
-        failure.textContent = context().notesStatus || 'Chưa có giao thức lưu Ghi chú.';
+      const draftId=note?.id || uuid(), mutationId=uuid(), boundScope=scope;
+      f.addEventListener('submit', async event => {
+        event.preventDefault(); if (busy || !writable()) return;
+        const values=formValues(f); if(!values.content.trim()){updateCounter();return;}
+        busy=true;save.disabled=true;cancel.disabled=true;failure.textContent='';
+        try {
+          const result=await saveNote(boundScope,{id:draftId,mutationId,version:Number(note?.version||0),...values});
+          const stored=result?.note;
+          if(!stored)throw new Error('Máy chủ không trả lại Ghi chú vừa lưu.');
+          records=records.filter(item=>item.id!==stored.id);records.push(stored);
+          editing=null;view='list';original='';render();
+        } catch(cause) {
+          failure.textContent=cause?.message || 'Chưa lưu được Ghi chú. Nội dung vẫn được giữ lại.';
+        } finally {
+          busy=false;
+          if(view==='form'){save.disabled=!writable();cancel.disabled=false;}
+        }
       });
       position(); titleInput.focus({ preventScroll:true });
     }
-    async function remove() {
-      if (confirmPending) return;
+    async function remove(note) {
+      if (confirmPending || busy || !writable()) return;
       confirmPending = true;
       try {
-        await confirm({ title:'Xóa ghi chú này?', message:'Chưa có giao thức lưu Ghi chú. Không thực hiện xóa.', accept:'Đóng' });
-      } finally { confirmPending = false; }
+        const accepted=await confirm({ title:'Xóa ghi chú này?', message:'Ghi chú sẽ được xóa khỏi dữ liệu Cloud của máy.', accept:'Xóa', danger:true });
+        if(!accepted)return;
+        busy=true;
+        await deleteNote(scope,{id:note.id,version:Number(note.version||0),mutationId:uuid()});
+        records=records.filter(item=>item.id!==note.id);render();
+      } catch(cause) {
+        error=cause?.message || 'Chưa xóa được Ghi chú.';render();
+      } finally { busy=false; confirmPending = false; }
     }
     document.addEventListener('pointerdown',event => {
       if (!panel.hidden && !all && !panel.contains(event.target) && !bubble.contains(event.target) && !document.querySelector('dialog[open]')) requestClose();

@@ -366,8 +366,8 @@
         ...(controller ? { signal: controller.signal } : {}),
       });
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) return { success: false, status: res.status, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
-      return body;
+      if (!res.ok || !body.success) return { ...body, success:false, status:res.status, error:body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      return { ...body, status:res.status };
     } catch (error) {
       return { success: false, status: 0, error: String(error?.message || error) };
     } finally {
@@ -381,11 +381,93 @@
     try {
       const res = await fetch(url);
       const body = await res.json().catch(() => ({}));
-      if (!res.ok || !body.success) return { success: false, error: body.error || `Máy chủ từ chối (HTTP ${res.status})` };
-      return body;
+      if (!res.ok || !body.success) return { ...body, success:false, status:res.status, error:body.error || `Máy chủ từ chối (HTTP ${res.status})` };
+      return { ...body, status:res.status };
     } catch (error) {
       return { success: false, error: String(error?.message || error) };
     }
+  }
+
+
+  async function deleteCloudJson(path,payload,timeoutMs=8000) {
+    const url=cloudApiUrl(path);if(!url)return {success:false,error:'Trang web chưa cấu hình máy chủ (cloudApiBase)'};
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
+    try{
+      const res=await fetch(url,{method:'DELETE',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(payload),signal:controller.signal});
+      const body=await res.json().catch(()=>({}));
+      if(!res.ok||!body.success)return {...body,success:false,status:res.status,error:body.error||`Máy chủ từ chối (HTTP ${res.status})`};
+      return {...body,status:res.status};
+    }catch(error){return {success:false,status:0,error:String(error?.message||error)};}
+    finally{clearTimeout(timer);}
+  }
+  function cloudDataMessage(result,fallback='Không lưu được dữ liệu Cloud.') {
+    const messages={
+      ACCESS_DENIED:'Tài khoản này không có quyền thay đổi dữ liệu của máy.',
+      ACCOUNT_LOGIN_REQUIRED:'Phiên đăng nhập đã hết hạn.',
+      NOTE_LIMIT_REACHED:'Máy đã đạt giới hạn 200 Ghi chú.',
+      REMINDER_LIMIT_REACHED:'Máy đã đạt giới hạn 32 Nhắc nhở.',
+      NOTE_CONFLICT:'Ghi chú vừa được thay đổi ở nơi khác. Hãy tải lại trước khi sửa tiếp.',
+      REMINDER_CONFLICT:'Nhắc nhở vừa được thay đổi ở nơi khác. Hãy tải lại.',
+      NOTE_DELETED:'Ghi chú này đã bị xóa ở nơi khác.',
+      SERVICE_UNAVAILABLE:'Cloudflare/D1 đang tạm không sẵn sàng. Nội dung chưa bị mất.'
+    };
+    return messages[result?.error] || (result?.status===0?'Không kết nối được Cloudflare. Kiểm tra mạng rồi thử lại.':result?.error||fallback);
+  }
+  function requireCloud(result,fallback) {
+    if(result?.success)return result;
+    throw new Error(cloudDataMessage(result,fallback));
+  }
+  const cloudUuid=()=>crypto.randomUUID ? crypto.randomUUID() :
+    'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+      const r=crypto.getRandomValues(new Uint8Array(1))[0]&15,v=c==='x'?r:(r&3)|8;return v.toString(16);
+    });
+  async function listCloudNotes(deviceId) {
+    return requireCloud(await getCloudJson(`/api/device/${encodeURIComponent(deviceId)}/notes`),'Không tải được Ghi chú.');
+  }
+  async function saveCloudNote(deviceId,note) {
+    return requireCloud(await postCloudJson(`/api/device/${encodeURIComponent(deviceId)}/notes`,{
+      id:note.id,mutation_id:note.mutationId,version:note.version,type:note.type,title:note.title,content:note.content
+    },8000),'Không lưu được Ghi chú.');
+  }
+  async function deleteCloudNote(deviceId,note) {
+    return requireCloud(await deleteCloudJson(`/api/device/${encodeURIComponent(deviceId)}/notes/${encodeURIComponent(note.id)}`,{
+      mutation_id:note.mutationId,version:note.version
+    }),'Không xóa được Ghi chú.');
+  }
+  async function loadCloudReminders(device,force=false) {
+    if(!device?.id)return;
+    if(device.remindersLoading)return;
+    if(device.remindersLoaded&&!force){renderReminderList(device);return;}
+    device.remindersLoading=true;device.remindersError='';renderReminderList(device);
+    const result=await getCloudJson(`/api/device/${encodeURIComponent(device.id)}/reminders`);
+    if(result.success){device.reminders=Array.isArray(result.reminders)?result.reminders:[];device.remindersLoaded=true;device.remindersError='';}
+    else device.remindersError=cloudDataMessage(result,'Không tải được Nhắc nhở.');
+    device.remindersLoading=false;if(device.id===state.selectedId)renderReminderList(device);
+  }
+  async function addCloudReminder(device,day,label) {
+    if(!device?.id)throw new Error('Hãy chọn thiết bị trước.');
+    const key=`${day}\n${label}`;
+    if(!device.reminderDraft||device.reminderDraft.key!==key)
+      device.reminderDraft={key,id:cloudUuid(),mutationId:cloudUuid()};
+    device.remindersPending=true;renderReminderList(device);
+    try{
+      const result=requireCloud(await postCloudJson(`/api/device/${encodeURIComponent(device.id)}/reminders`,{
+        id:device.reminderDraft.id,mutation_id:device.reminderDraft.mutationId,day,label
+      },8000),'Không lưu được Nhắc nhở.');
+      device.reminders=(device.reminders||[]).filter(item=>item.id!==result.reminder.id);device.reminders.push(result.reminder);
+      device.remindersLoaded=true;device.reminderDraft=null;return result.reminder;
+    }finally{device.remindersPending=false;if(device.id===state.selectedId)renderReminderList(device);}
+  }
+  async function removeCloudReminder(device,item) {
+    if(!device?.id)return;
+    device.remindersPending=true;renderReminderList(device);
+    try{
+      requireCloud(await deleteCloudJson(`/api/device/${encodeURIComponent(device.id)}/reminders/${encodeURIComponent(item.id)}`,{
+        mutation_id:cloudUuid(),version:Number(item.version||0)
+      }),'Không xóa được Nhắc nhở.');
+      device.reminders=(device.reminders||[]).filter(entry=>entry.id!==item.id);device.remindersLoaded=true;
+    }finally{device.remindersPending=false;if(device.id===state.selectedId)renderReminderList(device);}
   }
 
   function verifyDevicePin(deviceId, pin) {
@@ -882,7 +964,9 @@
     document.body.dataset.connection = connection;
     document.querySelectorAll('form.stackForm button[type="submit"], #quickForm button[type="submit"]').forEach((button) => {
       const reminder = button.closest('form')?.id === 'remindersForm';
-      button.disabled = !controlReady(device) || (reminder || !device?.config);
+      button.disabled = reminder
+        ? (!device?.id || device.accountRole==='viewer' || Boolean(device.remindersPending))
+        : (!controlReady(device) || !device?.config);
     });
     // Defaults must not become an accidental patch while lazy config is loading.
     // Readonly quick fields still accept focus, which initiates their lazy read.
@@ -2232,12 +2316,29 @@
 
 
 
-  function renderReminderList() {
-    $('reminderList')?.replaceChildren();
-    const summary = $('remindersSummary');
-    if (summary) summary.textContent = 'Chưa có giao thức lưu Nhắc nhở';
-    const button = $('addReminderBtn');
-    if (button) button.disabled = true;
+  function renderReminderList(device=currentDevice()) {
+    const root=$('reminderList');if(!root)return;root.replaceChildren();
+    const summary=$('remindersSummary'),list=Array.isArray(device?.reminders)?device.reminders:[];
+    if(summary)summary.textContent=!device?'Chọn máy để xem Nhắc nhở':
+      device.remindersLoading?'Đang tải từ Cloud…':device.remindersError?'Chưa tải được Nhắc nhở':
+      list.length?`${list.length}/32 nhắc đã lưu trên Cloud`:'Chưa có nhắc nào';
+    if(device?.remindersError){const error=document.createElement('p');error.className='formError show';error.textContent=device.remindersError;root.append(error);}
+    list.slice().sort((a,b)=>a.day-b.day||a.label.localeCompare(b.label,'vi')).forEach(item=>{
+      const row=document.createElement('div');row.className='deviceListItem';
+      const text=document.createElement('div'),strong=document.createElement('strong'),small=document.createElement('small');
+      strong.textContent=`Ngày ${item.day}`;small.textContent=item.label;text.append(strong,small);
+      const remove=document.createElement('button');remove.type='button';remove.textContent='Xóa';
+      remove.disabled=device.accountRole==='viewer'||Boolean(device.remindersPending);
+      remove.addEventListener('click',async()=>{
+        const ok=await confirmAction({title:'Xóa nhắc nhở này?',message:`Ngày ${item.day} · ${item.label}`,accept:'Xóa',danger:true});
+        if(!ok)return;
+        try{await removeCloudReminder(device,item);toast('Đã xóa Nhắc nhở khỏi Cloud');}
+        catch(error){toast(error.message,5000);await loadCloudReminders(device,true);}
+      });
+      row.append(text,remove);root.append(row);
+    });
+    const addBtn=$('addReminderBtn');
+    if(addBtn)addBtn.disabled=!device?.id||device.accountRole==='viewer'||Boolean(device.remindersPending)||list.length>=32;
   }
 
   function handleSnapshot(device, snapshot) {
@@ -3292,9 +3393,16 @@
       controlSession(currentDevice()).catch((error) => console.warn('[SESSION]', error.code || 'TRANSPORT_ERROR'));
     });
 
-    $('remindersForm').addEventListener('submit', (event) => {
-      event.preventDefault();
-      toast('Chưa có giao thức lưu Nhắc nhở.');
+    $('remindersForm').addEventListener('submit', async event => {
+      event.preventDefault();const device=currentDevice(),errorEl=$('remindersFormError');
+      errorEl.textContent='';errorEl.classList.remove('show');
+      if(!device)return toast('Hãy chọn thiết bị trước');
+      const day=Number($('reminderDayInput').value),label=$('reminderLabelInput').value.trim();
+      if(!Number.isInteger(day)||day<1||day>99||!label){errorEl.textContent='Nhập ngày ấp từ 1–99 và nội dung nhắc.';errorEl.classList.add('show');return;}
+      try{
+        await addCloudReminder(device,day,label);
+        $('reminderDayInput').value='';$('reminderLabelInput').value='';toast('Đã lưu Nhắc nhở trên Cloud');
+      }catch(error){errorEl.textContent=error.message;errorEl.classList.add('show');}
     });
 
     $('renameDeviceForm').addEventListener('submit', async (event) => {
@@ -3365,8 +3473,8 @@
     });
 
     $('quickForm').addEventListener('focusin', () => requestDeviceData('config'));
-    $('remindersForm').closest('details')?.addEventListener('toggle', (event) => {
-      if (event.currentTarget.open) renderReminderList(currentDevice());
+    $('remindersForm').closest('details')?.addEventListener('toggle', event => {
+      if(event.currentTarget.open)loadCloudReminders(currentDevice());
     });
     $('batchLogList')?.closest('details')?.addEventListener('toggle', (event) => {
       if (event.currentTarget.open) requestDeviceData('log');
@@ -3809,9 +3917,12 @@
         const device = currentDevice();
         return { deviceId: device?.id || '', deviceName: device?.name || '',
           batchRunning: Boolean(device?.snapshot?.runtime?.batchRunning),
-          notesWritable: false,
-          notesStatus: 'Chưa có giao thức lưu Ghi chú.' };
-      }
+          notesWritable: Boolean(device?.id && device.accountRole!=='viewer'),
+          notesStatus: !device?.id?'Hãy chọn máy trước.':device.accountRole==='viewer'?'Tài khoản này chỉ có quyền xem.':'Lưu trực tiếp trên Cloud.' };
+      },
+      listNotes:listCloudNotes,
+      saveNote:saveCloudNote,
+      deleteNote:deleteCloudNote
     });
     renderSelector();
     document.documentElement.dataset.auth = 'ready';

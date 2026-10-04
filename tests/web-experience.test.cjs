@@ -622,3 +622,16 @@ test('running-batch target edit re-anchors safety and ventilation envelope inste
   assert.ok(Math.abs(cfg.ventOffTemp - 30.1) < 1e-9);
   assert.equal(cfg.highTempAlarmWithoutBatch, true);
 });
+
+test('Notes and custom Reminders persist through account-scoped D1 APIs, not device realtime', () => {
+  const app=fs.readFileSync(require.resolve('../app.js'),'utf8');
+  const notes=fs.readFileSync(require.resolve('../notes.js'),'utf8');
+  const worker=fs.readFileSync(require.resolve('../cloudflare/src/account-worker.js'),'utf8');
+  assert.doesNotMatch(app,/Chưa có giao thức lưu Nhắc nhở/);
+  assert.doesNotMatch(notes,/Chưa có giao thức lưu Ghi chú/);
+  assert.match(app,/\/api\/device\/\$\{encodeURIComponent\(device\.id\)\}\/reminders/);
+  assert.match(app,/listNotes:listCloudNotes/);
+  assert.match(worker,/cloud_notes/);
+  assert.match(worker,/cloud_reminders/);
+  assert.doesNotMatch(worker,/notes\/request/);
+});

@@ -11,7 +11,7 @@
 | Release / baseline mã nguồn | 1.1.2 |
 | ESP32 firmware | 1.1.2 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.4 |
+| Web PWA | 1.1.5 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
@@ -37,7 +37,7 @@ Web PWA / Workers Static Assets
           |
           | WSS (ticket theo phiên)
           v
-Cloudflare Worker ---- D1 account / ownership / PIN / Push / OTA metadata
+Cloudflare Worker ---- D1 account / ownership / Ghi chú / Nhắc nhở / Push / OTA metadata
           |
           v
 SQLite Durable Object: DeviceHub (1 hub / 1 máy)
@@ -138,7 +138,7 @@ cloudflare/                Worker + D1 + DeviceHub + Static Assets config
 app.js                     Web application
 realtime_transport.js      bounded native browser WebSocket client
 protocol_v2.js             transaction/ACK protocol helpers
-notes.js / notes.css       giao diện Ghi chú (UI-only, chưa nối backend mới)
+notes.js / notes.css       giao diện Ghi chú; dữ liệu bền vững lưu trực tiếp D1 qua API tài khoản
 release-manifest.json      manifest version/toolchain
 tests/                     host/browser/runtime regressions
 tools/                     checker, web asset builder, QA/integration
