@@ -1,6 +1,6 @@
 {
-  "release": "1.1.2",
-  "firmware": "1.1.2",
+  "release": "1.1.3",
+  "firmware": "1.1.3",
   "hmi": "1.0.0",
   "web": "1.1.4",
   "web_storage_schema": 10,
@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Thermal final hardening is merged in release candidate 1.1.2: Test Mode High/Emergency protection, fail-safe calibration/freshness policy, running-batch thermal envelope invariants, zero-authority PID rejection, E114 diagnostics and narrow stale-default envelope repair. Web assets are versioned 1.1.2. Source/deploy state does not imply OTA or physical rollout to machines."
+  "notes": "Release 1.1.3 keeps the 1.1.2 thermal safety hardening and closes remaining thermal UI/invariant gaps: Web validates shifted safety/vent envelopes before target writes; running-batch Temperature edits no longer validate stale read-only thresholds; HMI rejects target shifts requiring safety-envelope clamping; PID configurations without P or I authority are rejected because D-only cannot sustain holding power. Web PWA remains 1.1.4 after the notes/journal cleanup. No OTA or physical rollout is implied."
 }
