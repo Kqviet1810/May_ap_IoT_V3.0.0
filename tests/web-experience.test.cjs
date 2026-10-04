@@ -15,7 +15,8 @@ function browser(overrides = {}, initialStorage = {}) {
     runtimeRealtime = { deviceId:'MAP-1234567890AB', url:'wss://test.invalid/realtime/browser/MAP-1234567890AB', ticket:'test-ticket' };
     Object.assign(window.hooks, { state, subscribeDevice, activateSelectedSession,
       selectedNeedsSync, deactivateSession, connectRealtime, supportsVentProfile,
-      swipeDestination, buildConfig, validateTemperatureForm, validateSensorForm,
+      swipeDestination, buildConfig, validateQuickForm, validateBatchForm,
+      validateTemperatureForm, validateShiftedThermalEnvelope, validateSensorForm,
       validateVentForm, validateAdvancedForm, REQUIRED_CONFIG_KEYS,
       VENT_PROFILE_KEYS, createDevice, connectionStatus, recoverBrowserConnection,
       refreshRealtimeSession, requestRealtimeSession, postCloudJson, isDeviceOnline, sendCommand,
@@ -597,6 +598,9 @@ test('thermal final bounds match firmware and zero-authority PID is rejected', (
   assert.equal(h.validateAdvancedForm(), false);
   assert.equal(h.window.invalidField, 'advKp');
 
+  h.elements.get('advKd').value = 45;
+  assert.equal(h.validateAdvancedForm(), false);
+  assert.equal(h.window.invalidField, 'advKp');
   h.elements.get('advKp').value = 18;
   assert.equal(h.validateAdvancedForm(), true);
   h.elements.get('tempOffset').value = -5.1;
@@ -621,4 +625,31 @@ test('running-batch target edit re-anchors safety and ventilation envelope inste
   assert.ok(Math.abs(cfg.ventOnTemp - 30.5) < 1e-9);
   assert.ok(Math.abs(cfg.ventOffTemp - 30.1) < 1e-9);
   assert.equal(cfg.highTempAlarmWithoutBatch, true);
+});
+
+
+test('running-batch temperature validation checks shifted envelope instead of stale read-only thresholds', () => {
+  const h = browser();
+  h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+  Object.assign(h.device.config, {
+    targetTemp:37.5, lowTempAlarm:36.5, highTempAlarm:38.2, emergencyTemp:39.0,
+    ventOnTemp:38.0, ventOffTemp:37.6
+  });
+  h.device.snapshot = { runtime:{ batchRunning:true, resumeConfirmationRequired:false } };
+  for (const [id,value] of Object.entries({
+    targetTemp:30, lowAlarm:36.5, highAlarm:38.2, emergencyTemp:39.0
+  })) h.elements.set(id,{value});
+  assert.equal(h.validateTemperatureForm(), true);
+  assert.equal(h.window.invalidField, undefined);
+});
+
+test('target-shift forms reject an envelope that would require firmware clamping', () => {
+  const h = browser();
+  h.device.config = Object.fromEntries(h.REQUIRED_CONFIG_KEYS.map(key => [key, 0]));
+  Object.assign(h.device.config, {
+    targetTemp:37.5, lowTempAlarm:36.5, highTempAlarm:42.0, emergencyTemp:43.0,
+    ventOnTemp:41.8, ventOffTemp:41.5
+  });
+  assert.equal(h.validateShiftedThermalEnvelope('quickForm', 'quickTarget', 40), false);
+  assert.equal(h.window.invalidField, 'quickTarget');
 });
