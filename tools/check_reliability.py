@@ -101,6 +101,8 @@ if "WiFi.disconnect(true, false)" in network:
     raise SystemExit("FAIL: destructive STA teardown reintroduced")
 if "esp_wifi_set_ps(" in realtime or "esp_wifi_get_ps(" in realtime:
     raise SystemExit("FAIL: realtime task must not own Wi-Fi power state")
+if "WiFi." in hmi:
+    raise SystemExit("FAIL: HMI must consume network snapshots, not touch Wi-Fi driver")
 require(hmi, "MAT WIFI - MAY VAN CHAY", "local Wi-Fi loss warning")
 require(hmi, "ONLINE LOI - MAY VAN CHAY", "local degraded online-service warning")
 
