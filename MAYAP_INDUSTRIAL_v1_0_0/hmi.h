@@ -3533,6 +3533,39 @@ const char *autoTuneStateText(AutoTuneState state) {
   }
 }
 
+const char *autoTunePhaseText(AutoTunePhase phase) {
+  switch (phase) {
+    case AutoTunePhase::Preheat: return "LAM NONG";
+    case AutoTunePhase::Heating: return "GIA NHIET";
+    case AutoTunePhase::Cooling: return "HA NHIET";
+    case AutoTunePhase::Validating: return "KIEM TRA";
+    case AutoTunePhase::Success: return "HOAN TAT";
+    case AutoTunePhase::Failed: return "THAT BAI";
+    default: return "SAN SANG";
+  }
+}
+
+const char *autoTuneReasonText(AutoTuneReason reason) {
+  switch (reason) {
+    case AutoTuneReason::SafetyAbort: return "AN TOAN DA NGAT";
+    case AutoTuneReason::SensorAbort: return "LOI CAM BIEN";
+    case AutoTuneReason::ModeAbort: return "DIEU KIEN DA DOI";
+    case AutoTuneReason::PreheatTimeout: return "LAM NONG QUA LAU";
+    case AutoTuneReason::HeatingTimeout: return "GIA NHIET QUA LAU";
+    case AutoTuneReason::CoolingTimeout: return "HA NHIET QUA LAU";
+    case AutoTuneReason::PhaseTimeout: return "PHA DO QUA LAU";
+    case AutoTuneReason::TotalTimeout: return "VUOT TG TOAN BO";
+    case AutoTuneReason::NonRepeatable: return "DAO DONG KHONG DEU";
+    case AutoTuneReason::AmplitudeTooSmall: return "BIEN DO QUA NHO";
+    case AutoTuneReason::PeriodTooSmall: return "CHU KY QUA NGAN";
+    case AutoTuneReason::InvalidKu: return "KHONG TINH DUOC KU";
+    case AutoTuneReason::InvalidGains: return "PID KHONG HOP LE";
+    case AutoTuneReason::SaveFailed: return "LOI LUU PID";
+    case AutoTuneReason::Success: return "DA LUU PID";
+    default: return "KHONG RO NGUYEN NHAN";
+  }
+}
+
 void drawAutoTune() {
   char text[28];
   drawHeader("TU CHINH PID", false);
@@ -3540,8 +3573,14 @@ void drawAutoTune() {
                   u8g2_font_helvB12_tf, u8g2_font_6x12_tf, u8g2_font_5x8_tf);
 
   if (currentRuntime.autoTuneState == AutoTuneState::Running) {
-    snprintf(text, sizeof(text), "TIEN DO %u%%",
+    snprintf(text, sizeof(text), "%s %u%%",
+             autoTunePhaseText(currentRuntime.autoTunePhase),
              currentRuntime.autoTuneProgress);
+  } else if (currentRuntime.autoTuneState == AutoTuneState::Failed) {
+    snprintf(text, sizeof(text), "%s",
+             autoTuneReasonText(currentRuntime.autoTuneReason));
+  } else if (currentRuntime.autoTuneState == AutoTuneState::Success) {
+    snprintf(text, sizeof(text), "THONG SO DA DUOC LUU");
   } else if (currentRuntime.batchRunning) {
     snprintf(text, sizeof(text), "HAY DUNG ME TRUOC");
   } else if (!currentRuntime.sensorOnline) {
@@ -4350,6 +4389,18 @@ void sanitizeRuntime(MachineRuntime &runtime) {
       static_cast<uint8_t>(AutoTuneState::Failed)) {
     runtime.autoTuneState = AutoTuneState::Failed;
   }
+  if (static_cast<uint8_t>(runtime.autoTunePhase) >
+      static_cast<uint8_t>(AutoTunePhase::Failed)) {
+    runtime.autoTunePhase = AutoTunePhase::Failed;
+  }
+  if (static_cast<uint8_t>(runtime.autoTuneReason) >
+      static_cast<uint8_t>(AutoTuneReason::CoolingTimeout)) {
+    runtime.autoTuneReason = AutoTuneReason::None;
+  }
+  if (static_cast<uint8_t>(runtime.autoTuneQuality) >
+      static_cast<uint8_t>(AutoTuneReason::CoolingTimeout)) {
+    runtime.autoTuneQuality = AutoTuneReason::None;
+  }
   if (static_cast<uint8_t>(runtime.connectivityMode) >
       static_cast<uint8_t>(ConnectivityMode::Online)) {
     runtime.connectivityMode = ConnectivityMode::Offline;
@@ -4461,6 +4512,9 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
 
     case View::AutoTune:
       return before.autoTuneState != after.autoTuneState ||
+             before.autoTunePhase != after.autoTunePhase ||
+             before.autoTuneReason != after.autoTuneReason ||
+             before.autoTuneQuality != after.autoTuneQuality ||
              before.autoTuneProgress != after.autoTuneProgress ||
              before.batchRunning != after.batchRunning ||
              before.sensorOnline != after.sensorOnline;
@@ -4534,7 +4588,10 @@ void applyRuntime(MachineRuntime runtime) {
       showToast("AUTO TUNE THANH CONG");
       buzzerPlayCue(BuzzerCue::Ok);
     } else if (currentRuntime.autoTuneState == AutoTuneState::Failed) {
-      showToast("AUTO TUNE THAT BAI", true);
+      char tuneMessage[HMI_STATUS_TEXT_MAX_CHARS + 1U];
+      snprintf(tuneMessage, sizeof(tuneMessage), "TUNE: %s",
+               autoTuneReasonText(currentRuntime.autoTuneReason));
+      showToast(tuneMessage, true);
       buzzerPlayCue(BuzzerCue::Error);
     }
   }
