@@ -10,6 +10,7 @@ function database(){
   sql.exec(fs.readFileSync('cloudflare/migrations/0003_telemetry_history.sql','utf8'));
   sql.exec(fs.readFileSync('cloudflare/migrations/0004_accounts.sql','utf8'));
   sql.exec(fs.readFileSync('cloudflare/migrations/0005_account_picture.sql','utf8'));
+  sql.exec(fs.readFileSync('cloudflare/migrations/0006_cloud_notes_reminders.sql','utf8'));
   const DB={prepare(source){const statement=sql.prepare(source);let args=[];
     return {bind(...a){args=a;return this;},async first(){return statement.get(...args) || null;},
       async all(){return {results:statement.all(...args)};},async run(){
@@ -232,4 +233,37 @@ test('push ownership is account-scoped and a revoked session cannot receive devi
   const account=await (await h.call('/api/account/session',A)).json();assert.equal(account.devices[0].linked_browsers,1);
   await h.call('/api/account/logout',A,{});assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM push_subscriptions').get().n,0);
   assert.equal((await h.call('/api/push/subscribe',A,{device_id:idA,subscription})).status,401);
+});
+
+
+test('D1 Notes and Reminders are account-scoped, idempotent and independent of device realtime',async()=>{
+  const h=await setup(), owner=await h.login('cloud-owner'), viewer=await h.login('cloud-viewer'), outsider=await h.login('cloud-outsider');
+  const id=await h.device(77);
+  assert.equal((await h.call('/api/account/devices/claim',owner,{device_id:id,pin:'123456'})).status,200);
+  h.sql.prepare("INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES(?,?,'viewer',?)").run('cloud-viewer',id,Date.now());
+  const noteId='11111111-1111-4111-8111-111111111111', noteMutation='22222222-2222-4222-8222-222222222222';
+  const create={id:noteId,mutation_id:noteMutation,version:0,type:'machine',title:'Bảo trì',content:'Kiểm tra quạt'};
+  let response=await h.call(`/api/device/${id}/notes`,owner,create);
+  assert.equal(response.status,200);let payload=await response.json();assert.equal(payload.note.version,1);
+  response=await h.call(`/api/device/${id}/notes`,owner,create);
+  payload=await response.json();assert.equal(payload.idempotent,true);
+  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM cloud_notes WHERE device_id=?').get(id).n,1);
+  assert.equal((await h.call(`/api/device/${id}/notes`,viewer)).status,200);
+  assert.equal((await h.call(`/api/device/${id}/notes`,viewer,{...create,id:'33333333-3333-4333-8333-333333333333',mutation_id:'44444444-4444-4444-8444-444444444444'})).status,403);
+  assert.equal((await h.call(`/api/device/${id}/notes`,outsider)).status,403);
+  const update={id:noteId,mutation_id:'55555555-5555-4555-8555-555555555555',version:1,type:'machine',title:'Bảo trì',content:'Đã kiểm tra quạt'};
+  payload=await (await h.call(`/api/device/${id}/notes`,owner,update)).json();assert.equal(payload.note.version,2);
+  assert.equal((await h.call(`/api/device/${id}/notes/${noteId}`,owner,{mutation_id:'66666666-6666-4666-8666-666666666666',version:1},'DELETE')).status,409);
+  assert.equal((await h.call(`/api/device/${id}/notes/${noteId}`,owner,{mutation_id:'77777777-7777-4777-8777-777777777777',version:2},'DELETE')).status,200);
+  payload=await (await h.call(`/api/device/${id}/notes`,owner)).json();assert.equal(payload.notes.length,0);
+
+  const reminderId='88888888-8888-4888-8888-888888888888', reminderMutation='99999999-9999-4999-8999-999999999999';
+  const reminder={id:reminderId,mutation_id:reminderMutation,day:3,label:'Soi trứng'};
+  payload=await (await h.call(`/api/device/${id}/reminders`,owner,reminder)).json();
+  assert.equal(payload.reminder.day,3);
+  payload=await (await h.call(`/api/device/${id}/reminders`,owner,reminder)).json();assert.equal(payload.idempotent,true);
+  assert.equal(h.sql.prepare('SELECT COUNT(*) AS n FROM cloud_reminders WHERE device_id=?').get(id).n,1);
+  payload=await (await h.call(`/api/device/${id}/reminders`,viewer)).json();assert.equal(payload.reminders[0].label,'Soi trứng');
+  assert.equal((await h.call(`/api/device/${id}/reminders/${reminderId}`,viewer,{mutation_id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',version:1},'DELETE')).status,403);
+  assert.equal((await h.call(`/api/device/${id}/reminders/${reminderId}`,owner,{mutation_id:'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',version:1},'DELETE')).status,200);
 });

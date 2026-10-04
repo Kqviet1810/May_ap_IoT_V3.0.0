@@ -10,6 +10,163 @@ const idRe = /^MAP-[A-F0-9]{12}$/;
 const physical = new Set(['/api/device/register','/api/device/heartbeat','/api/device/reset-pin',
   '/api/device/rotate-key','/api/device/alarm','/api/firmware/check']);
 const deny = (status=403) => json({ success:false, error:status===401?'ACCOUNT_LOGIN_REQUIRED':'ACCESS_DENIED' },status);
+
+const CLOUD_NOTE_LIMIT = 200, CLOUD_REMINDER_LIMIT = 32;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+function cloudNote(row) {
+  return { id:row.id, type:row.note_type, title:row.title, content:row.content,
+    version:Number(row.version), createdAt:Number(row.created_at), updatedAt:Number(row.updated_at) };
+}
+function cloudReminder(row) {
+  return { id:row.id, day:Number(row.incubation_day), label:row.label,
+    version:Number(row.version), createdAt:Number(row.created_at), updatedAt:Number(row.updated_at) };
+}
+function cloudDataError(error, status=400, extra={}) {
+  return json({success:false,error,...extra},status);
+}
+async function cloudNotes(env, auth, deviceId, resourceId, method, data) {
+  const write=method!=='GET';
+  const allowed=await permission(env,auth.user_sub,deviceId,write);
+  if(!allowed)return deny();
+  if(method==='GET' && !resourceId) {
+    const {results}=await env.DB.prepare(`SELECT * FROM cloud_notes
+      WHERE device_id=? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT ?`)
+      .bind(deviceId,CLOUD_NOTE_LIMIT).all();
+    return json({success:true,notes:results.map(cloudNote),limit:CLOUD_NOTE_LIMIT});
+  }
+  if(method==='POST' && !resourceId) {
+    const id=String(data.id||''), mutation=String(data.mutation_id||'');
+    const type=String(data.type||''), title=String(data.title||'').trim(), content=String(data.content||'').trim();
+    const requestedVersion=Number(data.version||0);
+    if(!UUID_RE.test(id)||!UUID_RE.test(mutation)||!['machine','batch'].includes(type)||
+       title.length>60||!content||content.length>300||!Number.isInteger(requestedVersion)||requestedVersion<0)
+      return cloudDataError('INVALID_NOTE');
+    const replay=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND last_mutation_id=? LIMIT 1')
+      .bind(deviceId,mutation).first();
+    if(replay) {
+      if(replay.id!==id)return cloudDataError('MUTATION_REUSED',409);
+      if(replay.deleted_at)return cloudDataError('NOTE_DELETED',410);
+      return json({success:true,note:cloudNote(replay),idempotent:true});
+    }
+    const existing=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND id=? LIMIT 1')
+      .bind(deviceId,id).first();
+    const now=Date.now();
+    if(!existing) {
+      if(requestedVersion!==0)return cloudDataError('NOTE_CONFLICT',409);
+      const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM cloud_notes WHERE device_id=? AND deleted_at IS NULL')
+        .bind(deviceId).first();
+      if(Number(count?.n||0)>=CLOUD_NOTE_LIMIT)return cloudDataError('NOTE_LIMIT_REACHED',409,{limit:CLOUD_NOTE_LIMIT});
+      try {
+        await env.DB.prepare(`INSERT INTO cloud_notes
+          (id,device_id,note_type,title,content,version,last_mutation_id,created_by,created_at,updated_at)
+          VALUES(?,?,?,?,?,1,?,?,?,?)`).bind(id,deviceId,type,title,content,mutation,auth.user_sub,now,now).run();
+      } catch(error) {
+        const repeated=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND last_mutation_id=? LIMIT 1')
+          .bind(deviceId,mutation).first();
+        if(repeated&&repeated.id===id&&!repeated.deleted_at)
+          return json({success:true,note:cloudNote(repeated),idempotent:true});
+        throw error;
+      }
+    } else {
+      if(existing.deleted_at)return cloudDataError('NOTE_DELETED',410);
+      if(Number(existing.version)!==requestedVersion)
+        return cloudDataError('NOTE_CONFLICT',409,{current:cloudNote(existing)});
+      const result=await env.DB.prepare(`UPDATE cloud_notes SET note_type=?,title=?,content=?,
+        version=version+1,last_mutation_id=?,updated_at=?
+        WHERE device_id=? AND id=? AND version=? AND deleted_at IS NULL`)
+        .bind(type,title,content,mutation,now,deviceId,id,requestedVersion).run();
+      if(Number(result.meta?.changes||0)!==1) {
+        const current=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND id=?').bind(deviceId,id).first();
+        return cloudDataError('NOTE_CONFLICT',409,current&&!current.deleted_at?{current:cloudNote(current)}:{});
+      }
+    }
+    const saved=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND id=? AND deleted_at IS NULL')
+      .bind(deviceId,id).first();
+    return json({success:true,note:cloudNote(saved)});
+  }
+  if(method==='DELETE' && resourceId) {
+    const mutation=String(data.mutation_id||''), requestedVersion=Number(data.version||0);
+    if(!UUID_RE.test(resourceId)||!UUID_RE.test(mutation)||!Number.isInteger(requestedVersion)||requestedVersion<1)
+      return cloudDataError('INVALID_NOTE_DELETE');
+    const existing=await env.DB.prepare('SELECT * FROM cloud_notes WHERE device_id=? AND id=? LIMIT 1')
+      .bind(deviceId,resourceId).first();
+    if(!existing)return cloudDataError('NOTE_NOT_FOUND',404);
+    if(existing.deleted_at)return json({success:true,deleted:true,idempotent:true});
+    if(existing.last_mutation_id===mutation)return json({success:true,deleted:true,idempotent:true});
+    if(Number(existing.version)!==requestedVersion)
+      return cloudDataError('NOTE_CONFLICT',409,{current:cloudNote(existing)});
+    const result=await env.DB.prepare(`UPDATE cloud_notes SET deleted_at=?,updated_at=?,
+      version=version+1,last_mutation_id=? WHERE device_id=? AND id=? AND version=? AND deleted_at IS NULL`)
+      .bind(Date.now(),Date.now(),mutation,deviceId,resourceId,requestedVersion).run();
+    if(Number(result.meta?.changes||0)!==1)return cloudDataError('NOTE_CONFLICT',409);
+    return json({success:true,deleted:true});
+  }
+  return cloudDataError('METHOD_NOT_ALLOWED',405);
+}
+async function cloudReminders(env, auth, deviceId, resourceId, method, data) {
+  const write=method!=='GET';
+  const allowed=await permission(env,auth.user_sub,deviceId,write);
+  if(!allowed)return deny();
+  if(method==='GET' && !resourceId) {
+    const {results}=await env.DB.prepare(`SELECT * FROM cloud_reminders
+      WHERE device_id=? AND deleted_at IS NULL ORDER BY incubation_day,updated_at,id LIMIT ?`)
+      .bind(deviceId,CLOUD_REMINDER_LIMIT).all();
+    return json({success:true,reminders:results.map(cloudReminder),limit:CLOUD_REMINDER_LIMIT});
+  }
+  if(method==='POST' && !resourceId) {
+    const id=String(data.id||''), mutation=String(data.mutation_id||''), day=Number(data.day);
+    const label=String(data.label||'').trim();
+    if(!UUID_RE.test(id)||!UUID_RE.test(mutation)||!Number.isInteger(day)||day<1||day>99||!label||label.length>120)
+      return cloudDataError('INVALID_REMINDER');
+    const replay=await env.DB.prepare('SELECT * FROM cloud_reminders WHERE device_id=? AND last_mutation_id=? LIMIT 1')
+      .bind(deviceId,mutation).first();
+    if(replay) {
+      if(replay.id!==id)return cloudDataError('MUTATION_REUSED',409);
+      if(replay.deleted_at)return cloudDataError('REMINDER_DELETED',410);
+      return json({success:true,reminder:cloudReminder(replay),idempotent:true});
+    }
+    const existing=await env.DB.prepare('SELECT * FROM cloud_reminders WHERE device_id=? AND id=? LIMIT 1')
+      .bind(deviceId,id).first();
+    if(existing)return cloudDataError('REMINDER_CONFLICT',409);
+    const count=await env.DB.prepare('SELECT COUNT(*) AS n FROM cloud_reminders WHERE device_id=? AND deleted_at IS NULL')
+      .bind(deviceId).first();
+    if(Number(count?.n||0)>=CLOUD_REMINDER_LIMIT)return cloudDataError('REMINDER_LIMIT_REACHED',409,{limit:CLOUD_REMINDER_LIMIT});
+    const now=Date.now();
+    try {
+      await env.DB.prepare(`INSERT INTO cloud_reminders
+        (id,device_id,incubation_day,label,version,last_mutation_id,created_by,created_at,updated_at)
+        VALUES(?,?,?,?,1,?,?,?,?)`).bind(id,deviceId,day,label,mutation,auth.user_sub,now,now).run();
+    } catch(error) {
+      const repeated=await env.DB.prepare('SELECT * FROM cloud_reminders WHERE device_id=? AND last_mutation_id=? LIMIT 1')
+        .bind(deviceId,mutation).first();
+      if(repeated&&repeated.id===id&&!repeated.deleted_at)
+        return json({success:true,reminder:cloudReminder(repeated),idempotent:true});
+      throw error;
+    }
+    const saved=await env.DB.prepare('SELECT * FROM cloud_reminders WHERE device_id=? AND id=?')
+      .bind(deviceId,id).first();
+    return json({success:true,reminder:cloudReminder(saved)});
+  }
+  if(method==='DELETE' && resourceId) {
+    const mutation=String(data.mutation_id||''), requestedVersion=Number(data.version||0);
+    if(!UUID_RE.test(resourceId)||!UUID_RE.test(mutation)||!Number.isInteger(requestedVersion)||requestedVersion<1)
+      return cloudDataError('INVALID_REMINDER_DELETE');
+    const existing=await env.DB.prepare('SELECT * FROM cloud_reminders WHERE device_id=? AND id=? LIMIT 1')
+      .bind(deviceId,resourceId).first();
+    if(!existing)return cloudDataError('REMINDER_NOT_FOUND',404);
+    if(existing.deleted_at)return json({success:true,deleted:true,idempotent:true});
+    if(existing.last_mutation_id===mutation)return json({success:true,deleted:true,idempotent:true});
+    if(Number(existing.version)!==requestedVersion)
+      return cloudDataError('REMINDER_CONFLICT',409,{current:cloudReminder(existing)});
+    const result=await env.DB.prepare(`UPDATE cloud_reminders SET deleted_at=?,updated_at=?,
+      version=version+1,last_mutation_id=? WHERE device_id=? AND id=? AND version=? AND deleted_at IS NULL`)
+      .bind(Date.now(),Date.now(),mutation,deviceId,resourceId,requestedVersion).run();
+    if(Number(result.meta?.changes||0)!==1)return cloudDataError('REMINDER_CONFLICT',409);
+    return json({success:true,deleted:true});
+  }
+  return cloudDataError('METHOD_NOT_ALLOWED',405);
+}
+
 async function body(request) {
   if (Number(request.headers.get('Content-Length') || 0)>8192) throw new Error('BODY_TOO_LARGE');
   const text=await boundedText(request,8192);
@@ -185,8 +342,14 @@ async function fetchAccount(request, env, ctx) {
   if (path==='/api/account/devices/claim' && method==='POST') return claim(request,env,auth,data);
   if (path==='/api/push/vapid-public-key' && method==='GET') return legacy.fetch(request,env,ctx);
   if (path==='/api/firmware/latest' && method==='GET') return legacy.fetch(request,env,ctx);
+  const cloudDataMatch=path.match(/^\/api\/device\/(MAP-[A-F0-9]{12})\/(notes|reminders)(?:\/([0-9a-fA-F-]{36}))?$/);
   const match=path.match(/^\/api\/device\/(MAP-[A-F0-9]{12})\/(status|history|config)$/);
-  const id=match?.[1] || String(data.device_id || '');
+  const id=cloudDataMatch?.[1] || match?.[1] || String(data.device_id || '');
+  if(cloudDataMatch) {
+    return cloudDataMatch[2]==='notes'
+      ? cloudNotes(env,auth,id,cloudDataMatch[3] || '',method,data)
+      : cloudReminders(env,auth,id,cloudDataMatch[3] || '',method,data);
+  }
   if (match && method==='GET') {
     const device=await permission(env,auth.user_sub,id);
     if (!device) return deny();
