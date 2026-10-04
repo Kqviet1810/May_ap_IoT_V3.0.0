@@ -2,7 +2,7 @@
   "release": "1.1.2",
   "firmware": "1.1.2",
   "hmi": "1.0.0",
-  "web": "1.1.5",
+  "web": "1.1.6",
   "web_storage_schema": 10,
   "attiny_protocol": 4,
   "esp32_core": "3.3.11",
@@ -22,5 +22,5 @@
       "serial_input_sim": false
     }
   },
-  "notes": "Thermal final hardening is merged in release candidate 1.1.2: Test Mode High/Emergency protection, fail-safe calibration/freshness policy, running-batch thermal envelope invariants, zero-authority PID rejection, E114 diagnostics and narrow stale-default envelope repair. Web assets are versioned 1.1.2. Source/deploy state does not imply OTA or physical rollout to machines."
+  "notes": "Web 1.1.6 hardens Android installed-PWA reopen: canonical scope-root start/id, required runtime shell install, navigation-specific cached fallback and non-ERR_FAILED offline response. Firmware/HMI/control/safety are unchanged."
 }

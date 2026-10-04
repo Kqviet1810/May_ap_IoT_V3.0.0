@@ -5,17 +5,33 @@ const vm = require('node:vm');
 
 function worker(fetch, stored = {}) {
   const events = new Map(), timers = new Map(), values = new Map(Object.entries(stored));
-  const cache = { match: async request => values.has(request.url) ? new Response(values.get(request.url)) : undefined,
-    put: async (request, response) => values.set(request.url, await response.text()) };
+  const key = request => new URL(typeof request === 'string' ? request : request.url, 'https://web.test/sw.js').href;
+  const cache = {
+    match: async request => values.has(key(request)) ? new Response(values.get(key(request))) : undefined,
+    put: async (request, response) => values.set(key(request), await response.text()),
+    add: async request => {
+      const response = await fetch(key(request));
+      if (!response.ok) throw new Error('cache add failed');
+      await cache.put(request, response.clone());
+    },
+    addAll: async requests => { for (const request of requests) await cache.add(request); },
+  };
   const opened = [];
-  const ctx = { self:{ location:{origin:'https://web.test'}, addEventListener:(name,fn)=>events.set(name,fn) },
-    caches:{open:async name=> { opened.push(name); return cache; }}, fetch, URL, Response,
-    setTimeout:(fn,ms)=> { timers.set(1,{fn,ms}); return 1; }, clearTimeout:id=>timers.delete(id) };
+  const ctx = { self:{
+      location:{origin:'https://web.test',href:'https://web.test/sw.js'},
+      addEventListener:(name,fn)=>events.set(name,fn),
+      skipWaiting:async()=>{},
+      clients:{claim:()=>{}},
+    },
+    caches:{open:async name=> { opened.push(name); return cache; },match:async request=>cache.match(request),keys:async()=>[],delete:async()=>true},
+    fetch, URL, Response,
+    setTimeout:(fn,ms)=> { const id=timers.size+1; timers.set(id,{fn,ms}); return id; },
+    clearTimeout:id=>timers.delete(id) };
   vm.runInNewContext(fs.readFileSync(require.resolve('../sw.js'),'utf8'),ctx);
   return { values, timers, opened,
-    request(url) {
+    request(url, init = {}) {
       let response; const lifetime=[];
-      events.get('fetch')({request:new Request(url), respondWith:p=> {response=p;}, waitUntil:p=>lifetime.push(p)});
+      events.get('fetch')({request:new Request(url, init), respondWith:p=> {response=p;}, waitUntil:p=>lifetime.push(p)});
       return {get response(){return response;}, lifetime};
     }
   };
@@ -47,12 +63,45 @@ test('normal network remains fresh-first and cleans the fallback timer', async (
 
 test('offline startup includes cached public config hardening; error pages do not replace code', async () => {
   const source = fs.readFileSync(require.resolve('../sw.js'),'utf8');
-  assert.match(source, /'\.\/config\.js\?v=1\.1\.5'/);
+  const version=JSON.parse(fs.readFileSync(require.resolve('../release-manifest.json'),'utf8')).web;
+  assert.ok(source.includes(`'./config.js?v=${version}'`));
   const w = worker(async()=> {throw new Error('offline');}, {'https://web.test/config.js':'public security wrapper'});
   assert.equal(await (await w.request('https://web.test/config.js').response).text(),'public security wrapper');
   const failed = worker(async()=>new Response('server error',{status:503}), {'https://web.test/app.js':'good code'});
   assert.equal(await (await failed.request('https://web.test/app.js').response).text(),'good code');
   assert.equal(failed.values.get('https://web.test/app.js'),'good code');
+});
+
+test('installed Android PWA uses the canonical scope root and stable manifest id', () => {
+  const manifest=JSON.parse(fs.readFileSync(require.resolve('../manifest.webmanifest'),'utf8'));
+  assert.equal(manifest.id,'./');
+  assert.equal(manifest.start_url,'./');
+  assert.equal(manifest.scope,'./');
+  assert.notEqual(manifest.start_url,'./index.html');
+});
+
+test('installed PWA navigation reopens from canonical cached shell while offline', async () => {
+  const w=worker(async()=>{throw new Error('offline');},{'https://web.test/':'cached app shell'});
+  const request=w.request('https://web.test/index.html',{headers:{accept:'text/html'}});
+  const response=await request.response;
+  assert.equal(response.status,200);
+  assert.equal(await response.text(),'cached app shell');
+});
+
+test('uncached offline navigation returns a real HTML response instead of ERR_FAILED', async () => {
+  const w=worker(async()=>{throw new Error('offline');});
+  const response=await w.request('https://web.test/',{headers:{accept:'text/html'}}).response;
+  assert.equal(response.status,503);
+  assert.match(await response.text(),/MAYAP/);
+  assert.notEqual(response.type,'error');
+});
+
+test('fresh navigation refreshes the canonical cached entry', async () => {
+  const w=worker(async()=>new Response('fresh app shell',{status:200,headers:{'Content-Type':'text/html'}}));
+  const request=w.request('https://web.test/?device=MAP-1234567890AB',{headers:{accept:'text/html'}});
+  assert.equal(await (await request.response).text(),'fresh app shell');
+  await Promise.all(request.lifetime);
+  assert.equal(w.values.get('https://web.test/'),'fresh app shell');
 });
 
 test('Cloud auth requests never enter shell cache and pinned QR scanner reuses the current release', async () => {
