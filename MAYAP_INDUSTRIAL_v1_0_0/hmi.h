@@ -1166,6 +1166,22 @@ void showToast(const char *text, bool error = false, uint32_t duration = 0) {
 }
 
 void serviceOnlineHealthNotice(uint32_t now) {
+  static bool unavailableTracking = false, unavailableNotice = false;
+  static uint32_t unavailableSince = 0U;
+  const bool unavailable = currentRuntime.connectivityMode == ConnectivityMode::Online &&
+      currentRuntime.networkConnected && currentRuntime.wifiPortalState == WifiPortalState::Idle &&
+      !mayapRealtimeOnline();
+  if (unavailable) {
+    if (!unavailableTracking) { unavailableTracking = true; unavailableSince = now; }
+    if (!unavailableNotice && now - unavailableSince >= 15000U) {
+      unavailableNotice = true;
+      showToast("ONLINE MAT - MAY VAN CHAY", true, 8000UL);
+    }
+  } else {
+    if (unavailableNotice && mayapRealtimeOnline()) showToast("ONLINE DA KET NOI LAI");
+    unavailableTracking = unavailableNotice = false;
+  }
+
   const bool onlineConfigured =
       currentRuntime.connectivityMode == ConnectivityMode::Online &&
       currentRuntime.networkConfigured;

@@ -94,7 +94,10 @@ require(service_recovery, "LOCAL CONTROL CONTINUES, NO RESTART", "degraded servi
 if "mayapRestart(" in service_recovery:
     raise SystemExit("FAIL: communication service may not restart controller")
 require(ino, "mayapServiceSupervisorUpdate(now);", "supervisor observes communication degradation")
-require(ino, "ALLOW_RUNTIME_HEALTH_AUTO_RESTART = false", "heap pressure cannot auto-reboot controller")
+if "healthRestartRequested" in ino or "HealthMonitor," in ino:
+    raise SystemExit("FAIL: heap pressure can reboot local controller")
+require(ino, "mayapOnlineIoEnter", "atomic Online admission before owner I/O")
+require(network, "mayapOnlineOwnersDrained()", "radio mutation requires owner drain ACKs")
 require(network, "safe STA reconnect", "runtime Wi-Fi recovery is non-destructive")
 require(network, "mayapRequestWifiHighPerformance", "Wi-Fi power mailbox")
 if "WiFi.disconnect(true, false)" in network:

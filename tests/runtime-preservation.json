@@ -62,7 +62,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "dfc82ba7d98122e650e385e60f785c5333f49ae2e4b7c9bfff3bbda6789c72eb",
+      "sha256": "dd5cc6086b4667a08f6823465a4c011984b50bcfacc4dbb10e3addd96a78ab1e",
       "signature": "class MachineController {"
     },
     {
@@ -77,7 +77,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "024f55eed7e28143fb341dc695685103b49e7a02b279b5b182017279fc9937cc",
+      "sha256": "2609cb98483175fccdd2c7074c9802ddaf9319fa2903ebaeaf071b035350082c",
       "signature": "inline const FaultDescriptor &faultDescriptor("
     },
     {
@@ -117,7 +117,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino",
-      "sha256": "5841b024740a4e81ce8f9577ce8b0f89832653a48c8a9c6ce30688aaa0ecdf26",
+      "sha256": "2b2d8794fd9c2b63d02d1b5d55e97016d34b84b97cab36f59213da883420cacc",
       "signature": "static void stagedStartupUpdate("
     },
     {
@@ -137,7 +137,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino",
-      "sha256": "b622dee60c3eb24c222d38d41fafdacae75935b22220e3fab005b1d4d3924eb7",
+      "sha256": "953fbaca7a0aa6d821a34f2d3ca90989737a3bf40e3a25cba01c82932b584cad",
       "signature": "void supervisorTask(",
       "filter": "supervisor"
     },
@@ -449,5 +449,6 @@
   "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
   "journalV2WireReviewNote": "2026-10-04: field evidence showed notes.list rejected by DeviceHub as INVALID_SIGNATURE_OR_EXPIRY because exchangeJournal supplied PROTOCOL_VERSION=1 while verifyWrite requires body.v=2. signRealtimeWrite now centrally normalizes all V2 wire bodies to v=2; notes/request gets a 15s execution expiry to stay inside the server's 30s bound with modest clock skew. This also fixes legacy-shaped history/request bodies. HMAC domain/key, requestId, seq/nonce, exact retry, journal EEPROM layout and firmware safety/control are unchanged.",
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes.",
-  "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged."
+  "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged.",
+  "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged."
 }

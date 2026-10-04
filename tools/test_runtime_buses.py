@@ -26,6 +26,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     (out / 'actual-attiny-controller.inc').write_text(machine[start:end], encoding='utf-8')
     services = (root / 'MAYAP_INDUSTRIAL_v1_0_0/service_recovery.h').read_text(encoding='utf-8')
     services = services.replace('#include "config.h"', '').replace('#include "runtime_recovery_policy.h"', '')
+    (out / 'online_isolation.h').write_text((root / 'MAYAP_INDUSTRIAL_v1_0_0/online_isolation.h').read_text(), encoding='utf-8')
     (out / 'actual-services.inc').write_text(services, encoding='utf-8')
     network = (root / 'MAYAP_INDUSTRIAL_v1_0_0/network_service.h').read_text(encoding='utf-8')
     start = network.index('inline void mayapRequestWifiDeepRecovery()')
@@ -65,7 +66,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),
-                       ('inline void serviceSessionTimeout(', '// realtime owner is'),
+                       ('inline void serviceSessionTimeout(', 'inline void serviceWifiPowerMode()'),
                        ('inline void serviceSnapshotPublish(', 'inline void serviceEventLogPublish(')):
         start = realtime.index(begin)
         stop = realtime.index(end, start)
@@ -89,6 +90,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
             depth += (source[end] == '{') - (source[end] == '}')
             end += 1
         return source[start:end]
+    (out / 'actual-portal.inc').write_text('\n'.join(function(network, sig) for sig in
+        ('inline void portalStop(', 'inline void servicePortal(')), encoding='utf-8')
+    (out / 'actual-health-heap.inc').write_text(function(machine, '  void serviceHealthHeap('), encoding='utf-8')
     hmi = (root / 'MAYAP_INDUSTRIAL_v1_0_0/hmi.h').read_text(encoding='utf-8')
     (out / 'actual-transaction-hmi.inc').write_text('\n'.join(function(hmi, sig) for sig in
         ('bool queueCommand(',)), encoding='utf-8')
@@ -138,18 +142,30 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
         if test == 'runtime-transactions': command[1] = '-std=c++17'
-        if test in ('runtime-web-connect', 'runtime-transactions'):
+        if test in ('runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation'):
             command += ['-I', str(json_include)]
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']
         subprocess.run(command, check=True)
         subprocess.run([str(executable)], check=True)
     if args.check_regression:
+        header = out / 'online_isolation.h'
+        fixed_gate = header.read_text()
+        required_ack = '((current >> 8U) & owners) == owners'
+        assert required_ack in fixed_gate
+        header.write_text(fixed_gate.replace(required_ack, '(owners != 0U)'))
+        executable = out / 'runtime-online-gate-regression'
+        subprocess.run([args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
+                        str(root / 'tests/runtime-online-isolation.cpp'), '-o', str(executable)], check=True)
+        broken = subprocess.run([str(executable)], capture_output=True, text=True)
+        header.write_text(fixed_gate)
+        assert broken.returncode != 0, 'Idle-only drain race was not detected'
+        print('Regression proof: idle-only busy flags permit radio mutation before socket closure; owner drain ACKs reject it')
         # Demonstrate that the expanded test actually rejects the logged bug,
         # not merely that the patched source compiles. Only a temporary header
         # is mutated; production files and the Tiny sketch remain untouched.

@@ -26,7 +26,6 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
     // The only additions allowed inside these protected functions are health instrumentation.
     if (entry.filter === 'webBeat') source = source.replace(/^\s*mayapServiceBeat\(MayapRecovery::Service::Ota\);\n/gm, '');
     if (entry.filter === 'supervisor') {
-      source = source.replace('ALLOW_RUNTIME_HEALTH_AUTO_RESTART &&\n        ', '');
       source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');
     }
     if (entry.filter === 'config') source = source.replace(/^void mayapI2cReport\(uint8_t address, bool ok\);\n|^uint32_t mayapI2cRecoveryEpoch\(\);\n/gm, '');
@@ -67,4 +66,33 @@ test('shared I2C recovery has one bus reset owner and never clears physical faul
   assert.match(bus, /pulse < 9U/);
   assert.match(bus, /mayapI2cUnlock/);
   assert.doesNotMatch(bus, /clearRecovered|EEPROM\.write|mayapRestart/);
+});
+
+test('Online task creation, stalls and heap pressure never request local restart',()=>{
+ const ino=read(dir+'MAYAP_INDUSTRIAL_v1_0_0.ino'),machine=read(dir+'machine_control.h');
+ assert.doesNotMatch(ino,/healthRestartRequested|RestartReason::HealthMonitor/);
+ for(const task of ['networkTask','mqttTask','cloudTask','otaTask'])
+  assert.doesNotMatch(body(ino,'void '+task+'('),/mayapRestart|fatalRestart|subscribeCurrentTaskToWdt|vTaskSuspend/);
+ assert.doesNotMatch(body(machine,'  void serviceHealthHeap('),/healthRestartRequested|mayapRestart/);
+ assert.match(ino,/bootSequence.age\(now\) >= MayapBoot::WIFI_WAIT_MS/);
+ assert.match(ino,/bootSequence.age\(now\) >= MayapBoot::MQTT_WAIT_MS/);
+ assert.match(ino,/wdtConfig.idle_core_mask = 0U/);
+ const control=body(ino,'void controlTask(');
+ assert.doesNotMatch(control,/mayapOnlineOwnersDrained|mayapOnlineIoEnter|WiFi\.|HTTPClient|esp_tls|WebSocket/);
+ assert.match(ino,/controlTask, "mayap_ctrl", sizeof\(controlTaskStack\), nullptr, 5,[\s\S]*?controlTaskStack, &controlTaskTcb, 1/);
+ assert.match(ino,/hmiTask, "mayap_hmi", sizeof\(hmiTaskStack\), nullptr, 2,\s*hmiTaskStack, &hmiTaskTcb, 1/);
+ for (const task of ['network','mqtt','cloud','ota'])
+  assert.match(ino,new RegExp(task+'Task, "mayap_'+task+'",[\\s\\S]*?'+task+'TaskStack, &'+task+'TaskTcb, 0'));
+});
+test('radio mutations require real owner closure and Online startup cannot bypass admission',()=>{
+ const network=read(dir+'network_service.h'),ino=read(dir+'MAYAP_INDUSTRIAL_v1_0_0.ino');
+ assert.match(network,/mayapOnlineOwnersDrained\(\)/);
+ assert.doesNotMatch(network,/setAutoReconnect\(true\)/);
+ const startup=body(ino,'void networkTask(').split('mayapNetworkBegin();')[0];
+ assert.match(startup,/mayapRadioQuiesceBegin\(\);\s*while \(!mayapOnlineOwnersDrained\(\)\)/);
+ for(const service of ['Mqtt','Cloud','Ota']){
+  assert.match(ino,new RegExp('mayapOnlineIoEnter\\(MayapRecovery::Service::'+service+'\\)'));
+  assert.match(ino,new RegExp('mayapOnlineIoLeave\\(MayapRecovery::Service::'+service+'\\)'));
+  assert.match(ino,new RegExp('mayapOnlineOwnerQuiet\\(MayapRecovery::Service::'+service+'\\)'));
+ }
 });

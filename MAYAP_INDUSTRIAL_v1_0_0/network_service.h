@@ -140,7 +140,7 @@ inline bool startStation(uint32_t now) {
     stopRadio();
     return false;
   }
-  (void)WiFi.setAutoReconnect(true);
+  (void)WiFi.setAutoReconnect(false);
   const char *password = activePassword[0] == '\0' ? nullptr : activePassword;
   (void)WiFi.begin(activeSsid, password);
   radioActive = true;
@@ -459,10 +459,11 @@ inline void portalStop() {
   }
   // Preserve a successfully joined STA. Do not release exclusivity and then
   // tear the same interface down again while realtime starts TLS.
-  radioActive = WiFi.isConnected();
-  connectionStartedAt = radioActive ? 0U : millis();
+  radioActive = WiFi.getMode() != WIFI_OFF;
+  connectionStartedAt = millis();
   wifiPowerModeAppliedValid = false;
-  if (radioActive) {
+  if (WiFi.isConnected()) {
+    connectionStartedAt = 0U;
     deepPolicy.success(millis());
     staBackoff.onSuccess();
   } else {
@@ -473,6 +474,7 @@ inline void portalStop() {
   __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
   publishPortalState(WifiPortalState::Idle, "");
   portalCrashClear();
+  mayapRadioQuiesceEnd();
 }
 
 // Bat AP that su. Tach rieng khoi portalBeginStarting() de goi lai duoc
@@ -510,6 +512,7 @@ inline void portalBeginStarting(uint32_t now) {
     __atomic_store_n(&portalOtaQuiescedFlag, 0U, __ATOMIC_RELEASE);
     publishPortalState(WifiPortalState::Failed, "");
     portalCrashClear();
+    mayapRadioQuiesceEnd();
     return;
   }
 
@@ -535,6 +538,7 @@ inline void serviceStarting(uint32_t now) {
       portalPhase = PortalPhase::Idle;
       __atomic_store_n(&portalRequestFlag, 0U, __ATOMIC_RELEASE);
       publishPortalState(WifiPortalState::Idle, "");
+      mayapRadioQuiesceEnd();
     }
     return;
   }
@@ -568,6 +572,7 @@ inline void servicePortal(uint32_t now) {
     if (!requested) return;
     // Pha 1: cong bo STA offline cho cac client cua networkTask tu dong dong
     // MQTT/socket; otaTask thay portalRequestFlag va dong ArduinoOTA/HTTPS.
+    mayapRadioQuiesceBegin();
     portalPhase = PortalPhase::Quiescing;
     portalQuiesceStartedAt_ = now;
     portalCrashMark(10U);
@@ -581,7 +586,7 @@ inline void servicePortal(uint32_t now) {
     const bool otaQuiesced = __atomic_load_n(&portalOtaQuiescedFlag, __ATOMIC_ACQUIRE) != 0U;
     // Cho it nhat 1 network tick de mayapWebLinkUpdate() dong MQTT sau khi
     // publishedConnected=false, ke ca khi otaTask da ack rat nhanh.
-    if (otaQuiesced && elapsedMs(now, portalQuiesceStartedAt_) >= NETWORK_TASK_PERIOD_MS) {
+    if (otaQuiesced && mayapOnlineOwnersDrained() && elapsedMs(now, portalQuiesceStartedAt_) >= NETWORK_TASK_PERIOD_MS) {
       portalBeginStarting(now);
       return;
     }
@@ -593,6 +598,7 @@ inline void servicePortal(uint32_t now) {
       portalPhase = PortalPhase::Idle;
       publishPortalState(WifiPortalState::Failed, "");
       portalCrashClear();
+      mayapRadioQuiesceEnd();
     }
     return;
   }
@@ -824,9 +830,7 @@ inline void mayapRequestWifiHighPerformance(bool highPerformance) {
 
 inline bool mayapWifiPortalExclusiveRequested() {
   using namespace MayapNetworkInternal;
-  return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U ||
-      __atomic_load_n(&publishedPortalState, __ATOMIC_ACQUIRE) !=
-          static_cast<uint8_t>(WifiPortalState::Idle);
+  return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U;
 }
 
 // Owner networkTask only. Other tasks cooperate through radioQuiesce; no
@@ -850,8 +854,10 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       deepRequested = false;
       if (!radioActive) {
         __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+        if (!portal) mayapRadioQuiesceEnd();
         return false;
       }
+      mayapRadioQuiesceBegin();
       deepPhase = DeepPhase::Quiesce;
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 1U, __ATOMIC_RELEASE);
       publish(online ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
@@ -864,6 +870,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
     }
     if (!deepRequested && !deepPolicy.wanted(now)) return false;
     deepRequested = false;
+    mayapRadioQuiesceBegin();
     deepPhase = DeepPhase::Quiesce;
     __atomic_store_n(&MayapServiceInternal::radioQuiesce, 1U, __ATOMIC_RELEASE);
     publish(NetworkStateCode::Connecting, false);
@@ -876,9 +883,10 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
     if (portal) {
       deepPhase = DeepPhase::Idle;
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+      // Keep the admission gate closed: portal takes over the same transaction.
       return false;
     }
-    if (externalIoBusy || !mayapRadioOtaQuiesced()) return true;
+    if (externalIoBusy || !mayapRadioOtaQuiesced() || !mayapOnlineOwnersDrained()) return true;
 
     const bool stillOnline = __atomic_load_n(&requestedMode, __ATOMIC_ACQUIRE) ==
         static_cast<uint8_t>(ConnectivityMode::Online);
@@ -887,6 +895,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       stopRadio();
       deepPhase = DeepPhase::Idle;
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+      if (!portal) mayapRadioQuiesceEnd();
       publish(stillOnline ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
       mayapSerialPrintf(false, "[WIFI] radio stopped after owner quiesce\n");
       return false;
@@ -894,7 +903,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
 
     // Ordinary loss/weak Wi-Fi must never WIFI_OFF/WIFI_STA-cycle the shared
     // driver. Drain owners first, then ask the existing STA to reconnect in place.
-    (void)WiFi.setAutoReconnect(true);
+    (void)WiFi.setAutoReconnect(false);
     const bool reconnectAccepted = WiFi.reconnect();
     if (!reconnectAccepted) {
       const char *password = activePassword[0] == '\0' ? nullptr : activePassword;
@@ -908,6 +917,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
     deepPhaseAt = now;
     deepPhase = deepPolicy.isolate() ? DeepPhase::Isolated : DeepPhase::Idle;
     __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
+    mayapRadioQuiesceEnd();
     publish(NetworkStateCode::Connecting, false);
     mayapSerialPrintf(false,
         "[WIFI-RECOVERY] safe reconnect accepted=%u isolate=%u (NO RADIO RESET)\n",
@@ -1017,7 +1027,10 @@ inline void mayapNetworkUpdate(uint32_t now) {
       publish(NetworkStateCode::Connecting, false);
       return;
     }
+    mayapRadioQuiesceBegin();
+    if (!mayapOnlineOwnersDrained()) return;
     const bool started = startStation(now);
+    mayapRadioQuiesceEnd();
     if (!started) {
       deepPolicy.failure(now);
       // setHostname()/mode() that bai (rat hiem - loi driver): lui backoff

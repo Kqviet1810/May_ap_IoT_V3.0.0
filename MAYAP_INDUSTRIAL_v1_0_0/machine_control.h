@@ -539,10 +539,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     // latching=false: tu het khi xu huong tro lai binh thuong (co tre/
     // hysteresis rieng trong logic tinh, xem serviceHealthMonitor()).
     {FaultCode::HeapLow, FaultSeverity::Warning, 30U, AlarmSystem, false, false, false, false, false, false, "HEAP LOW"},
-    // HeapCritical chi bao best-effort truoc luc tu khoi dong lai (xem
-    // healthRestartRequested()) - thuong se restart ngay sau khi bao nen
-    // "dang xay ra" it khi thay tren HMI, chu yeu de lai dau vet trong nhat
-    // ky/Cloud Push truoc khi may tu khoi dong lai.
+    // HeapCritical sheds Online workloads; local control never restarts for RAM pressure.
     {FaultCode::HeapCritical, FaultSeverity::Warning, 35U, AlarmSystem, false, false, false, false, false, false, "HEAP CRITICAL"},
     {FaultCode::TemperatureTrendWarning, FaultSeverity::Warning, 48U, AlarmTempHigh, false, false, false, false, false, false, "TEMP TREND WARNING"},
     {FaultCode::StorageRetryTrend, FaultSeverity::Warning, 72U, AlarmSystem, false, false, false, false, false, false, "STORAGE RETRY TREND"},
@@ -3831,11 +3828,6 @@ class MachineController {
   const MachineConfig &config() const { return config_; }
   const MachineRuntime &runtime() const { return runtime_; }
   const OutputState &outputs() const { return outputs_.state(); }
-  // Doc tu supervisorTask (khac task voi controlTask ghi trong update()) de
-  // quyet dinh esp_restart() - xem ghi chu tai khai bao healthRestartRequested_.
-  bool healthRestartRequested() const {
-    return __atomic_load_n(&healthRestartRequested_, __ATOMIC_ACQUIRE);
-  }
 
  private:
   enum class BatchPhase : uint8_t { Stopped, Prestart, Homing, Running };
@@ -3845,21 +3837,8 @@ class MachineController {
     TurningDisabled
   };
 
-  // ------------------- Giam sat suc khoe he thong (v3.6.0) --------------------
-  // Muc tieu: DU DOAN SOM truoc khi thanh su co that su xay ra (het RAM, cham
-  // nguong nhiet, EEPROM suy giam), thay vi chi phat hien SAU khi da xay ra
-  // nhu cac canh bao cu (VD HighTemperature chi bao khi DA vuot nguong). Ba
-  // muc con giam sat doc lap voi nhau, chi dua ra CANH BAO va (voi rieng
-  // heap) tu quyet dinh THOI DIEM AN TOAN de tu khoi dong lai - KHONG duoc
-  // phep tu y can thiep nhiet/dao (xem faultDescriptor() nhom 400: khong
-  // inhibitSsr/dropHeatMaster/inhibitsTurning nao ca).
-  bool safeToHealthRestart() const {
-    if (autotune_.running()) return false;
-    if (runtime_.turnState != TurnState::Stopped) return false;
-    if (highTemperatureActive_ || lowTemperatureActive_ || emergencyActive_) return false;
-    return true;
-  }
-
+  // Heap pressure is diagnostic and sheds only Online workloads. Local
+  // control, fault thresholds and output arbitration are unchanged.
   void serviceHealthHeap(uint32_t now, uint32_t recoveredHeap) {
     if (!healthBaselineCaptured_) return;
     const uint32_t freeHeap = ESP.getFreeHeap();
@@ -3868,33 +3847,28 @@ class MachineController {
     const uint32_t percent = static_cast<uint32_t>(
         (static_cast<uint64_t>(recoveredHeap) * 100ULL) / healthHeapBaseline_);
 
-    // Muc 3 - NGUY CAP: khoi dong lai NGAY bat ke dang lam gi. O day rui ro
-    // crash khong kiem soat (treo giua chung, du lieu dang ghi do dang) cao
-    // hon han rui ro cua 1 lan restart chu dong - khong debounce, khong cho
-    // "luc an toan" (nhip lay mau 30s da tu loc bot nhieu tuc thoi).
+    // Critical memory pressure closes Online admission, never the controller.
     if (instantPercent <= HEALTH_HEAP_CRITICAL_PERCENT) {
       faults_.set(FaultCode::HeapCritical, true, now, static_cast<int16_t>(instantPercent));
-      __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
+      mayapSetOnlineMemoryPressure(true);
       mayapSerialPrintf(false,
-          "[HEALTH] Heap NGUY CAP %lu%% (%lu/%lu bytes) - xin khoi dong lai NGAY\n",
+          "[HEALTH] Heap NGUY CAP %lu%% (%lu/%lu bytes) - tam dung Online, MAY VAN CHAY\n",
           static_cast<unsigned long>(instantPercent), static_cast<unsigned long>(freeHeap),
           static_cast<unsigned long>(healthHeapBaseline_));
       return;
     }
     faults_.set(FaultCode::HeapCritical, false, now);
 
-    // Muc 2 - nghiem trong: chi LEN LICH, cho toi luc an toan (khong dang co
-    // canh bao nhiet dang hoat dong/dao dang chay/autotune dang chay) moi
-    // thuc su xin khoi dong lai - tranh cat quyen dieu khien giua luc quan trong.
+    // Sustained pressure also pauses Online; no reset is scheduled.
     if (percent <= HEALTH_HEAP_SERIOUS_PERCENT) {
       if (healthHeapSeriousStreak_ < UINT8_MAX) ++healthHeapSeriousStreak_;
     } else {
       healthHeapSeriousStreak_ = 0U;
     }
-    if (healthHeapSeriousStreak_ >= HEALTH_STREAK_CONFIRM && safeToHealthRestart()) {
-      __atomic_store_n(&healthRestartRequested_, true, __ATOMIC_RELEASE);
+    if (healthHeapSeriousStreak_ >= HEALTH_STREAK_CONFIRM) {
+      mayapSetOnlineMemoryPressure(true);
       mayapSerialPrintf(false,
-          "[HEALTH] Heap thap keo dai %lu%% - dang o luc an toan, xin khoi dong lai\n",
+          "[HEALTH] Heap thap keo dai %lu%% - tam dung Online, MAY VAN CHAY\n",
           static_cast<unsigned long>(percent));
     }
 
@@ -3977,6 +3951,9 @@ class MachineController {
     }
     if (healthHeapSampleGate_.due(now, true)) {
       const uint32_t freeHeap = ESP.getFreeHeap();
+      if (freeHeap < 16384U) mayapSetOnlineMemoryPressure(true);
+      else if (freeHeap >= 73728U && ESP.getMaxAllocHeap() >= 24576U)
+        mayapSetOnlineMemoryPressure(false);
       healthHeapWindowBest_ = std::max(healthHeapWindowBest_, freeHeap);
       healthHeapWindowWorst_ = std::min(healthHeapWindowWorst_, freeHeap);
     }
@@ -7747,13 +7724,6 @@ class MachineController {
   uint8_t healthHeapSeriousStreak_ = 0U;
   float healthTempBaseline_ = NAN;
   uint32_t healthTempBaselineAt_ = 0U;
-  // Doc/ghi tu 2 task khac nhau (controlTask ghi trong update(), supervisorTask
-  // doc de quyet dinh esp_restart()) - dung atomic builtin giong het idiom
-  // gMayapSystemTripLatched/controlHeartbeatMs trong file .ino, vi day la
-  // hanh dong KHONG THE DAO NGUOC (khoi dong lai) nen can chac chan hon muc
-  // "doc khong dong bo chap nhan duoc" ma cac truong runtime_ khac dang dung.
-  volatile bool healthRestartRequested_ = false;
-
   uint32_t sirenMutedUntil_ = 0;
   // Cong tac den (PIN_IN_LIGHT) van la nguon dieu khien mac dinh (xem
   // updateHeatingAndOutputs()); nut bat/tat den tren web CHI de lai 1 lenh

@@ -1,3 +1,4 @@
+#include "../MAYAP_INDUSTRIAL_v1_0_0/online_isolation.h"
 // Actual RFC6455 parser and ESP transport with fault-injected DNS/TLS/TCP.
 #include <cassert>
 #include <cstdint>
@@ -193,6 +194,21 @@ int main(){
  }
  // Portal/radio recovery cancels an in-progress handshake and releases admission.
  {reset();WebSocketTransport ws;tlsResult=0;begin(ws);ws.loop(clockMs);assert(ws.busy()&&!ws.connected());ws.disconnect();assert(!ws.busy()&&admissions==0&&tlsCount==0);}
+ // Actual transport resource release before the shared radio gate can drain:
+ // Wi-Fi lost in DNS, TLS handshake, established WebSocket and reconnect churn.
+ for(int phase=0;phase<3;phase++)for(int cycle=0;cycle<1000;cycle++){
+  reset();WebSocketTransport ws;MayapOnline::RadioGate gate;
+  assert(gate.enter(1));
+  if(phase==0){dnsResult=ERR_INPROGRESS;begin(ws);}
+  else if(phase==1){tlsResult=0;begin(ws);ws.loop(clockMs);}
+  else open(ws);
+  gate.closeAdmission();gate.leave(1);
+  assert(!gate.drained(2));assert(!gate.enter(1));
+  ws.disconnect();assert(!ws.busy()&&admissions==0&&tlsCount==0);
+  gate.acknowledge(1);assert(gate.drained(2));
+  if(phase==0){ip_addr_t ip;dnsCallback("hub.test",&ip,dnsArg);} // bounded late DNS completion
+  gate.release();assert(gate.enter(1));gate.leave(1);
+ }
  // TLS handshake, asynchronous DNS, network stalls and wrap-around deadlines.
  {reset();WebSocketTransport ws;tlsResult=0;begin(ws);ws.loop(clockMs);assert(ws.busy()&&!ws.connected()&&admissions==1);ws.loop(clockMs+15001);assert(!ws.busy()&&admissions==0&&tlsCount==0);}
  {reset();WebSocketTransport ws;dnsResult=ERR_INPROGRESS;begin(ws);ws.loop(clockMs+15001);assert(!ws.busy()&&admissions==0);assert(!ws.begin("hub.test","MAP-1234567890AB",std::string(64,'a').c_str(),123,"CA",clockMs));ip_addr_t ip;dnsCallback("hub.test",&ip,dnsArg);dnsResult=0;begin(ws);ws.disconnect();assert(admissions==0);}

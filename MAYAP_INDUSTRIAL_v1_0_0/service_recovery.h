@@ -1,6 +1,7 @@
 #pragma once
 #include "config.h"
 #include "runtime_recovery_policy.h"
+#include "online_isolation.h"
 
 namespace MayapServiceInternal {
 struct Slot {
@@ -8,7 +9,10 @@ struct Slot {
   uint32_t isolateAt = 0U, isolated = 0U, degraded = 0U;
 };
 static Slot slots[4];
+static MayapOnline::RadioGate radioGate;
 static uint32_t radioQuiesce = 0U;
+static uint32_t memoryPressure = 0U;
+static uint32_t realtimeOnline = 0U;
 static uint32_t otaQuiesced = 1U;
 static const char *const names[] = {"NETWORK", "MQTT", "CLOUD", "OTA"};
 }
@@ -37,14 +41,47 @@ inline bool mayapServiceIsolated(MayapRecovery::Service service, uint32_t now) {
   return false;
 }
 inline uint8_t mayapServiceDegradedMask() {
-  uint8_t mask = 0U;
+  uint8_t mask = __atomic_load_n(&MayapServiceInternal::memoryPressure, __ATOMIC_ACQUIRE) ? 0x0EU : 0U;
   for (uint8_t i = 0U; i < 4U; ++i)
     if (__atomic_load_n(&MayapServiceInternal::slots[i].degraded, __ATOMIC_ACQUIRE))
       mask |= static_cast<uint8_t>(1U << i);
   return mask;
 }
+inline void mayapSetRealtimeOnline(bool connected) {
+  __atomic_store_n(&MayapServiceInternal::realtimeOnline, connected ? 1U : 0U, __ATOMIC_RELEASE);
+}
+inline bool mayapRealtimeOnline() {
+  return __atomic_load_n(&MayapServiceInternal::realtimeOnline, __ATOMIC_ACQUIRE) != 0U;
+}
+inline void mayapSetOnlineMemoryPressure(bool paused) {
+  __atomic_store_n(&MayapServiceInternal::memoryPressure, paused ? 1U : 0U, __ATOMIC_RELEASE);
+}
+inline bool mayapOnlineMemoryPressure() {
+  return __atomic_load_n(&MayapServiceInternal::memoryPressure, __ATOMIC_ACQUIRE) != 0U;
+}
+inline bool mayapOnlineIoEnter(MayapRecovery::Service owner) {
+  return !mayapOnlineMemoryPressure() && MayapServiceInternal::radioGate.enter(static_cast<uint8_t>(owner));
+}
+inline void mayapOnlineIoLeave(MayapRecovery::Service owner) {
+  MayapServiceInternal::radioGate.leave(static_cast<uint8_t>(owner));
+}
+inline void mayapOnlineOwnerQuiet(MayapRecovery::Service owner) {
+  MayapServiceInternal::radioGate.acknowledge(static_cast<uint8_t>(owner));
+}
+inline void mayapRadioQuiesceBegin() { MayapServiceInternal::radioGate.closeAdmission(); }
+inline bool mayapOnlineOwnersDrained() {
+  uint8_t owners = 0U;
+  for (uint8_t i = 1U; i < 4U; ++i)
+    if (__atomic_load_n(&MayapServiceInternal::slots[i].admitted, __ATOMIC_ACQUIRE)) owners |= 1U << i;
+  return MayapServiceInternal::radioGate.drained(owners);
+}
+inline void mayapRadioQuiesceEnd() { MayapServiceInternal::radioGate.release(); }
+inline void mayapOnlineUnavailable(MayapRecovery::Service owner) {
+  __atomic_store_n(&MayapServiceInternal::slots[static_cast<uint8_t>(owner)].degraded, 1U, __ATOMIC_RELEASE);
+}
 inline bool mayapRadioRecoveryRequested() {
-  return __atomic_load_n(&MayapServiceInternal::radioQuiesce, __ATOMIC_ACQUIRE) != 0U;
+  return MayapServiceInternal::radioGate.closed() ||
+      __atomic_load_n(&MayapServiceInternal::radioQuiesce, __ATOMIC_ACQUIRE) != 0U;
 }
 inline bool mayapRadioOtaQuiesced() {
   return __atomic_load_n(&MayapServiceInternal::otaQuiesced, __ATOMIC_ACQUIRE) != 0U;

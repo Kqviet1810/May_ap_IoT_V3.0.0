@@ -43,7 +43,7 @@ void mayapI2cUnlock() {
 
 using namespace Mayap;
 
-// Core 1 duoc giu rieng cho dieu khien an toan. Core 0 tach thanh cac task
+// Core 1 chay dieu khien an toan va HMI (uu tien thap hon control). Core 0 tach cac task
 // I/O doc lap de HTTPS/NTP/OTA khong the chan mqtt.loop(). Tat ca stack tinh,
 // khong tao/xoa task trong runtime.
 constexpr uint32_t NETWORK_FAST_TASK_PERIOD_MS = 50UL;
@@ -51,7 +51,6 @@ constexpr uint32_t MQTT_TASK_PERIOD_MS = 20UL;
 constexpr uint32_t CLOUD_TASK_PERIOD_MS = 100UL;
 // Controller availability outranks connectivity. Heap pressure remains visible
 // through E401/E402, but an online workload may not reboot the machine.
-constexpr bool ALLOW_RUNTIME_HEALTH_AUTO_RESTART = false;
 constexpr size_t MQTT_TASK_STACK_BYTES = 12288U;
 constexpr size_t CLOUD_TASK_STACK_BYTES = 12288U;
 
@@ -241,13 +240,22 @@ void hmiTask(void *parameter) {
 void networkTask(void *parameter) {
   (void)parameter;
   mayapServiceAdmit(MayapRecovery::Service::Network);
+  // A delayed optional task may start after other owners were admitted.
+  // Even initial WIFI_OFF must obey the same socket-closure transaction.
+  mayapRadioQuiesceBegin();
+  while (!mayapOnlineOwnersDrained()) {
+    mayapServiceBeat(MayapRecovery::Service::Network);
+    vTaskDelay(pdMS_TO_TICKS(NETWORK_FAST_TASK_PERIOD_MS));
+  }
   mayapNetworkBegin();
   mayapPrintNetworkConfig();
   __atomic_store_n(&networkReady, 1U, __ATOMIC_RELEASE);
   TickType_t lastWake = xTaskGetTickCount();
+  bool memoryPaused = false;
   for (;;) {
     const uint32_t now = millis();
     const bool portalRequested = mayapWifiPortalExclusiveRequested();
+    if (portalRequested) mayapRadioQuiesceBegin();
     // A deferred OTA task has no sockets to quiesce. Keep the portal usable
     // during admission without touching the runtime OTA handshake/interlock.
     if (portalRequested && mayapBootStage() < MayapBoot::Stage::Ota) {
@@ -258,6 +266,23 @@ void networkTask(void *parameter) {
         __atomic_load_n(&cloudIoBusy, __ATOMIC_ACQUIRE) != 0U;
     if (mayapServiceRecoveryRequested(MayapRecovery::Service::Network)) {
       mayapRequestWifiDeepRecovery();
+    }
+    if (mayapOnlineMemoryPressure()) {
+      memoryPaused = true;
+      mayapRadioQuiesceBegin();
+      MayapNetworkInternal::publish(NetworkStateCode::Connecting, false);
+      mayapServiceBeat(MayapRecovery::Service::Network);
+      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_FAST_TASK_PERIOD_MS));
+      continue;
+    }
+    if (memoryPaused) {
+      if (!mayapOnlineOwnersDrained()) {
+        mayapServiceBeat(MayapRecovery::Service::Network);
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(NETWORK_FAST_TASK_PERIOD_MS));
+        continue;
+      }
+      if (!portalRequested) mayapRadioQuiesceEnd();
+      memoryPaused = false;
     }
     const bool recovering = mayapNetworkDeepRecoveryUpdate(now, externalIoBusy);
     if (!recovering && !(portalRequested && externalIoBusy) &&
@@ -291,6 +316,7 @@ void mqttTask(void *parameter) {
       __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
       mayapMqttRecover(now);
       __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
+      mayapSetRealtimeOnline(false);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
       mayapServiceRecoveryComplete(MayapRecovery::Service::Mqtt);
     }
@@ -299,12 +325,19 @@ void mqttTask(void *parameter) {
       __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
       if (MayapRealtimeInternal::socketTransport.busy()) MayapRealtimeInternal::socketTransport.disconnect();
       __atomic_store_n(&mqttConnected, 0U, __ATOMIC_RELEASE);
+      mayapSetRealtimeOnline(false);
       __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
+      mayapOnlineOwnerQuiet(MayapRecovery::Service::Mqtt);
       mayapServiceBeat(MayapRecovery::Service::Mqtt);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
       continue;
     }
 
+    if (!mayapOnlineIoEnter(MayapRecovery::Service::Mqtt)) {
+      mayapServiceBeat(MayapRecovery::Service::Mqtt);
+      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
+      continue;
+    }
     __atomic_store_n(&mqttIoBusy, 1U, __ATOMIC_RELEASE);
     // Dong cua so race: portal co the vua duoc controlTask yeu cau sau phep
     // kiem tra o tren nhung truoc khi ta danh dau busy.
@@ -337,7 +370,9 @@ void mqttTask(void *parameter) {
 #endif
     }
     __atomic_store_n(&mqttIoBusy, 0U, __ATOMIC_RELEASE);
+    mayapOnlineIoLeave(MayapRecovery::Service::Mqtt);
     __atomic_store_n(&mqttConnected, MayapRealtimeInternal::socketTransport.connected() ? 1U : 0U, __ATOMIC_RELEASE);
+    mayapSetRealtimeOnline(MayapRealtimeInternal::socketTransport.connected());
     mayapServiceBeat(MayapRecovery::Service::Mqtt);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(MQTT_TASK_PERIOD_MS));
   }
@@ -361,16 +396,23 @@ void cloudTask(void *parameter) {
     if (mayapWifiPortalExclusiveRequested() || mayapRadioRecoveryRequested() ||
         mayapServiceIsolated(MayapRecovery::Service::Cloud, now)) {
       __atomic_store_n(&cloudIoBusy, 0U, __ATOMIC_RELEASE);
+      mayapOnlineOwnerQuiet(MayapRecovery::Service::Cloud);
       mayapServiceBeat(MayapRecovery::Service::Cloud);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
       continue;
     }
 
+    if (!mayapOnlineIoEnter(MayapRecovery::Service::Cloud)) {
+      mayapServiceBeat(MayapRecovery::Service::Cloud);
+      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
+      continue;
+    }
     __atomic_store_n(&cloudIoBusy, 1U, __ATOMIC_RELEASE);
     if (!mayapWifiPortalExclusiveRequested() && !mayapRadioRecoveryRequested()) {
       mayapCloudAlertUpdate(now);
     }
     __atomic_store_n(&cloudIoBusy, 0U, __ATOMIC_RELEASE);
+    mayapOnlineIoLeave(MayapRecovery::Service::Cloud);
     mayapServiceBeat(MayapRecovery::Service::Cloud);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(CLOUD_TASK_PERIOD_MS));
   }
@@ -393,7 +435,13 @@ void otaTask(void *parameter) {
       const bool quiesced = mayapOtaQuiesceForWifiPortal();
       mayapSetWifiPortalOtaQuiesced(quiesced);
       mayapSetRadioOtaQuiesced(quiesced);
+      if (quiesced) mayapOnlineOwnerQuiet(MayapRecovery::Service::Ota);
       if (!quiesced) mayapOtaUpdate(now);
+      mayapServiceBeat(MayapRecovery::Service::Ota);
+      vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
+      continue;
+    }
+    if (!mayapOnlineIoEnter(MayapRecovery::Service::Ota)) {
       mayapServiceBeat(MayapRecovery::Service::Ota);
       vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
       continue;
@@ -403,6 +451,7 @@ void otaTask(void *parameter) {
     mayapOtaUpdate(now);
     mayapFirmwareWebUpdate(now);
     mayapFirmwareRollbackUpdate(now);
+    mayapOnlineIoLeave(MayapRecovery::Service::Ota);
     mayapServiceBeat(MayapRecovery::Service::Ota);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(OTA_TASK_PERIOD_MS));
   }
@@ -477,15 +526,6 @@ void supervisorTask(void *parameter) {
           static_cast<unsigned long>(__atomic_load_n(&hmiLastCycleUs, __ATOMIC_ACQUIRE)),
           static_cast<unsigned>(hmiSlowCycles));
       mayapRestart(MayapBoot::RestartReason::HmiFatal, "Supervisor HMI fatal");
-    }
-
-    if (ALLOW_RUNTIME_HEALTH_AUTO_RESTART &&
-        controlExpected && Machine.healthRestartRequested()) {
-      mayapLatchSystemTrip();
-      if (controlTaskHandle) vTaskSuspend(controlTaskHandle);
-      mayapSafeOutputsEarly();
-      mayapSerialPrintf(false, "[SUPERVISOR] Health-monitor xin khoi dong lai co kiem soat\n");
-      mayapRestart(MayapBoot::RestartReason::HealthMonitor, "Machine health monitor");
     }
 
     MayapRecovery::Service failedService = MayapRecovery::Service::Network;
@@ -577,7 +617,7 @@ static void stagedStartupUpdate(uint32_t now) {
         __atomic_store_n(&hmiStarted, 1U, __ATOMIC_RELEASE);
         hmiTaskHandle = xTaskCreateStaticPinnedToCore(
             hmiTask, "mayap_hmi", sizeof(hmiTaskStack), nullptr, 2,
-            hmiTaskStack, &hmiTaskTcb, 0);
+            hmiTaskStack, &hmiTaskTcb, 1);
         if (!hmiTaskHandle) fatalRestart("HMI TASK CREATE", ESP_ERR_NO_MEM);
         break;
       case Stage::ControlSafety:
@@ -600,25 +640,37 @@ static void stagedStartupUpdate(uint32_t now) {
         networkTaskHandle = xTaskCreateStaticPinnedToCore(
             networkTask, "mayap_network", sizeof(networkTaskStack), nullptr, 1,
             networkTaskStack, &networkTaskTcb, 0);
-        if (!networkTaskHandle) fatalRestart("WIFI TASK CREATE", ESP_ERR_NO_MEM);
+        if (!networkTaskHandle) {
+          mayapOnlineUnavailable(MayapRecovery::Service::Network);
+          mayapSerialPrintf(false, "[ONLINE] WIFI task unavailable - LOCAL CONTROL CONTINUES\n");
+        }
         break;
       case Stage::Mqtt:
         mqttTaskHandle = xTaskCreateStaticPinnedToCore(
             mqttTask, "mayap_mqtt", sizeof(mqttTaskStack), nullptr, 2,
             mqttTaskStack, &mqttTaskTcb, 0);
-        if (!mqttTaskHandle) fatalRestart("MQTT TASK CREATE", ESP_ERR_NO_MEM);
+        if (!mqttTaskHandle) {
+          mayapOnlineUnavailable(MayapRecovery::Service::Mqtt);
+          mayapSerialPrintf(false, "[ONLINE] MQTT task unavailable - LOCAL CONTROL CONTINUES\n");
+        }
         break;
       case Stage::Cloud:
         cloudTaskHandle = xTaskCreateStaticPinnedToCore(
             cloudTask, "mayap_cloud", sizeof(cloudTaskStack), nullptr, 1,
             cloudTaskStack, &cloudTaskTcb, 0);
-        if (!cloudTaskHandle) fatalRestart("CLOUD TASK CREATE", ESP_ERR_NO_MEM);
+        if (!cloudTaskHandle) {
+          mayapOnlineUnavailable(MayapRecovery::Service::Cloud);
+          mayapSerialPrintf(false, "[ONLINE] CLOUD task unavailable - LOCAL CONTROL CONTINUES\n");
+        }
         break;
       case Stage::Ota:
         otaTaskHandle = xTaskCreateStaticPinnedToCore(
             otaTask, "mayap_ota", sizeof(otaTaskStack), nullptr, 1,
             otaTaskStack, &otaTaskTcb, 0);
-        if (!otaTaskHandle) fatalRestart("OTA TASK CREATE", ESP_ERR_NO_MEM);
+        if (!otaTaskHandle) {
+          mayapOnlineUnavailable(MayapRecovery::Service::Ota);
+          mayapSerialPrintf(false, "[ONLINE] OTA task unavailable - LOCAL CONTROL CONTINUES\n");
+        }
         break;
       case Stage::Running:
         // Preserve the runtime WDT membership (control + Supervisor). The
@@ -642,19 +694,21 @@ static void stagedStartupUpdate(uint32_t now) {
       if (bootSequence.releaseNetwork(now, localTaskStability)) advanceBootStage();
       break;
     case Stage::Wifi:
-      if (bootSequence.wifiDone(now, __atomic_load_n(&networkReady, __ATOMIC_ACQUIRE),
+      if (bootSequence.wifiDone(now, __atomic_load_n(&networkReady, __ATOMIC_ACQUIRE) ||
+          bootSequence.age(now) >= MayapBoot::WIFI_WAIT_MS,
           mayapGetNetworkStatus().connected)) advanceBootStage();
       break;
     case Stage::Mqtt:
-      if (bootSequence.mqttDone(now, __atomic_load_n(&mqttReady, __ATOMIC_ACQUIRE),
+      if (bootSequence.mqttDone(now, __atomic_load_n(&mqttReady, __ATOMIC_ACQUIRE) ||
+          bootSequence.age(now) >= MayapBoot::MQTT_WAIT_MS,
           __atomic_load_n(&mqttConnected, __ATOMIC_ACQUIRE))) advanceBootStage();
       break;
     case Stage::Cloud:
-      if (__atomic_load_n(&cloudReady, __ATOMIC_ACQUIRE) && bootSequence.age(now) >= bootSequence.serviceGap())
+      if (bootSequence.age(now) >= bootSequence.serviceGap())
         advanceBootStage();
       break;
     case Stage::Ota:
-      if (__atomic_load_n(&otaReady, __ATOMIC_ACQUIRE) && bootSequence.age(now) >= bootSequence.serviceGap())
+      if (bootSequence.age(now) >= bootSequence.serviceGap())
         advanceBootStage();
       break;
     default: break;
