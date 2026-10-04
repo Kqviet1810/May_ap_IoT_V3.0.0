@@ -292,8 +292,9 @@ inline void publishPresence(bool online) {
   JsonDocument doc;
   doc["online"] = online;
   doc["bootId"] = bootId;
-  doc["ip"] = WiFi.isConnected() ? WiFi.localIP().toString() : "";
-  doc["rssi"] = WiFi.isConnected() ? WiFi.RSSI() : 0;
+  const NetworkStatus status = mayapGetNetworkStatus();
+  doc["ip"] = status.connected ? mayapNetworkLocalIp().toString() : "";
+  doc["rssi"] = status.connected ? status.rssiDbm : 0;
   doc["fw"] = MAYAP_FIRMWARE_VERSION;
   doc["firmware"] = MAYAP_FIRMWARE_VERSION;
   doc["proto"] = 2;

@@ -356,7 +356,7 @@ void mqttTask(void *parameter) {
             "[WS-DIAG] wifi=%u rssi=%d websocket=%u state=%d(%s) tcp=%u "
             "backoff=%u retry=%lums heap=%u min=%u largest=%u\n",
             netStatus.connected ? 1U : 0U,
-            netStatus.connected ? WiFi.RSSI() : 0,
+            netStatus.connected ? netStatus.rssiDbm : 0,
             MayapRealtimeInternal::socketTransport.connected() ? 1U : 0U,
             mqttState,
             "WEBSOCKET",

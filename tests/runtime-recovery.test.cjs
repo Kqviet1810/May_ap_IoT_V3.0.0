@@ -88,6 +88,8 @@ test('radio mutations require real owner closure and Online startup cannot bypas
  const network=read(dir+'network_service.h'),ino=read(dir+'MAYAP_INDUSTRIAL_v1_0_0.ino');
  assert.match(network,/mayapOnlineOwnersDrained\(\)/);
  assert.doesNotMatch(network,/setAutoReconnect\(true\)/);
+ assert.doesNotMatch(read(dir+'realtime_link.h'),/WiFi\.\w+\s*\(|esp_wifi_(?:get|set)_ps\(/);
+ assert.doesNotMatch(body(ino,'void mqttTask('),/WiFi\./);
  const startup=body(ino,'void networkTask(').split('mayapNetworkBegin();')[0];
  assert.match(startup,/mayapRadioQuiesceBegin\(\);\s*while \(!mayapOnlineOwnersDrained\(\)\)/);
  for(const service of ['Mqtt','Cloud','Ota']){

@@ -1,6 +1,6 @@
 # Online isolation from local control
 
-Online is auxiliary. Handled Wi-Fi/DNS/TLS/WebSocket/HTTPS/service failures never call the controller restart API. `networkTask` is the sole STA/AP/reconnect/power-policy owner; Arduino auto-reconnect is disabled so it cannot silently bypass the transaction.
+Online is auxiliary. Handled Wi-Fi/DNS/TLS/WebSocket/HTTPS/service failures never call the controller restart API. `networkTask` is the sole Wi-Fi driver/STA/AP/reconnect/power-policy owner; realtime presence/diagnostics use cached IP/RSSI snapshots. Arduino auto-reconnect is disabled so it cannot silently bypass the transaction.
 
 The shared `RadioGate` closes admission atomically. Realtime, Cloud and OTA finish their admitted operation, close resident sockets/listeners and acknowledge closure. Radio changes require all admitted owners' ACKs and no active owner. Busy=0 alone is insufficient. A stuck owner keeps radio mutation blocked; other Online services park and the controller continues. Tasks are not forcibly deleted while holding lwIP/heap/flash locks.
 
@@ -22,7 +22,7 @@ No software can guarantee availability through arbitrary ESP-IDF driver/lwIP pan
 
 ## Changed files
 
-- Firmware: `MAYAP_INDUSTRIAL_v1_0_0.ino`, `online_isolation.h`, `service_recovery.h`, `network_service.h`, `machine_control.h` (heap health only), `hmi.h` (bounded Online notices only).
+- Firmware: `MAYAP_INDUSTRIAL_v1_0_0.ino`, `online_isolation.h`, `service_recovery.h`, `network_service.h`, `realtime_link.h` (cached IP/RSSI only), `machine_control.h` (heap health only), `hmi.h` (bounded Online notices only).
 - Regression: `tests/runtime-network.cpp`, `tests/runtime-online-isolation.cpp`, `tests/runtime-websocket.cpp`, `tests/runtime-recovery.test.cjs`, `tests/runtime-preservation.json` (four narrowly reviewed fingerprints).
 - Tooling/documentation: `tools/test_runtime_buses.py`, `tools/check_reliability.py`, this document.
 

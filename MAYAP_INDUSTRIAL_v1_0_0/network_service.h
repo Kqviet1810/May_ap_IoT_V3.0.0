@@ -47,6 +47,7 @@ static volatile uint8_t publishedState =
 static volatile bool publishedConfigured = false;
 static volatile bool publishedConnected = false;
 static volatile int8_t publishedRssiDbm = -127;
+static uint32_t publishedLocalIp = 0U;
 
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
@@ -111,6 +112,10 @@ inline bool saveCredentials(const char *ssid, const char *password) {
 
 inline void publish(NetworkStateCode state, bool connected,
                     int8_t rssiDbm = -127) {
+  // Only the radio owner queries driver/interface state. Other tasks read
+  // bounded snapshots, including realtime presence and diagnostics.
+  __atomic_store_n(&publishedLocalIp,
+      connected ? static_cast<uint32_t>(WiFi.localIP()) : 0U, __ATOMIC_RELEASE);
   __atomic_store_n(&publishedConfigured, credentialsConfigured(),
                    __ATOMIC_RELEASE);
   __atomic_store_n(&publishedConnected, connected, __ATOMIC_RELEASE);
@@ -831,6 +836,10 @@ inline void mayapRequestWifiHighPerformance(bool highPerformance) {
 inline bool mayapWifiPortalExclusiveRequested() {
   using namespace MayapNetworkInternal;
   return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U;
+}
+
+inline IPAddress mayapNetworkLocalIp() {
+  return IPAddress(__atomic_load_n(&MayapNetworkInternal::publishedLocalIp, __ATOMIC_ACQUIRE));
 }
 
 // Owner networkTask only. Other tasks cooperate through radioQuiesce; no
