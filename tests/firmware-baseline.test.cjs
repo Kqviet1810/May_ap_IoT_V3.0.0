@@ -33,13 +33,14 @@ test('OTA keeps physical confirmation, maintenance interlock and strict byte/sig
   assert.match(hmi, /!ack.ok && command.type == HmiCommandType::FirmwareWebApply/);
 });
 
-test('Wi-Fi guide uses HMI, and named credential template is empty', () => {
+test('Wi-Fi guide uses HMI, and ArduinoOTA has one empty tracked password source', () => {
   const html = read('index.html');
   assert.match(html, /Cài đặt chung → Hệ thống → Đổi Wi‑Fi/);
   assert.doesNotMatch(html, /Giữ nút BOOT/);
-  const secret = read('MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h');
-  assert.match(secret, /#define MAYAP_OTA_PASSWORD ""/);
-  assert.doesNotMatch(secret, /MAYAP_MQTT/);
+  const publicBuild = read('MAYAP_INDUSTRIAL_v1_0_0/build_public.h');
+  assert.match(publicBuild, /^#define MAYAP_OTA_PASSWORD ""$/m);
+  assert.equal(fs.existsSync(path.resolve(__dirname, '../MAYAP_INDUSTRIAL_v1_0_0/build_secrets.h')), false);
+  assert.doesNotMatch(publicBuild, /MAYAP_MQTT/);
 });
 
 test('production dependencies contain no broker library, fleet credential or MQTT browser bundle',()=>{

@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "1c77a42fd58be3ce17feac0d9d6cba664154893cfc227a190a3229129eb22604",
+      "sha256": "7af94230db52abc1a863c47fc36f80c91db14b7dbc22ac0db5b8ddcae6b01900",
       "filter": "config"
     },
     {
@@ -451,5 +451,6 @@
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
+  "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged."
 }
