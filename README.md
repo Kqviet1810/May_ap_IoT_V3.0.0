@@ -8,8 +8,8 @@
 
 | Thành phần | Phiên bản |
 |---|---:|
-| Release / baseline mã nguồn | 1.1.2 |
-| ESP32 firmware | 1.1.2 |
+| Release / baseline mã nguồn | 1.1.3 |
+| ESP32 firmware | 1.1.3 |
 | HMI firmware | 1.0.0 |
 | Web PWA | 1.1.6 |
 | Web storage schema | 10 |
@@ -131,7 +131,7 @@ Web không được tự flash máy. Operator phải xác nhận trực tiếp t
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.2
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.3
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A protocol v4
 cloudflare/                Worker + D1 + DeviceHub + Static Assets config
 .github/workflows/         build / test / release / deploy

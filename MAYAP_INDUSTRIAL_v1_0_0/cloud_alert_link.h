@@ -870,8 +870,11 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
   servicePinReset();
   serviceRegister(now);
   if (registered) {
-    serviceHeartbeat(now);
+    // Safety/user alarms outrank the routine 60 s heartbeat. If both become
+    // due together, send the alarm first and let the heartbeat wait for the
+    // normal HTTPS gap instead of delaying a critical notification.
     drainOutbox(now);
+    serviceHeartbeat(now);
   }
 
 }
