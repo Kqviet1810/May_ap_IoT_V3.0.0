@@ -225,18 +225,28 @@ inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolve
   return true;
 }
 
-inline bool enqueueLevel(const char *alarmType, NotifyLevel level, const char *body,
-                         bool protectedEvent = false) {
+inline void enqueueLevel(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
-  return enqueueRaw(alarmType, level, false, body, hasReadings,
-      processingRuntime.temperature, processingRuntime.humidity, protectedEvent);
+  enqueueRaw(alarmType, level, false, body, hasReadings,
+      processingRuntime.temperature, processingRuntime.humidity, false);
 }
 
-inline bool enqueueResolved(const char *alarmType, NotifyLevel level, const char *body,
-                            bool protectedEvent = false) {
+inline void enqueueResolved(const char *alarmType, NotifyLevel level, const char *body) {
+  const bool hasReadings = knownRuntimeValid;
+  enqueueRaw(alarmType, level, true, body, hasReadings,
+      processingRuntime.temperature, processingRuntime.humidity, false);
+}
+
+inline bool enqueueProtectedLevel(const char *alarmType, NotifyLevel level, const char *body) {
+  const bool hasReadings = knownRuntimeValid;
+  return enqueueRaw(alarmType, level, false, body, hasReadings,
+      processingRuntime.temperature, processingRuntime.humidity, true);
+}
+
+inline bool enqueueProtectedResolved(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
   return enqueueRaw(alarmType, level, true, body, hasReadings,
-      processingRuntime.temperature, processingRuntime.humidity, protectedEvent);
+      processingRuntime.temperature, processingRuntime.humidity, true);
 }
 
 // --------------------------- Noi dung loi (Vietnamese) --------------------------
@@ -332,7 +342,7 @@ inline bool queueFaultActive(FaultTrack &track, uint32_t now, bool repeat) {
   alarmTypeForFault(track.code, alarmType, sizeof(alarmType));
   char body[160];
   snprintf(body, sizeof(body), repeat ? "Vẫn còn: %s" : "%s", faultSummaryText(track.code));
-  if (!enqueueLevel(alarmType, levelForSeverity(track.severity), body, true)) return false;
+  if (!enqueueProtectedLevel(alarmType, levelForSeverity(track.severity), body)) return false;
   if (!track.activeQueued) track.firstQueuedAt = now;
   track.activeQueued = true;
   track.lastQueuedAt = now;
@@ -344,7 +354,7 @@ inline bool queueFaultResolved(const FaultTrack &track) {
   alarmTypeForFault(track.code, alarmType, sizeof(alarmType));
   char body[160];
   snprintf(body, sizeof(body), "Đã hết: %s", faultSummaryText(track.code));
-  return enqueueResolved(alarmType, levelForSeverity(track.severity), body, true);
+  return enqueueProtectedResolved(alarmType, levelForSeverity(track.severity), body);
 }
 
 inline void checkFaults(uint32_t now) {
