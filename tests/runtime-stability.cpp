@@ -199,5 +199,5 @@ int main() {
   webSessionActive=false; MayapCloudInternal::network.connected=false;
   clockMs+=30000; serviceWifiPowerMode();
   assert(requestedHighPerformance && powerRequests==3);
-  std::puts("Actual stability helpers:  std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing, deferred PIN reset and failed log retry OK");
+  std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing, deferred PIN reset and failed log retry OK");
 }
