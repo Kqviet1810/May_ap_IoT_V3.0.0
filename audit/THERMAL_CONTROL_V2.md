@@ -70,67 +70,45 @@ The config invariant remains `highTempAlarm >= targetTemp + HIGH_ALARM_GAP_C` an
 
 ## AUTOTUNE QUALIFICATION
 
-### ALGORITHM VERIFIED
+### FINAL ALGORITHM / SAFETY GATE
 
-The AutoTune qualification below retains its existing public state values, GPIO1 full 16 kW bank, PID defaults 18/0.8/45 with beta=1, 300 ms scheduler, RS485/filter cadence, safety policies and EEPROM schemas. The later Adaptive section separately documents schema13 and its opt-in setting.
+Production hardware remains one logical **16 kW GPIO1 heater bank**. AutoTune still uses the actual production path: PREHEAT → relay oscillation → discard one startup cycle → require three repeatable cycles (±20%) → derive amplitude and Pu → compute Ku → Tyreus-Luyben. PREHEAT is 30% by default (capped by `maxHeaterPower`), relay low is 0%, relay high is the configured relay percentage capped by `maxHeaterPower`, and all requests pass through the same 300 ms PDM scheduler and OutputArbiter. AutoTune never writes GPIO directly.
 
-Flow: START/preconditions → PREHEAT → fresh relay measurement → discard startup cycle → three repeatable cycles → Ku/Pu → Tyreus-Luyben → gain validation → existing atomic save. PREHEAT requests **30% average total bank power (4.8 kW)**, capped by `maxHeaterPower`; it does not request 100% or escalate. At SP minus band, peak/period measurement starts fresh. PREHEAT samples never contribute to Ku/Pu. Relay high is the configured relay power capped by `maxHeaterPower`, relay low is zero. All power goes through the existing scheduler and OutputArbiter; neither AutoTune nor PID writes GPIO.
+Deadlines remain bounded and are checked every control cycle: PREHEAT 900 s, each HEATING/COOLING phase 900 s, and 2700 s total including PREHEAT. High/Emergency, sensor loss, mode changes, storage/safety faults, maintenance and system trip remain abort conditions. Abort, timeout, cancellation and save failure clear heat credit, command zero heat and retain the previously stored PID.
 
-Deadlines remain bounded: **PREHEAT 900 s; each HEATING/COOLING phase 900 s; total including PREHEAT 2700 s**. They are checked every control cycle, even without a new sensor sample. No extension was made to rescue slow plants. Numerical minimum amplitude/period, the discarded warmup cycle, three-cycle ±20% repeatability and rolling qualification remain. The relay is intentionally not biased: successful cycles show heat/cool ratios 0.222–2.37, but this matrix does not justify a new relay algorithm.
+The final gain policy is deliberately stricter than the earlier qualification. Raw Tyreus-Luyben gains are computed as `Kp=Ku/2.2`, `Ki=Kp/(2.2*Pu)`, `Kd=Kp*Pu/6.3`. They are accepted **only if those raw identified gains already fit the supported controller envelope** (`0.1<=Kp<=100`, `0<Ki<=20`, `0<Kd<=200`). The former common post-identification scale has been removed from the save path. Uniformly shrinking Kp/Ki/Kd preserved Ti/Td but changed the identified loop gain, so it could not honestly be called the Tyreus-Luyben result. An out-of-envelope result now terminates as `INVALID_GAINS`; EEPROM is not written and the previous PID remains active.
 
-Terminal reasons are SAFETY_ABORT, SENSOR_ABORT, MODE_ABORT, PREHEAT_TIMEOUT, PHASE_TIMEOUT, TOTAL_TIMEOUT, INVALID_KU, INVALID_GAINS, SAVE_FAILED and SUCCESS. AMPLITUDE_TOO_SMALL, PERIOD_TOO_SMALL and NON_REPEATABLE are exposed as measurement rejection diagnostics while qualification continues within the original bounded deadline; if it expires, the terminal reason is the appropriate timeout and the rejection is retained separately. Serial prints only start, phase transitions, completed cycles, validation and final result. Diagnostics include actual relay high/low, extrema, amplitude, heat/cool duration, Pu, Ku, common gain scale and failure reason. No per-control-tick serial stream was added.
+`gainScale` is retained only as a diagnostic showing how far the raw result would have exceeded the supported envelope. Terminal reasons remain bounded service diagnostics: SAFETY_ABORT, SENSOR_ABORT, MODE_ABORT, PREHEAT_TIMEOUT, PHASE_TIMEOUT, TOTAL_TIMEOUT, INVALID_KU, INVALID_GAINS, SAVE_FAILED and SUCCESS; measurement rejection diagnostics remain NON_REPEATABLE, AMPLITUDE_TOO_SMALL and PERIOD_TOO_SMALL. The terminal reason is now carried in RAM runtime, published in the realtime snapshot and displayed as a concrete reason on Web/HMI. No EEPROM schema or public AutoTuneState numeric value changed.
 
-Ku uses `4 * ((actualHigh - actualLow) / 2) / (pi * amplitude)`, never PREHEAT power. Tyreus-Luyben coefficients 2.2/6.3 are unchanged. A common gain scale preserves Ti/Td; it is rounded upward one float ULP to avoid falsely rejecting a mathematically exact Kd=200 boundary as 200.000015. Finite, positive, range and sanitizer-preservation checks precede saving. RAM gains are assigned only after existing verified `saveConfig` succeeds. No EEPROM layout, migration or write algorithm changed.
+Hard tests cover the actual one-bank heat path, capped relay swing, 34 immediate safety/mode/sensor cuts, deadlines, millis wrap, old-gain retention, atomic config writes/power cuts, and a synthetic slow-period case that must end `INVALID_GAINS` rather than being rescaled and saved.
 
-Hard tests exercise max heater 20/30/50/100%, actual capped relay swing, invalid gains, wrap including an upper crossing at millis zero, phase/total/preheat timeouts, 34 safety/mode/sensor cuts across PREHEAT and relay, restart/reset and every partial ConfigRecord byte cut. Abort and save failure clear scheduler credit, turn heating OFF at the next control tick and retain old RAM gains. Partial records fail CRC and preserve the old valid EEPROM bank. As with the existing atomic store, a fully committed record followed by lost verification acknowledgement can leave a complete new bank on reboot; atomicity prevents mixed gains, rather than proving an acknowledged outcome after every possible power loss.
+### FINAL PLANT-IN-LOOP QUALIFICATION
 
-At that AutoTune milestone, outside-batch EventLog retained **Boot, AutoTuneStart and AutoTuneEnd only**; the later Adaptive milestone adds bounded adaptive transitions. Normal network/input/output events remain suppressed. This is the existing bounded RAM event log; no new persistent sink or high-rate EEPROM logging was added.
+The current-code CI artifact contains **864** plant-in-loop runs using the existing uncalibrated Light/Medium/Heavy model, 20/25/28°C ambient, 5/15/30/60 s delay, 0.1/0.01°C sensor resolution, relay 20/30/40%, and cold PREHEAT 30/40/50% plus NEAR_SP runs. The physical loop remains AutoTune → actual scheduler/arbiter → 0/16 kW → thermal model → sensor cadence/filter → AutoTune. No fabricated alternating PV is used for these rows.
 
-### SIMULATION VERIFIED — qualification, not physical performance
-
-[autotune-plant.csv](thermal-v2/autotune-plant.csv) contains **864 actual plant-in-loop runs**; [autotune-cycles.csv](thermal-v2/autotune-cycles.csv) records each measured cycle. The plant capacities/losses are extracted from the existing model, with its same 8 s actuator lag: actual AutoTune → PDM/arbiter → 0/16 kW → plant → 5/15/30/60 s dead time → 2 s sensor poll → 0.1/0.01°C quantization → actual median-3 and IIR-3/8. No alternating PV was supplied to these plant tests.
-
-648 COLD runs test PREHEAT 30/40/50%, three plants, ambient 20/25/28°C, four delays, two resolutions and relay 20/30/40%, SP37.5. Another 216 separately labeled NEAR_SP runs start the same physical model at 37.0°C using PREHEAT30 to qualify relay behavior where cold-start deadlines are insufficient. They are warm-start tests, not proof of cold-start tuning. Six additional real-loop disturbance cases cover invalid PV, confirmed sensor loss and safety inhibit, in cold/preheated conditions; all abort cleanly without saved gains. Existing bad-packet/staleness policies are unchanged.
-
-| Cold PREHEAT candidate | SUCCESS / 216 | PREHEAT_TIMEOUT | SAFETY_ABORT | TOTAL_TIMEOUT | Model High / Emergency, including coast |
+| Cold PREHEAT | SUCCESS / 216 | PREHEAT_TIMEOUT | SAFETY_ABORT | INVALID_GAINS | TOTAL_TIMEOUT |
 |---|---:|---:|---:|---:|---:|
-| 30% | 25 | 156 | 35 | 0 | 31 / 6 |
-| 40% | 20 | 144 | 52 | 0 | 48 / 18 |
-| 50% | 29 | 120 | 63 | 4 | 60 / 24 |
+| 30% | **0** | 156 | 35 | 25 | 0 |
+| 40% | **0** | 144 | 52 | 20 | 0 |
+| 50% | **0** | 120 | 63 | 29 | 4 |
 
-**30% is the safety-oriented candidate**, not the fastest or the candidate with most successes. A stronger PREHEAT increases safety aborts and modeled residual overheating. Default PREHEAT30 qualification is:
+With default PREHEAT30, relay20/30/40 each produce **0/72 COLD successes and 0/72 NEAR_SP successes**. Across all 864 runs the terminal distribution is: PREHEAT_TIMEOUT 444, SAFETY_ABORT 198, INVALID_GAINS 159, TOTAL_TIMEOUT 36 and PHASE_TIMEOUT 27. Every one of the 159 runs that previously reached the old "scaled success" point now fails cleanly as `INVALID_GAINS`. Their diagnostic scale requirement is 2.322319–19.697266 (median 3.435172), proving the raw Tyreus-Luyben result was outside the supported PID envelope before scaling.
 
-| Relay power | COLD SUCCESS / FAIL (72) | NEAR_SP SUCCESS / FAIL (72) |
-|---|---:|---:|
-| 20% | 12 / 60 | 26 / 46 |
-| 30% | 9 / 63 | 32 / 40 |
-| 40% | 4 / 68 | 27 / 45 |
+The checked-in CSVs from the earlier milestone preserve the pre-final-gate experiment for traceability; they must not be read as current firmware acceptance. The final CI artifact for commit qualification is the current-code evidence. The prior 159 "SUCCESS" rows showed that relay identification could complete, but they are **not accepted gain sets** because all required common scaling. Their old post-tune BAD/MAE tables are historical experiments, not controllers that current firmware will save. Current firmware auto-saves **zero** gain sets in this uncalibrated 12 m³ model matrix.
 
-COLD: Light 25 successes, Medium/Heavy zero; 156 PREHEAT_TIMEOUT and 35 SAFETY_ABORT. NEAR_SP: Light 27, Medium 56, Heavy 2 successes; 48 SAFETY_ABORT, 32 TOTAL_TIMEOUT, 27 PHASE_TIMEOUT, 24 PREHEAT_TIMEOUT. Successful durations are 1182–1864 s cold and 626–2626 s near-SP. Across the 432 default candidate cases, 83 safety aborts save no gains. They include excessive lag/residual heat and insufficient margin from SP+band to the stored High alarm. Safety remains an abort, never a normal oscillation peak.
+For Heavy/ambient20 the model still demonstrates a separate reachability issue: heat loss near SP is about 5.25 kW, greater than a 30% relay-high request (4.8 kW), so PREHEAT or relay oscillation cannot be rescued merely by waiting longer. Stronger PREHEAT also increased modeled safety aborts. Firmware does not silently increase relay power, expand deadlines or weaken High/Emergency thresholds.
 
-For Heavy/ambient20, loss at SP is `300 W/°C * (37.5-20) = 5.25 kW`, greater than 30% of 16 kW = 4.8 kW. That power is physically insufficient **in this model**; all eight COLD and eight NEAR_SP default30/relay30 cases end PREHEAT_TIMEOUT, retaining old gains. Other Medium/Heavy cold starts can have sufficient eventual power yet still exceed the 900 s PREHEAT deadline because of thermal inertia. This limitation is reported, not hidden by changing the model or deadline.
+The general thermal model remains experimental: the 1536 control-only matrix still reports **0/1536** joint performance-target passes, and NEW300/SP37.5 crosses modeled High in 168/168 and Emergency in 106/168 runs. Those numbers are conservative model diagnostics, not a claim about the real chamber and not permission to operate through safety thresholds.
 
-The loop checks actual AutoTune raw/filtered High/sensor guards and turns power OFF; after completion it also models 120 s passive coast. Vent cooling physics are not modeled. High/Emergency counts refer to model temperature, including residual heat after OFF, not a production alarm timing replay. None of the successful tuning runs crosses High/Emergency during tune or coast. An abort cannot instantly remove already stored thermal energy.
+### PRODUCT STATUS / NEXT CONTROL-DESIGN STEP
 
-### Post-tune qualification
+The software identification and fail-safe termination path is qualified, but the current model does **not** justify production automatic gain selection. The correct status is:
 
-Every SUCCESS is atomically saved in the byte-backed real-store harness, then DEFAULT and TUNED PID are compared from identical cold ambient initial conditions for three hours. These follow-up runs are explicitly **CONTROL-ONLY POST VALIDATION / NO PRODUCTION SAFETY INTERVENTION**: crossing an alarm threshold means intervention would be required, not permission to operate the real machine through it. BAD means Emergency crossing, no settling or ripple above 1°C; the softer original performance targets remain reported and were not relaxed.
+**AUTOTUNE IDENTIFICATION/SAFETY PATH SOFTWARE-QUALIFIED; NO MODELED 12 m³ GAIN SET CURRENTLY QUALIFIES FOR AUTO-SAVE.**
 
-Representative NEAR_SP results (ambient / dead time / resolution / relay shown to avoid mixing conditions):
+Do not restore common gain scaling and do not raise the Kd limit merely to force a success. The next engineering step must compare an explicitly designed slow-thermal candidate (for example a PI-only Tyreus-Luyben candidate) and/or a supervised live candidate-validation stage against the same safety/plant matrix before changing production behavior. That comparison is evidence gathering, not an automatic production change.
 
-| Plant / condition | Kp / Ki / Kd | Common scale | TUNED MAE / P95 / ripple / overshoot °C | Qualification |
-|---|---|---:|---|---|
-| Light / 20°C / 5s / 0.1°C / 20% | 6.406779 / 0.014808 / 199.999985 | 2.586713 | 0.046612 / 0.047213 / 0.001630 / 2.160800 | BAD |
-| Medium / 20°C / 5s / 0.1°C / 30% | 3.641618 / 0.004784 / 199.999985 | 7.954444 | 0.049453 / 0.051508 / 0.005893 / 3.700734 | BAD |
-| Heavy / 28°C / 5s / 0.01°C / 40% | 2.617728 / 0.002472 / 199.999985 | 19.697268 | 0.324878 / 0.757232 / 0.939185 / 2.362475 | BAD |
-
-Default PREHEAT30 yields 110 SUCCESS gain sets; **92/110 are BAD in cold-start post-validation, all with modeled Emergency crossing**. Mean steady MAE across them is DEFAULT 0.165214 versus TUNED 0.049169°C; this average does not cancel cold-start overshoot. Heavy's two near-SP successes are worse than DEFAULT: mean MAE 0.523371 versus 0.074237°C. Large common gain scales and small Ki can slow recovery. Do not treat a software AutoTune SUCCESS as physical gain acceptance. The original 1536-case comparison and its 0/1536 joint target passes remain unchanged.
-
-### PHYSICAL UNVERIFIED / controlled commissioning
-
-First tune must be outside a batch, with no live eggs, door closed, circulation fan in its intended state, sensor in the intended position and an independent reference probe. Begin with low 20–30% relay power; do not automatically raise it to rescue a timeout. Check raw/filtered temperature, sensor format lock, SSR temperatures, actual electrical power, High/Emergency margin, phase/cycle logs and post-OFF coast. A failed or aborted tune requires operator investigation before restarting. A successful tune requires supervised response/soak qualification before use with eggs.
-
-Software hard gates and simulation failure behavior qualify the code for this supervised step only: **AUTOTUNE READY FOR CONTROLLED PHYSICAL COMMISSIONING.** No hardware tune, merge, deploy or OTA was performed.
+Physical commissioning remains mandatory: no live eggs; circulation and sensor placement fixed; independent calibrated probes; verify raw register/profile mapping, actual 16 kW power, SSR/heatsink temperature, contactor behavior, post-OFF coast, exhaust cooling capacity, real task jitter and 300 ms quantum. A real AutoTune result must not be accepted merely because identification completes.
 
 ## Adaptive Thermal Balance / Tự cân bằng nhiệt
 
@@ -202,12 +180,12 @@ Default remains OFF. First build with `MAYAP_ADAPTIVE_OBSERVER_ONLY=1` (local bu
 
 - Confirm GPIO1 drives both SSR inputs on the physical board as specified, their zero-cross behavior, rating, heatsinking, contactor and 16 kW electrical loading. High burst transition rates make this a commissioning blocker until measured.
 - Confirm the RS485 module register map and six-sample paired AUTO lock at known T/RH. Raw-only AUTO is not a universal profile detector outside the stated envelope; overlapping plausible raw values cannot be rejected reliably.
-- Current default/stored PID gains are uncharacterized on the 12 m³ chamber. The uncalibrated model misses all joint performance targets and NEW is slightly worse than OLD in some 35/37.5°C cases. Run safe physical response identification/AutoTune before accepting thermal performance.
+- Current default/stored PID gains are uncharacterized on the 12 m³ chamber. The uncalibrated model misses all joint performance targets; the final AutoTune gate auto-saves no modeled gain set. Physical identification plus a reviewed gain-selection strategy is required before accepting thermal performance.
 - Legacy configs whose entire thermal envelope was still the untouched 37.5°C default are now re-anchored with SV. Customized envelopes are deliberately preserved, so operators must still review intentional/custom safety thresholds before low-temperature operation.
 - A single probe's stable reading does not prove ±0.1°C absolute accuracy or spatial uniformity throughout the chamber. Independent calibrated probes and a long soak are needed.
 - 300 ms is provisional; verify real control task jitter and SSR temperature over a long soak before accepting final actuator timing.
 
-- AutoTune PREHEAT30 can be insufficient or exceed the fixed deadline; High/Emergency residual coast and 92/110 BAD cold-start post-validations prevent unattended acceptance. Commissioning must validate power, margin, generated gains and recovery on the real chamber.
+- AutoTune PREHEAT30 can be insufficient or exceed the fixed deadline. All 159 modeled identifications that reach gain calculation require out-of-envelope raw Tyreus-Luyben gains and are now rejected as INVALID_GAINS; no unattended auto-save is accepted.
 
 - Adaptive LoadIndex is apparent net response, not cart count or spatial uniformity; one probe cannot identify compartment temperatures/hotspots/airflow imbalance.
 - Real chamber gains, cooling capacity, SSR endurance, model staleness, long coast and 0.1°C slow-trend discrimination require physical qualification. Persistent restore is deliberately low-trust.
