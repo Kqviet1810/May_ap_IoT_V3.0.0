@@ -1572,6 +1572,37 @@
     config.ventOffTemp = Number(config.ventOffTemp) + delta;
   }
 
+  function shiftedThermalEnvelope(config, newTarget) {
+    if (!config || !Number.isFinite(newTarget) ||
+        !Number.isFinite(Number(config.targetTemp))) return null;
+    const candidate = { ...config };
+    shiftTempThresholds(candidate, Number(config.targetTemp), newTarget);
+    candidate.targetTemp = newTarget;
+    return candidate;
+  }
+
+  function validateShiftedThermalEnvelope(formId, targetField, newTarget) {
+    const base = currentDevice()?.config;
+    if (!base) return true;
+    const c = shiftedThermalEnvelope(base, newTarget);
+    if (!c) return invalidate(formId, targetField, 'Chưa có đủ cấu hình nhiệt từ máy.');
+    const eps = 0.0005;
+    const low = Number(c.lowTempAlarm), high = Number(c.highTempAlarm);
+    const emergency = Number(c.emergencyTemp);
+    const ventOn = Number(c.ventOnTemp), ventOff = Number(c.ventOffTemp);
+    const valid = low >= 25 && low <= newTarget - 0.1 + eps &&
+      high >= newTarget + 0.1 - eps && high <= 42 &&
+      emergency >= high + 0.1 - eps && emergency <= 45 &&
+      ventOff >= newTarget - eps && ventOn >= newTarget + 0.1 - eps &&
+      ventOn - ventOff >= 0.1 - eps && ventOn <= high + eps &&
+      ventOn <= 42 && ventOff <= 41;
+    if (!valid) {
+      return invalidate(formId, targetField,
+        'Nhiệt độ đặt này làm ngưỡng bảo vệ hoặc quạt hút vượt giới hạn. Hãy chỉnh các ngưỡng khi máy dừng rồi thử lại.');
+    }
+    return true;
+  }
+
   function buildConfig(group) {
     const device = currentDevice();
     if (!device?.config || !validateFullConfig(device.config)) {
@@ -2976,6 +3007,7 @@
     const target = Number($('quickTarget').value);
     const interval = Number($('quickTurn').value);
     if (!(target >= 30 && target <= 40)) return invalidate('quickForm', 'quickTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
+    if (!validateShiftedThermalEnvelope('quickForm', 'quickTarget', target)) return false;
     if (!(interval >= 15 && interval <= 720)) return invalidate('quickForm', 'quickTurn', 'Chu kỳ đảo phải từ 15 đến 720 phút.');
     return true;
   }
@@ -2989,6 +3021,7 @@
     const humidity = Number($('targetHumidity').value);
     if (!(days >= 1 && days <= 40)) return invalidate('batchForm', 'totalDays', 'Tổng số ngày ấp phải từ 1 đến 40 ngày.');
     if (!(temperature >= 30 && temperature <= 40)) return invalidate('batchForm', 'batchTarget', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
+    if (!validateShiftedThermalEnvelope('batchForm', 'batchTarget', temperature)) return false;
     if (!currentDevice()?.config?.humidifierInstalled && !(humidity >= 20 && humidity <= 95)) {
       return invalidate('batchForm', 'targetHumidity', 'Độ ẩm tham khảo phải từ 20 đến 95%RH.');
     }
@@ -3053,10 +3086,16 @@
   function validateTemperatureForm() {
     clearInvalid('temperatureForm');
     const target = Number($('targetTemp').value);
+    if (!(target >= 30 && target <= 40)) return invalidate('temperatureForm', 'targetTemp', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
+    const device = currentDevice();
+    const thermalSafetyLocked = Boolean(device?.snapshot?.runtime?.batchRunning ||
+                                        device?.snapshot?.runtime?.resumeConfirmationRequired);
+    if (thermalSafetyLocked) {
+      return validateShiftedThermalEnvelope('temperatureForm', 'targetTemp', target);
+    }
     const low = Number($('lowAlarm').value);
     const high = Number($('highAlarm').value);
     const emergency = Number($('emergencyTemp').value);
-    if (!(target >= 30 && target <= 40)) return invalidate('temperatureForm', 'targetTemp', 'Nhiệt độ đặt phải từ 30,0 đến 40,0°C.');
     if (!(low >= 25 && low <= target - 0.1 + 0.0005)) return invalidate('temperatureForm', 'lowAlarm', 'Cảnh báo thấp phải từ 25,0°C và thấp hơn nhiệt độ đặt ít nhất 0,1°C.');
     if (!(high >= target + 0.1 - 0.0005 && high <= 42)) return invalidate('temperatureForm', 'highAlarm', 'Cảnh báo cao phải cao hơn nhiệt độ đặt ít nhất 0,1°C và không vượt 42,0°C.');
     if (!(emergency >= high + 0.1 - 0.0005 && emergency <= 45)) return invalidate('temperatureForm', 'emergencyTemp', 'Ngắt khẩn cấp phải cao hơn cảnh báo cao ít nhất 0,1°C và không vượt 45,0°C.');
@@ -3125,7 +3164,7 @@
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
     if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
     if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
-    if (kp === 0 && ki === 0 && kd === 0) return invalidate('advancedForm', 'advKp', 'Kp, Ki và Kd không được đồng thời bằng 0.');
+    if (kp === 0 && ki === 0) return invalidate('advancedForm', 'advKp', 'Kp và Ki không được đồng thời bằng 0; Kd đơn lẻ không thể duy trì công suất giữ nhiệt.');
     if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
     if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
     if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');
