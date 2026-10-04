@@ -372,7 +372,7 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
       "signature": "class RelayAutoTune {",
-      "sha256": "034f80dbb8b5379b1c5b3e070d3485cd1b45e8d6112c808a4e5329a71f62418e"
+      "sha256": "a97f34c5fc4142519efba8fab808d15a465ac68e87ba7034a314e88b9c09d43b"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
