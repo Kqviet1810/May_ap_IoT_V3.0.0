@@ -761,7 +761,7 @@ inline CloudRequestResult sendRegister() {
         mayapSetProvisioningState(MayapProvisioningState::ServerDenied);
       } else if (code == 401) {
         mayapSetProvisioningState(MayapProvisioningState::KeyMismatch);
-      } else {
+      } else if (code != 0) {
         mayapSetProvisioningState(MayapProvisioningState::CloudError);
       }
     }
@@ -784,7 +784,7 @@ inline CloudRequestResult sendResetPin() {
         mayapSetProvisioningState(MayapProvisioningState::ServerDenied);
       } else if (code == 401) {
         mayapSetProvisioningState(MayapProvisioningState::KeyMismatch);
-      } else {
+      } else if (code != 0) {
         mayapSetProvisioningState(MayapProvisioningState::CloudError);
       }
     }
