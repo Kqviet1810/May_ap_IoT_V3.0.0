@@ -5,6 +5,7 @@ import csv
 import hashlib
 import os
 import re
+import statistics
 import subprocess
 import tempfile
 from pathlib import Path
@@ -172,6 +173,15 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                 with (args.report_dir / 'low-duty.csv').open('w') as bank_report:
                     bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
                     bank_report.writelines(line[5:]+'\n' for line in result.stdout.splitlines() if line.startswith('BANK,'))
+    current_executable = out / 'adaptive-plant-current'
+    subprocess.run(common + ['-O2', '-DMAYAP_ADAPTIVE_FAST_PATH=0',
+        str(ROOT / 'tests/adaptive-plant.cpp'), '-o', str(current_executable)], check=True)
+    with (args.report_dir / 'adaptive-current-summary.csv').open('w') as report:
+        subprocess.run([str(current_executable), str(args.report_dir / 'adaptive-current-observer.csv'),
+            str(args.report_dir / 'adaptive-current-control.csv')], stdout=report, check=True)
+    current_rows=list(csv.DictReader((args.report_dir / 'adaptive-current-summary.csv').open()))
+    assert len(current_rows)==1248
+
     executable = out / 'adaptive-plant'
     subprocess.run(common + ['-O2', str(ROOT / 'tests/adaptive-plant.cpp'), '-o', str(executable)], check=True)
     with (args.report_dir / 'adaptive-summary.csv').open('w') as report:
@@ -185,6 +195,22 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
         if int(old['settling'])>=0:
             assert int(new['settling'])>=0, 'previously settled case no longer settles'
             assert float(new['ripple'])<=max(0.25,float(old['ripple'])+0.1), 'new sustained oscillation'
+
+    current_adaptive=[r for r in current_rows if r['mode']=='ADAPTIVE']
+    fast_adaptive=[r for r in adaptive_rows if r['mode']=='ADAPTIVE']
+    current_high=sum(int(r['High']) for r in current_adaptive)
+    fast_high=sum(int(r['High']) for r in fast_adaptive)
+    current_emergency=sum(int(r['Emergency']) for r in current_adaptive)
+    fast_emergency=sum(int(r['Emergency']) for r in fast_adaptive)
+    assert fast_high<current_high, 'fast path did not reduce High crossings'
+    assert fast_emergency<=current_emergency, 'fast path increased Emergency crossings'
+    for metric in ['MAE','P95','ripple']:
+        before=statistics.fmean(float(r[metric]) for r in current_adaptive)
+        after=statistics.fmean(float(r[metric]) for r in fast_adaptive)
+        assert after<=before+0.01, 'fast path materially worsened '+metric
+    print(f'Adaptive current -> fast-path: High {current_high}->{fast_high}, '
+          f'Emergency {current_emergency}->{fast_emergency}, false learning '
+          f'{sum(int(r["false_learning_count"]) for r in fast_adaptive)}')
 
     print('Adaptive actual plant matrix: '+str(len(adaptive_rows))+' baseline/adaptive rows; cooling capacity unknown (zero watts credited)')
     executable = out / 'thermal-autotune-plant'

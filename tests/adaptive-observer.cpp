@@ -9,7 +9,11 @@ int main(){
   auto e=observer.estimates();assert(e.holdWindows>=5&&e.confidence>=50);assert(std::fabs(e.hold-30)<.01);
   const auto windows=e.windows;o.vent=true;for(uint32_t ms=1500000;ms<1800000;ms+=2000)observer.sample(ms,o);
   assert(observer.estimates().windows==windows&&!observer.estimates().learningValid);
-  o.vent=false;o.sensor=false;observer.sample(1800000,o);assert(observer.estimates().confidence==0);
+  o.vent=false;o.sp=36.0f;observer.sample(1800000,o);
+  assert(observer.estimates().windows==windows&&!observer.estimates().learningValid);
+  o.sp=37.5f;o.raw=36.8f;o.pv=37.45f;observer.sample(1802000,o);
+  assert(observer.estimates().windows==windows&&!observer.estimates().learningValid);
+  o.sensor=false;observer.sample(1804000,o);assert(observer.estimates().confidence==0);
   assert(!ThermalObserver::finiteSeed(NAN,0,0,0));
   observer.reset();observer.seed(.4,.2,30,20);assert(observer.estimates().confidence==10&&observer.estimates().windows==0);
   ThermalObserver wrap;wrap.tick(UINT32_MAX-4,true);wrap.tick(5,true);assert(wrap.actualOnMs()==10);

@@ -5,6 +5,9 @@
 
 // One probe: these are apparent whole-system responses, never spatial sensors.
 namespace MayapAdaptive {
+#ifndef MAYAP_ADAPTIVE_FAST_PATH
+#define MAYAP_ADAPTIVE_FAST_PATH 1
+#endif
 namespace Policy {
 constexpr uint32_t StartupMs=180000, WindowMs=120000, CoastMs=180000;
 constexpr uint32_t SelfConfirmMs=60000, CoolingMinMs=120000, LearnMinMs=600000;
@@ -19,6 +22,7 @@ constexpr float SelfOnC=0.12f, SelfOffC=0.04f, ConfidenceLoss=0.5f;
 constexpr float LoadConfidenceGain=8, CoastConfidenceGain=12, HoldConfidenceGain=12;
 constexpr uint32_t MinQualifiedWindows=5;
 constexpr uint8_t RateSamples=64; // 126s at production 2s poll; preserves slow X10 staircases
+constexpr float DoorRawJumpC=0.50f;
 }
 inline uint32_t since(uint32_t now,uint32_t then){return now-then;}
 inline float bound(float x,float lo,float hi){return std::max(lo,std::min(hi,x));}
@@ -64,12 +68,19 @@ class ThermalObserver {
   void sample(uint32_t now,const Observation &o){
     const bool finite=std::isfinite(o.pv);const uint32_t dt=sampleSeen_?since(now,sampleAt_):0;
     const bool jump=sampleSeen_&&finite&&std::fabs(o.pv-lastPv_)>Policy::JumpC;
+#if MAYAP_ADAPTIVE_FAST_PATH
+    const bool setpointChange=sampleSeen_&&std::isfinite(o.sp)&&std::fabs(o.sp-lastSp_)>0.01f;
+    const bool doorDisturbance=sampleSeen_&&std::isfinite(o.raw)&&std::isfinite(lastRaw_)&&
+      std::fabs(o.raw-lastRaw_)>Policy::DoorRawJumpC;
+#else
+    const bool setpointChange=false,doorDisturbance=false;
+#endif
     sampleAt_=now;sampleSeen_=true;
     if(!finite){e_.confidence=0;e_.learningValid=false;clearWindow();rates_=0;return;}
-    lastPv_=o.pv;
-    if(jump||dt>10000){degrade();rates_=0;}
+    lastPv_=o.pv;lastRaw_=o.raw;lastSp_=o.sp;
+    if(jump||setpointChange||doorDisturbance||dt>10000){degrade();rates_=0;}
     updateRate(now,o.pv);
-    if(!o.valid()||jump||dt>10000){
+    if(!o.valid()||jump||setpointChange||doorDisturbance||dt>10000){
       e_.learningValid=false;clearWindow();guarded_=true;guardAt_=now;
       if(!o.sensor||o.safety)e_.confidence=0;
       else if(!invalid_)e_.confidence*=Policy::ConfidenceLoss;
@@ -139,7 +150,7 @@ class ThermalObserver {
   }
   Estimates e_{};uint64_t onMs_=0,windowOn_=0,episodeOnMs_=0;
   uint32_t tickAt_=0,sampleAt_=0,guardAt_=0,windowAt_=0,offAt_=0,peakAt_=0;
-  float lastPv_=0,windowPv_=0,offTemp_=0,peak_=0,coastHistory_[5]{};
+  float lastPv_=0,lastRaw_=NAN,lastSp_=NAN,windowPv_=0,offTemp_=0,peak_=0,coastHistory_[5]{};
   uint8_t coastCount_=0,coastHead_=0;uint32_t times_[Policy::RateSamples]{};float temperatures_[Policy::RateSamples]{};
   uint8_t rates_=0,rateHead_=0;
   bool tickSeen_=false,sampleSeen_=false,guarded_=false,invalid_=false;
