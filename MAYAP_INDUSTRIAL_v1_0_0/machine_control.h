@@ -7067,6 +7067,9 @@ class MachineController {
     runtime_.lightOn = outputs_.state().light;
     runtime_.sirenOn = outputs_.state().siren;
     runtime_.autoTuneState = autotune_.state();
+    runtime_.autoTunePhase = autotune_.phase();
+    runtime_.autoTuneReason = autotune_.reason();
+    runtime_.autoTuneQuality = autotune_.rejection();
     runtime_.autoTuneProgress = autotune_.progress();
     runtime_.primaryFaultCode = static_cast<uint16_t>(faults_.primary());
     runtime_.activeFaultCount = faults_.activeCount();
