@@ -93,7 +93,11 @@ class ThermalObserver {
           for(uint8_t i=0;i<count;++i)for(uint8_t j=i+1;j<count;++j)
             if(values[j]<values[i])std::swap(values[j],values[i]);
           e_.coast=values[count/2];
-          e_.coastSec=e_.coastWindows?e_.coastSec*.75f+since(peakAt_,offAt_)*.00025f:since(peakAt_,offAt_)*.001f;
+          // The evidence window is 180 s. A later peak cannot justify a
+          // longer model horizon; keep learned seeds inside finiteSeed().
+          const float coastSec=std::min(Policy::CoastMs*.001f,
+              since(peakAt_,offAt_)*.001f);
+          e_.coastSec=e_.coastWindows?e_.coastSec*.75f+coastSec*.25f:coastSec;
           ++e_.coastWindows;qualify(Policy::CoastConfidenceGain);
         }
         episodeOnMs_=0;coastActive_=false;

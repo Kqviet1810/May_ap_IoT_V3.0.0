@@ -5956,7 +5956,8 @@ class MachineController {
   // ----------------------------- Heating/Output -------------------------------
   void updateHeatingAndOutputs(uint32_t now) {
     trackAdaptiveEnergy(now);
-    if (testModeActive_) { heaterBurst_.reset(); updateTestModeOutputs(now); return; }
+    startupHeat_.observe(now, outputs_.state().heaterSsr);
+    if (testModeActive_) { startupHeat_.reset(); heaterBurst_.reset(); updateTestModeOutputs(now); return; }
     const InputState &in = inputs_.state();
     OutputRequest req{};
     // Cong tac vat ly doi kien tu luc ghi de (hoac chua tung ghi de) - cong
@@ -5969,6 +5970,7 @@ class MachineController {
     // Sau mat dien, trong luc dang cho nguoi dung chon TIEP TUC/HUY, tat toan
     // bo co cau, quat hut va nhiet. Den van doc lap de nguoi dung thao tac HMI.
     if (resumeConfirmationRequired_) {
+      startupHeat_.reset();
       heaterBurst_.reset();
       req.immediateMasterDrop = true;
       outputs_.update(now, req);
@@ -6109,16 +6111,31 @@ class MachineController {
     req.ventFan = req.ventFan || adaptiveCoolingRequested();
     float commandedPower = 0.0f;
     if (autotune_.running()) {
+      startupHeat_.reset();
       commandedPower = autotune_.power();
     } else if (normalSsrPermit && actuatorReady) {
       if (newSensorSample_) {
         MachineConfig actuatorConfig = config_;
         actuatorConfig.maxHeaterPower = static_cast<uint8_t>(effectiveLimit);
+        float ceiling = effectiveLimit;
+        bool freezePositiveIntegral = false;
+        if (config_.controlMode == ControlMode::Pid) {
+          const auto decision = startupHeat_.decide(now, config_.targetTemp,
+              temperature_, effectiveLimit);
+          ceiling = decision.ceiling;
+          freezePositiveIntegral = decision.freezePositiveIntegral;
+        }
         pidPower_ = pid_.updateOnNewSample(now, config_.targetTemp,
-                                           temperature_, actuatorConfig, true);
+            temperature_, actuatorConfig, true, ceiling, freezePositiveIntegral);
+      }
+      if (config_.controlMode == ControlMode::Pid && startupHeat_.sampleStale(now)) {
+        pid_.reset();
+        pidPower_ = 0.0f;
       }
       commandedPower = std::min(pidPower_, effectiveLimit);
+      startupHeat_.requested(commandedPower);
     } else {
+      startupHeat_.reset();
       pid_.reset();
       pidPower_ = 0.0f;
     }
@@ -7534,6 +7551,7 @@ class MachineController {
   InputManager inputs_{};
   SHT485Industrial sensor_{};
   ThermalController pid_{};
+  ThermalStartupController startupHeat_{};
   RelayAutoTune autotune_{};
   OutputArbiter outputs_{};
   StatusLed led_{};

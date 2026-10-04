@@ -23,6 +23,8 @@ assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/thermal_control.h').rea
 assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/ssr_window.h').read_bytes()).hexdigest() == '0a7fa13570ec7a29c603f891dd9f38d7bc884503b684e28fb2ff907a0081c1aa'
 
 assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v1/sensor_filter.h').read_bytes()).hexdigest() == '58d07d62a9d4d345fce56bf39f4c84fb3de7f1072af9636fbcf5838d9753433e'
+assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v3-baseline/thermal_control.h').read_bytes()).hexdigest() == 'd3d63bd3f564727920de02c9aa25ccd9d0cf323640ab36d697d4ceb261716b0c'
+assert hashlib.sha256((ROOT / 'tests/fixtures/thermal-v3-baseline/heating.inc').read_bytes()).hexdigest() == '56ed19f22256e8e291dca1859ad96391824bcb18685bbceb3d7a7bbb6d3226c6'
 
 def body_end(text, start):
     opening = text.index('{', start)
@@ -150,7 +152,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
     plant_source=(ROOT / 'tests/thermal-plant.cpp').read_text()
     (out / 'actual-plants.inc').write_text(re.search(r'const Plant plants\[\]=[^;]+;', plant_source)[0])
-    for test in ['adaptive-observer','adaptive-thermal','thermal-autotune','thermal-control','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
+    for test in ['adaptive-observer','adaptive-thermal','thermal-autotune','thermal-control','thermal-startup','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
         variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
@@ -228,3 +230,21 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     if failures and os.getenv('GITHUB_ACTIONS'):
         print(f'::warning::Thermal simulation: {failures}/{len(rows)} miss acceptance targets; review OLD/NEW CSV before commissioning.')
     if failures and args.require_targets: raise SystemExit(1)
+    source=str(ROOT / 'tests/thermal-orchestration-plant.cpp')
+    for label, flags in [('baseline',['-DTHERMAL_V3_BASELINE']),('phase1',[])]:
+        executable=out / ('thermal-orchestration-'+label)
+        subprocess.run(common + ['-O2'] + flags + [source,'-o',str(executable)],check=True)
+        with (args.report_dir / ('orchestration-'+label+'.csv')).open('w') as report:
+            subprocess.run([str(executable)],stdout=report,check=True)
+    before=list(csv.DictReader((args.report_dir/'orchestration-baseline.csv').open()))
+    after=list(csv.DictReader((args.report_dir/'orchestration-phase1.csv').open()))
+    assert len(before)==len(after) and len(before)==788
+    for label, rows in [('baseline',before),('phase1',after)]:
+        passed=sum(row['target']=='PASS' for row in rows)
+        high=sum(int(row['high']) for row in rows)
+        emergency=sum(int(row['emergency']) for row in rows)
+        print(f'ACTUAL HEATING ROUTE {label}: {passed}/{len(rows)} PASS, '
+              f'{len(rows)-passed} FAIL, High={high}, Emergency={emergency}')
+    assert sum(int(row['high']) for row in before)>0, 'Frozen baseline no longer exercises overshoot'
+    assert all(int(row['high'])==0 and int(row['emergency'])==0 for row in after), \
+        'Phase-1 controller crossed a thermal safety threshold in the commissioning matrix'

@@ -66,7 +66,15 @@ static Metrics run(Plant plant,double ambient,unsigned dead,double resolution,fl
     const auto &e=h.adaptiveThermal_.observer().estimates();const auto &d=h.adaptiveThermal_.decision();
     assert(std::isfinite(d.effective)&&d.effective>=0&&d.effective<=h.config_.maxHeaterPower);
     assert(std::isfinite(h.runtime_.heaterPower)&&h.runtime_.heaterPower>=0&&h.runtime_.heaterPower<=h.config_.maxHeaterPower);
-    if(e.windows!=previous&&!e.learningValid){++result.falseLearn;assert(false);}
+    if(e.windows!=previous&&!e.learningValid){
+      std::cerr<<"adaptive invalid window "<<plant.name<<" "<<scenario<<" t="<<t
+               <<" enabled="<<enabled<<" energy="<<result.energy
+               <<" high="<<h.highTemperatureActive_<<" emergency="<<h.emergencyActive_
+               <<" sensor="<<h.sensorUsable_<<" test="<<h.testModeActive_
+               <<" state="<<static_cast<int>(d.state)<<" reason="<<static_cast<int>(d.reason)
+               <<" prev="<<previous<<" now="<<e.windows<<"\n";
+      ++result.falseLearn;assert(false);
+    }
     if(h.highTemperatureActive_||h.emergencyActive_||h.faults_.inhibit||!h.sensorUsable_||h.abnormalResetLatched_)
       assert(!h.outputs_.state().heaterSsr);
     const bool on=h.outputs_.state().heaterSsr;
