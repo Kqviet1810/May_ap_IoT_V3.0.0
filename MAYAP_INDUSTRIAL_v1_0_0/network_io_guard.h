@@ -9,6 +9,27 @@ static uint8_t tlsBusy = 0U;
 static uint32_t deferred = 0U;
 }
 enum class MayapTlsKind : uint8_t { Mqtt, Cloud, Ota };
+
+namespace MayapNetworkIoInternal {
+// Runtime field logs show the established realtime transport leaves about
+// 69-72 KiB free on the no-PSRAM S3. A shared 72 KiB Cloud/OTA gate therefore
+// starved every Cloud alarm before TLS even started. Cloud POSTs are small and
+// short-lived, so give them a conservative 64 KiB admission floor while
+// keeping the larger OTA reserve unchanged.
+constexpr uint32_t MQTT_TLS_MIN_FREE_HEAP = 49152U;
+constexpr uint32_t CLOUD_TLS_MIN_FREE_HEAP = 65536U;
+constexpr uint32_t OTA_TLS_MIN_FREE_HEAP = 73728U;
+constexpr uint32_t TLS_MIN_LARGEST_BLOCK = 24576U;
+
+inline uint32_t minFreeHeapFor(MayapTlsKind kind) {
+  switch (kind) {
+    case MayapTlsKind::Cloud: return CLOUD_TLS_MIN_FREE_HEAP;
+    case MayapTlsKind::Ota: return OTA_TLS_MIN_FREE_HEAP;
+    default: return MQTT_TLS_MIN_FREE_HEAP;
+  }
+}
+}
+
 inline bool mayapTlsBusy() {
   return __atomic_load_n(&MayapNetworkIoInternal::tlsBusy, __ATOMIC_ACQUIRE) != 0U;
 }
@@ -44,10 +65,12 @@ class MayapTlsOperation {
     uint8_t expected = 0U;
     acquired_ = __atomic_compare_exchange_n(&MayapNetworkIoInternal::tlsBusy,
         &expected, 1U, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
-    // Cloud/OTA coexist with the resident MQTT TLS connection. The old
-    // 32 KiB admission was below even one TLS working set on this N8 board.
-    const uint32_t freeBudget = kind == MayapTlsKind::Mqtt ? 49152U : 73728U;
-    if (acquired_ && (ESP.getFreeHeap() < freeBudget || ESP.getMaxAllocHeap() < 24576U)) {
+    // Realtime keeps a resident TLS socket. Transient Cloud/OTA work must
+    // still serialize, but Cloud must not be permanently starved by an OTA-sized
+    // heap threshold. Largest-block protection remains common to all kinds.
+    const uint32_t freeBudget = MayapNetworkIoInternal::minFreeHeapFor(kind);
+    if (acquired_ && (ESP.getFreeHeap() < freeBudget ||
+                      ESP.getMaxAllocHeap() < MayapNetworkIoInternal::TLS_MIN_LARGEST_BLOCK)) {
       __atomic_store_n(&MayapNetworkIoInternal::tlsBusy, 0U, __ATOMIC_RELEASE);
       acquired_ = false;
     }

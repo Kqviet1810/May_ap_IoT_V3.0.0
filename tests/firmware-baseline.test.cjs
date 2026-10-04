@@ -12,8 +12,11 @@ test('three transient TLS users share nonblocking admission with memory budget',
   assert.match(read('MAYAP_INDUSTRIAL_v1_0_0/websocket_transport.h'), /new\s*\(std::nothrow\) MayapTlsOperation/);
   const gate = read('MAYAP_INDUSTRIAL_v1_0_0/network_io_guard.h');
   assert.match(gate, /__atomic_compare_exchange_n/);
-  assert.match(gate, /49152U : 73728U/);
-  assert.match(gate, /ESP.getMaxAllocHeap\(\) < 24576U/);
+  assert.match(gate, /MQTT_TLS_MIN_FREE_HEAP = 49152U/);
+  assert.match(gate, /CLOUD_TLS_MIN_FREE_HEAP = 65536U/);
+  assert.match(gate, /OTA_TLS_MIN_FREE_HEAP = 73728U/);
+  assert.match(gate, /case MayapTlsKind::Cloud: return CLOUD_TLS_MIN_FREE_HEAP/);
+  assert.match(gate, /ESP.getMaxAllocHeap\(\) < MayapNetworkIoInternal::TLS_MIN_LARGEST_BLOCK/);
   assert.match(gate, /class MayapNetworkBatchOperation/);
   assert.match(gate, /~MayapTlsOperation/);
   // Busy admission must not consume an explicit OTA request/check.

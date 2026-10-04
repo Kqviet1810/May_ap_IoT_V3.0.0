@@ -25,7 +25,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/network_io_guard.h",
-      "sha256": "28e0b7462f4e634738f2bd839ad4e54273694894baf486f4ff522876e372f01a"
+      "sha256": "f331cf02917ddf97fb762a18f3742f23ff59a4d2f4c5473c245810afc235a7e4"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/attiny_bus.h",
@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "43fca8cbaa8279a7d2af3b1548be703ad4407071f7c2cb10c3ed5b5307f1d886",
+      "sha256": "b863088365538aefd40d88ac12b7cc66033af76ceb22fa2dfdbb4f373e9541c3",
       "filter": "config"
     },
     {
@@ -450,5 +450,6 @@
   "journalV2WireReviewNote": "2026-10-04: field evidence showed notes.list rejected by DeviceHub as INVALID_SIGNATURE_OR_EXPIRY because exchangeJournal supplied PROTOCOL_VERSION=1 while verifyWrite requires body.v=2. signRealtimeWrite now centrally normalizes all V2 wire bodies to v=2; notes/request gets a 15s execution expiry to stay inside the server's 30s bound with modest clock skew. This also fixes legacy-shaped history/request bodies. HMAC domain/key, requestId, seq/nonce, exact retry, journal EEPROM layout and firmware safety/control are unchanged.",
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes.",
   "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged.",
-  "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged."
+  "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged.",
+  "cloudPushAdmissionReviewNote": "2026-10-04: field log showed free heap 69.9-71.5 KiB with tlsBusy=0 while the shared Cloud/OTA 72 KiB gate drove deferred above 161k, preventing /api/device/alarm and overflowing the 8-slot outbox. Reviewed fix only changes transient network admission/Cloud alert scheduling: Cloud floor 64 KiB, OTA remains 72 KiB, largest-block guard remains 24 KiB, outbox grows to 16 (matching active tracker), and alarm drain precedes routine heartbeat. PID, thermal control, outputs, sensor safety, turning, EEPROM/RTC, HMI, Web transaction signing and OTA interlocks are unchanged."
 }

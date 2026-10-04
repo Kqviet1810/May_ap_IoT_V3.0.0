@@ -31,7 +31,7 @@
 // 1 khe, KHONG dung cho tinh nang cap nhat firmware cua du an nay).
 // ============================================================================
 
-constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.2";
+constexpr char MAYAP_FIRMWARE_VERSION[] = "1.1.3";
 #ifndef MAYAP_BUILD_REVISION
 #define MAYAP_BUILD_REVISION local
 #endif
@@ -257,10 +257,15 @@ constexpr float HEALTH_TEMP_TREND_LOOKAHEAD_MIN = 5.0f; // canh bao neu <=5 phut
 // hieu suy giam som cua chip nho truoc khi hong han.
 constexpr uint8_t HEALTH_EEPROM_RETRY_WARN_COUNT = 5U;
 
-constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
+// A burst of simultaneous faults must fit without evicting a critical alarm
+// while Cloud TLS is briefly busy. Keep queue capacity at least as large as
+// the active-fault tracker; same-state repeats are already coalesced.
+constexpr uint8_t CLOUD_OUTBOX_SIZE = 16U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
 // snapshot moi lan), du du de theo doi tat ca dong thoi.
 constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
+static_assert(CLOUD_OUTBOX_SIZE >= CLOUD_ACTIVE_TRACK_SIZE,
+              "Cloud outbox must cover all simultaneously tracked faults");
 
 // HMI chi duoc bien dich trong firmware tong; da loai bo demo doc lap.
 #define MAYAP_HMI_OWNS_I2C_BUS 0
