@@ -16,7 +16,8 @@ test('three transient TLS users share nonblocking admission with memory budget',
   assert.match(gate, /TLS_FREE_MIN_CLOUD\s*=\s*65536U/);
   assert.match(gate, /TLS_FREE_MIN_OTA\s*=\s*73728U/);
   assert.match(gate, /TLS_LARGEST_BLOCK_MIN\s*=\s*24576U/);
-  assert.match(gate, /ESP.getMaxAllocHeap\(\) < MayapNetworkIoInternal::TLS_LARGEST_BLOCK_MIN/);
+  assert.match(gate, /largestBlock_\s*=\s*ESP.getMaxAllocHeap\(\)/);
+  assert.match(gate, /largestBlock_ < MayapNetworkIoInternal::TLS_LARGEST_BLOCK_MIN/);
   assert.match(gate, /class MayapNetworkBatchOperation/);
   assert.match(gate, /~MayapTlsOperation/);
   // Busy admission must not consume an explicit OTA request/check.
