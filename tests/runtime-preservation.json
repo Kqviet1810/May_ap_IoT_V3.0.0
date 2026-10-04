@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "d3d63bd3f564727920de02c9aa25ccd9d0cf323640ab36d697d4ceb261716b0c"
+      "sha256": "eb9414fd2cd1e0139b4eace5dcd0ecf78fcbac759fede78587a02a94e77c0a61"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "1c77a42fd58be3ce17feac0d9d6cba664154893cfc227a190a3229129eb22604",
+      "sha256": "c74c90f0e49074a556f5273fc982cb271649c7fa368fe86827caa1ee9aab811d",
       "filter": "config"
     },
     {
@@ -450,5 +450,6 @@
   "thermalFinalHardeningReviewNote": "2026-10-03: reviewed thermal safety hardening: Test Mode keeps High/Emergency protection, negative calibration cannot lower raw overheat safety, sensor timeout becomes fixed fail-safe legacy field, running-batch setpoint preserves the safety/vent envelope, E114 retains triggering crossing detail, and zero-authority PID is rejected. Physical thermal performance remains a commissioning item.",
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
-  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged."
+  "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
+  "autoTuneFinalSafetyReviewNote": "2026-10-04: reviewed AutoTune final safety gate. Tyreus-Luyben output is accepted only when the raw identified Kp/Ki/Kd already fit the supported controller envelope; uniform post-identification gain scaling is removed so out-of-range plant identifications cannot be auto-saved as a different controller. Existing relay identification, safety aborts, GPIO path, EEPROM atomicity and public state codes remain unchanged."
 }

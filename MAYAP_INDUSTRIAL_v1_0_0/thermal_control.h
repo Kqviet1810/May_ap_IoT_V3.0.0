@@ -253,18 +253,20 @@ class RelayAutoTune {
     if(!isfinite(result_.ku) || result_.ku<=0 || !isfinite(result_.periodSec) || result_.periodSec<=0) {
       abort(AutoTuneReason::InvalidKu);return false;
     }
-    // Preserve Tyreus-Luyben coefficients and proportional gain scaling.
+    // Preserve the Tyreus-Luyben coefficients exactly. A tune whose raw TL
+    // gains fall outside the controller's supported envelope is NOT a valid
+    // success. The former common-scale fallback preserved Ti/Td but changed
+    // the loop gain and could silently save a controller that was no longer
+    // the identified TL result. Fail cleanly instead and retain the old PID.
     const float kp=result_.ku/2.2f,ki=kp/(2.2f*result_.periodSec),kd=kp*result_.periodSec/6.3f;
     result_.gainScale=fmaxf(1.0f,fmaxf(kp/100.0f,fmaxf(ki/20.0f,kd/200.0f)));
-    // Round the common scale UP by one float ULP, so an exact boundary (e.g.
-    // Kd=200) cannot divide to 200.000015 and be rejected/clipped by sanitize.
-    if(result_.gainScale>1.0f && isfinite(result_.gainScale))
-      result_.gainScale=nextafterf(result_.gainScale, INFINITY);
     if(!isfinite(kp) || !isfinite(ki) || !isfinite(kd) || !isfinite(result_.gainScale) ||
-       kp/result_.gainScale<0.1f || ki<=0 || kd<=0) {abort(AutoTuneReason::InvalidGains);return false;}
+       kp<0.1f || ki<=0 || kd<=0 || result_.gainScale>1.0f ||
+       kp>100.0f || ki>20.0f || kd>200.0f) {
+      abort(AutoTuneReason::InvalidGains);return false;
+    }
     MachineConfig candidate=cfg;candidate.controlMode=ControlMode::Pid;
-    candidate.kp=kp/result_.gainScale;candidate.ki=ki/result_.gainScale;candidate.kd=kd/result_.gainScale;
-    if(candidate.kp>100 || candidate.ki>20 || candidate.kd>200) {abort(AutoTuneReason::InvalidGains);return false;}
+    candidate.kp=kp;candidate.ki=ki;candidate.kd=kd;
     const float p=candidate.kp,i=candidate.ki,dGain=candidate.kd;
     sanitizeMachineConfig(candidate);
     if(candidate.kp!=p || candidate.ki!=i || candidate.kd!=dGain) {abort(AutoTuneReason::InvalidGains);return false;}

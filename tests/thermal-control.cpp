@@ -39,6 +39,25 @@ int main() {
   assert(result.controlMode == ControlMode::Pid);
   assert(result.kp > 0 && result.kp <= 100 && result.ki > 0 && result.ki <= 20);
   assert(result.kd > 0 && result.kd <= 200);
+  assert(tune.result().gainScale == 1.0f);
+
+  // A mathematically identified TL result that exceeds the supported PID
+  // envelope must fail instead of being uniformly shrunk and auto-saved.
+  RelayAutoTune rangeTune;
+  MachineConfig rejected = cfg;
+  rangeTune.configure(37.5f);
+  rangeTune.start(1000, 36.9f);
+  rangeTune.update(1000, 37.3f, cfg, rejected);
+  for (uint32_t ms = 121000; ms <= 1201000; ms += 120000) {
+    const float input = ((ms - 121000) / 120000) % 2 == 0 ? 38.1f : 36.9f;
+    (void)rangeTune.update(ms, input, cfg, rejected);
+    if (!rangeTune.running()) break;
+  }
+  assert(rangeTune.state() == AutoTuneState::Failed);
+  assert(rangeTune.reason() == AutoTuneReason::InvalidGains);
+  assert(rangeTune.result().gainScale > 1.0f);
+  assert(rangeTune.power() == 0);
+
   // Restart must forget prior successes and fail cold/no-response with heater OFF.
   tune.start(1000, 25);
   assert(!tune.update(AUTOTUNE_PHASE_MAX_MS + 1000, 25, cfg, result));
@@ -53,5 +72,5 @@ int main() {
   assert(tune.running());
   tune.abort();
   assert(tune.power() == 0);
-  std::puts("Thermal host tests: PID limits/bumpless/filter, model settling, tune warmup/stability/timeout OK");
+  std::puts("Thermal host tests: PID limits/bumpless/filter, model settling, exact-TL gain-envelope rejection, tune warmup/stability/timeout OK");
 }
