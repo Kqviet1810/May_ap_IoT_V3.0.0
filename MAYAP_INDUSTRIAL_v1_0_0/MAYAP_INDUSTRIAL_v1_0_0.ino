@@ -492,7 +492,7 @@ void supervisorTask(void *parameter) {
     (void)failedService;
     // Network/Realtime/Cloud/OTA may degrade, but never own controller reset.
     mayapServiceSupervisorUpdate(now);
-    const esp_err_t result = esp_task_wdt_reset();    const esp_err_t result = esp_task_wdt_reset();
+    const esp_err_t result = esp_task_wdt_reset();
     if (result != ESP_OK) fatalRestart("SUP WDT RESET", result, MayapBoot::RestartReason::WdtApi);
     __atomic_store_n(&supervisorHeartbeatMs, millis(), __ATOMIC_RELEASE);
     vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(SUPERVISOR_TASK_PERIOD_MS));
