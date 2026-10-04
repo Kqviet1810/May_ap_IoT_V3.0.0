@@ -1,17 +1,17 @@
 # MAYAP — Máy ấp trứng thông minh
 
-> **Baseline release candidate hiện tại: 1.1.2.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
+> **Baseline release candidate hiện tại: 1.1.3.** Kiến trúc realtime hiện tại là **Cloudflare WebSocket + SQLite Durable Objects (`DeviceHub`)**. MQTT broker/HiveMQ/EMQX và credential realtime dùng chung toàn fleet không còn nằm trong runtime hiện hành.
 >
-> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.2` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
+> `release-manifest.json` là nguồn phiên bản phát hành. Việc manifest ghi `1.1.3` **không đồng nghĩa firmware đã được OTA/phát hành tới mọi máy**; rollout vẫn phải đi qua build, ký số, commissioning và xác nhận tại HMI.
 
 ## Phiên bản hiện hành trên `main`
 
 | Thành phần | Phiên bản |
 |---|---:|
-| Release / baseline mã nguồn | 1.1.2 |
-| ESP32 firmware | 1.1.2 |
+| Release / baseline mã nguồn | 1.1.3 |
+| ESP32 firmware | 1.1.3 |
 | HMI firmware | 1.0.0 |
-| Web PWA | 1.1.3 |
+| Web PWA | 1.1.4 |
 | Web storage schema | 10 |
 | ATtiny protocol | 4 |
 | ESP32 Arduino core CI | 3.3.11 |
@@ -131,7 +131,7 @@ Web không được tự flash máy. Operator phải xác nhận trực tiếp t
 ## Cấu trúc repo
 
 ```text
-MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.2
+MAYAP_INDUSTRIAL_v1_0_0/   ESP32 firmware 1.1.3
 ATTINY13A_POWER_ALARM/     firmware ATtiny13A protocol v4
 cloudflare/                Worker + D1 + DeviceHub + Static Assets config
 .github/workflows/         build / test / release / deploy
@@ -229,6 +229,6 @@ Chi tiết Cloudflare: `cloudflare/README.md`.
 - Không đổi EEPROM region/protocol/crypto domain chỉ vì tên lịch sử “không đẹp”; phải đánh giá tương thích trước.
 - Mọi thay đổi heater safety, provisioning, WebSocket auth, ATtiny, EEPROM hoặc OTA phải đi qua regression gate và commissioning phần cứng trước khi rollout.
 
-### Tự cân bằng nhiệt (candidate commissioning trong 1.1.2)
+### Tự cân bằng nhiệt (candidate commissioning trong 1.1.3)
 
 Mặc định **OFF**, config cũ không tự bật. Khi ON, observer học từ GPIO1 ON-time thực; supervisor chỉ giới hạn heater authority/soft landing và yêu cầu quạt hút ON/OFF, giữ nguyên PID, SP và safety. Không nhận biết số xe hay nhiệt từng khoang. Learned model NVS chỉ là seed confidence thấp, không restore quyền điều khiển. Xem [Adaptive Thermal Balance](audit/THERMAL_CONTROL_V2.md) và chạy commissioning observer-only (`MAYAP_ADAPTIVE_OBSERVER_ONLY=1`) trước khi bật actuator trên máy thật. Không có tuyên bố độ chính xác ±0.1°C hay đều nhiệt toàn buồng.

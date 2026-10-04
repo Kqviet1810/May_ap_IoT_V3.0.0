@@ -1625,6 +1625,10 @@
         shiftTempThresholds(config, config.targetTemp, newTarget);
         config.targetTemp = newTarget;
       } else {
+        // Form nhiet do khong hien vent thresholds. Van re-anchor vent theo SV
+        // giong HMI/Quick/Batch; low/high/emergency duoc ghi de bang gia tri
+        // user dang nhin thay ngay sau do.
+        shiftTempThresholds(config, config.targetTemp, newTarget);
         config.targetTemp = newTarget;
         config.lowTempAlarm = Number($('lowAlarm').value);
         config.highTempAlarm = Number($('highAlarm').value);
@@ -2257,7 +2261,7 @@
     'AUTO TUNE DANG CHAY': 'Tự dò đang chạy, không thể thực hiện',
     'HAY CHUYEN SANG AUTO': 'Hãy chuyển công tắc trên máy sang chế độ Tự động trước',
     'CAM BIEN CHUA SAN SANG': 'Cảm biến nhiệt độ/độ ẩm chưa sẵn sàng',
-    'INVALID_PID_GAINS': 'PID không hợp lệ: Kp, Ki và Kd không được đồng thời bằng 0.',
+    'INVALID_PID_GAINS': 'PID không hợp lệ: Kp và Ki không được đồng thời bằng 0; Kd một mình không thể giữ nhiệt.',
     'RTC CHUA HOP LE': 'Đồng hồ thời gian thực (RTC) chưa hợp lệ',
     'LOI 2 HANH TRINH': 'Lỗi cả 2 công tắc hành trình cùng tác động',
     'DANG CO LOI DAO': 'Đang có lỗi cơ cấu đảo trứng, cần xử lý trước',
@@ -3332,7 +3336,7 @@
     if (!(kp >= 0 && kp <= 100)) return invalidate('advancedForm', 'advKp', 'Hệ số Kp phải từ 0 đến 100.');
     if (!(ki >= 0 && ki <= 20)) return invalidate('advancedForm', 'advKi', 'Hệ số Ki phải từ 0 đến 20.');
     if (!(kd >= 0 && kd <= 200)) return invalidate('advancedForm', 'advKd', 'Hệ số Kd phải từ 0 đến 200.');
-    if (kp === 0 && ki === 0 && kd === 0) return invalidate('advancedForm', 'advKp', 'Kp, Ki và Kd không được đồng thời bằng 0.');
+    if (kp === 0 && ki === 0) return invalidate('advancedForm', 'advKp', 'Kp và Ki không được đồng thời bằng 0; Kd một mình không thể giữ nhiệt ổn định.');
     if (!(maxHeaterPower >= 10 && maxHeaterPower <= 100)) return invalidate('advancedForm', 'advMaxHeaterPower', 'Trần công suất phải từ 10 đến 100%.');
     if (!(tempRateLimitC >= 0.1 && tempRateLimitC <= 10)) return invalidate('advancedForm', 'advTempRateLimitC', 'Ngưỡng tốc độ phải từ 0,1 đến 10°C.');
     if (!(tempRateWindowSec >= 30 && tempRateWindowSec <= 1800)) return invalidate('advancedForm', 'advTempRateWindowSec', 'Khung thời gian phải từ 30 đến 1800 giây.');
