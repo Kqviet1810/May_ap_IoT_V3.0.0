@@ -436,10 +436,16 @@
         error.code = 'PROTOCOL_ERROR';
         throw error;
       }
+      // Every wire body signed with the V2 domain must itself declare V2.
+      // Callers may still construct legacy-shaped objects; normalize here so
+      // notes/history cannot be signed as v1 and then rejected by DeviceHub.
+      body.v = 2;
       body.bootId = device.bootId;
       const pending = state.pending.get(String(body.requestId || ''));
       if (pending) pending.ackKey = session.key;
-      if (channel === 'command') body.expiresAt = Math.floor(Date.now() / 1000) + 8;
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (channel === 'command') body.expiresAt = nowSec + 8;
+      else if (channel === 'notes/request') body.expiresAt = nowSec + 15;
       body.clientId = controlClientId;
       body.seq = Math.max(Date.now(), (controlSequences.get(device.id) || 0) + 1);
       controlSequences.set(device.id, body.seq);
@@ -1986,8 +1992,7 @@
         reject(Object.assign(new Error(stage+'. Nội dung vẫn giữ lại; đang đọc đối soát trên máy.'),
           {code,hubCode:pending.hubCode,stage:failureStage}));};
       try{
-        const envelope=await signRealtimeWrite(device,'notes/request',{v:PROTOCOL_VERSION,requestId:id,action,
-          expiresAt:Math.floor(Date.now()/1000)+30,...body});
+        const envelope=await signRealtimeWrite(device,'notes/request',{requestId:id,action,...body});
         armTransaction(id);transactionPublished(id);journalLog(id,pending,'PUBLISHED');
         retrySameRequest(id,{deviceId,channel:'notes/request'},envelope);
         await publish({deviceId,channel:'notes/request'},envelope,{awaitAck:true,requestId:id});

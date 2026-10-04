@@ -378,8 +378,16 @@ test('cached grant signs commands without HTTP; expired grant rejects without an
     expiresAt: Math.floor(Date.now() / 1000) + 300, grant: 'test|grant', grantSig: '08'.repeat(32) });
   const a = await h.signRealtimeWrite(h.device, 'command', { requestId: 'a', action: 'light_toggle' });
   const b = await h.signRealtimeWrite(h.device, 'command', { requestId: 'b', action: 'light_toggle' });
+  const journal = await h.signRealtimeWrite(h.device, 'notes/request', { v: 1, requestId: 'jnl-a', action: 'notes.list' });
+  const history = await h.signRealtimeWrite(h.device, 'history/request', { v: 1, requestId: 'hist-a', minutes: 30 });
   const bodyA = JSON.parse(a.body), bodyB = JSON.parse(b.body);
+  const journalBody = JSON.parse(journal.body), historyBody = JSON.parse(history.body);
   assert.equal(a.v, 2); assert.equal(bodyA.bootId, 123);
+  assert.equal(journalBody.v, 2, 'journal wire body must be V2 before HMAC');
+  assert.equal(historyBody.v, 2, 'history wire body must be V2 before HMAC');
+  assert.ok(Number.isSafeInteger(journalBody.expiresAt));
+  assert.ok(journalBody.expiresAt > Math.floor(Date.now() / 1000));
+  assert.ok(journalBody.expiresAt <= Math.floor(Date.now() / 1000) + 15);
   assert.ok(bodyB.seq > bodyA.seq);
   assert.notEqual(bodyA.nonce, bodyB.nonce);
   assert.match(a.sig, /^[a-f0-9]{64}$/);

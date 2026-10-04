@@ -155,7 +155,7 @@
     {
       "file": "app.js",
       "signature": "async function signRealtimeWrite(",
-      "sha256": "56d19b1731bfc75dc316e74ce6d5a8a1197cd0e241a80a5cd637f265fa7ab2e4",
+      "sha256": "ab569114880782b3532376f161506c1d80982b7a6b7bbc653df48f36f252a7eb",
       "copyReplacements": [
         [
           "'Đang nhận dữ liệu từ máy; vui lòng chờ một chút'",
@@ -452,5 +452,6 @@
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
   "otaSingleSourceReviewNote": "2026-10-04: reviewed OTA configuration-only change. Removed build_secrets.h and the duplicate/fallback MAYAP_OTA_PASSWORD definition; build_public.h is now the single Arduino IDE password source and CI injects only into that macro in its workspace. PID, thermal control, safety, EEPROM layout, HMI, Web transactions and OTA runtime admission/handling bodies are unchanged.",
+  "journalV2WireReviewNote": "2026-10-04: field evidence showed notes.list rejected by DeviceHub as INVALID_SIGNATURE_OR_EXPIRY because exchangeJournal supplied PROTOCOL_VERSION=1 while verifyWrite requires body.v=2. signRealtimeWrite now centrally normalizes all V2 wire bodies to v=2; notes/request gets a 15s execution expiry to stay inside the server's 30s bound with modest clock skew. This also fixes legacy-shaped history/request bodies. HMAC domain/key, requestId, seq/nonce, exact retry, journal EEPROM layout and firmware safety/control are unchanged.",
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes."
 }
