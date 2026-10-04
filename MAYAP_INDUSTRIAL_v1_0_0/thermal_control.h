@@ -1,5 +1,7 @@
 #pragma once
 
+#include "autotune_diagnostics.h"
+
 // Pure thermal algorithms. Including code provides MachineConfig, timing,
 // constants and sanitizeMachineConfig; the host test runs these SAME classes.
 //
