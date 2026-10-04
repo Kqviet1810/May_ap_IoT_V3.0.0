@@ -3533,6 +3533,24 @@ const char *autoTuneStateText(AutoTuneState state) {
   }
 }
 
+const char *autoTuneReasonText(uint8_t reason) {
+  switch (reason) {
+    case 1U: return "BAO VE AN TOAN";
+    case 2U: return "LOI CAM BIEN";
+    case 3U: return "CHE DO DA DOI";
+    case 4U: return "KHONG DAT VUNG DO";
+    case 5U:
+    case 6U: return "HET THOI GIAN";
+    case 7U: return "DAO DONG KHONG DEU";
+    case 8U: return "BIEN DO QUA NHO";
+    case 9U: return "CHU KY QUA NGAN";
+    case 10U: return "KHONG TINH DUOC KU";
+    case 11U: return "PID NGOAI GIOI HAN";
+    case 12U: return "LOI LUU BO NHO";
+    default: return "KHONG DU DIEU KIEN";
+  }
+}
+
 void drawAutoTune() {
   char text[28];
   drawHeader("TU CHINH PID", false);
@@ -3542,6 +3560,9 @@ void drawAutoTune() {
   if (currentRuntime.autoTuneState == AutoTuneState::Running) {
     snprintf(text, sizeof(text), "TIEN DO %u%%",
              currentRuntime.autoTuneProgress);
+  } else if (currentRuntime.autoTuneState == AutoTuneState::Failed) {
+    snprintf(text, sizeof(text), "%s",
+             autoTuneReasonText(currentRuntime.autoTuneReason));
   } else if (currentRuntime.batchRunning) {
     snprintf(text, sizeof(text), "HAY DUNG ME TRUOC");
   } else if (!currentRuntime.sensorOnline) {
@@ -4350,6 +4371,7 @@ void sanitizeRuntime(MachineRuntime &runtime) {
       static_cast<uint8_t>(AutoTuneState::Failed)) {
     runtime.autoTuneState = AutoTuneState::Failed;
   }
+  if (runtime.autoTuneReason > 13U) runtime.autoTuneReason = 0U;
   if (static_cast<uint8_t>(runtime.connectivityMode) >
       static_cast<uint8_t>(ConnectivityMode::Online)) {
     runtime.connectivityMode = ConnectivityMode::Offline;
@@ -4462,6 +4484,7 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
     case View::AutoTune:
       return before.autoTuneState != after.autoTuneState ||
              before.autoTuneProgress != after.autoTuneProgress ||
+             before.autoTuneReason != after.autoTuneReason ||
              before.batchRunning != after.batchRunning ||
              before.sensorOnline != after.sensorOnline;
 

@@ -1135,6 +1135,24 @@
     }, Math.max(0, expectedUntil - Date.now() + 50));
   }
 
+  function autoTuneFailureText(reason) {
+    switch (Number(reason)) {
+      case 1: return 'Bị dừng bởi bảo vệ an toàn';
+      case 2: return 'Mất hoặc lỗi cảm biến';
+      case 3: return 'Chế độ vận hành đã thay đổi';
+      case 4: return 'Không đạt vùng dò trong thời gian cho phép';
+      case 5: return 'Một pha dao động kéo dài quá giới hạn';
+      case 6: return 'Tự dò vượt thời gian tối đa';
+      case 7: return 'Dao động không đủ lặp lại';
+      case 8: return 'Biên độ dao động quá nhỏ';
+      case 9: return 'Chu kỳ dao động quá ngắn';
+      case 10: return 'Không tính được hệ số Ku';
+      case 11: return 'Kết quả PID nằm ngoài vùng an toàn hỗ trợ';
+      case 12: return 'Không lưu được cấu hình PID';
+      default: return 'Tự dò không hoàn tất';
+    }
+  }
+
   function applySnapshotToUi(device) {
     const runtime = device?.snapshot?.runtime;
     if (!runtime) {
@@ -1271,8 +1289,9 @@
         $('tuneText').textContent = 'Hoàn tất · thông số đã được máy lưu';
         $('pidSummary').textContent = 'Đã hoàn tất và tự lưu';
       } else if (autoTuneState === 3) {
-        $('tuneText').textContent = 'Tự dò không hoàn tất';
-        $('pidSummary').textContent = 'Tự dò thất bại';
+        const reasonText = autoTuneFailureText(runtime.autoTuneReason);
+        $('tuneText').textContent = reasonText;
+        $('pidSummary').textContent = 'Tự dò thất bại · PID cũ được giữ nguyên';
       } else {
         $('tuneText').textContent = 'Sẵn sàng';
         $('pidSummary').textContent = 'Máy tự tìm và lưu thông số';
