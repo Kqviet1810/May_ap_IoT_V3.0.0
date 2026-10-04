@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "61e884c1fb2ffb5e21cc26b61f574abc8c7f61351d8093e8485641b75fa5d569"
+      "sha256": "86839fdfbfe3bf6a70b3cd6c654f06a25121fe56e36a4cf31a7ce8446af3e6ca"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,7 +57,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "08b930d188c3288f935479b0d07d5d4aa220cf08c64814596e0591916018caf4",
+      "sha256": "3ff874f5cbb252b83f4ace949ce2979246d929bbc5465cde1e15f59c34d7ba2d",
       "filter": "config"
     },
     {
@@ -451,5 +451,5 @@
   "release112ReviewNote": "2026-10-03: reviewed 1.1.2 version-only config change after thermal hardening. Functional MachineConfig layout/safety logic is unchanged by the version bump; runtime-preservation fingerprint updated accordingly.",
   "noteJournalReviewNote": "Reviewed journal integration in MachineController and Web ACK handling; removed legacy reminder-only transaction branches from startTransaction, sweepUncertain and handleReminderReport. Control, safety, config, batch, history, OTA and recovery fingerprints remain unchanged.",
   "journalReplyReviewNote": "Reviewed Web-only reply recovery: one generation-fenced READ after authenticated terminal ACK with missing DATA; clearPending also cancels its timer. Mutation retries, authentication, physical storage, PID/safety and controller fingerprints unchanged.",
-  "autoTuneDiagnosticsReviewNote": "2026-10-04: reviewed diagnostic-only AutoTune hardening. Existing public state codes, PID coefficients, relay power, safety gates and actuator path are unchanged. Added stable phase/reason telemetry, split heating/cooling timeout causes, HMI/Web rendering and regression coverage; no automatic power escalation."
+  "autoTuneDiagnosticsReviewNote": "2026-10-04: reviewed diagnostic-only AutoTune hardening. Existing public AutoTuneState values, PID coefficients, relay power, safety gates and actuator path are unchanged. Stable phase/reason codes live in autotune_diagnostics.h; runtime/HMI/Web expose them and heating/cooling timeouts are distinguished without automatic power escalation."
 }
