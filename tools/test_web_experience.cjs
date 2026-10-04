@@ -39,6 +39,7 @@ window.MayapRealtime = { Client: function(options) {
 
 async function setup(browser, options = {}) {
   let authFailures = options.authFailures || 0, claimed = options.paired !== false;
+  const cloudNotes=[], cloudReminders=[];
   const context = await browser.newContext({ viewport: { width: options.width || 390, height: options.height || 844 },
     isMobile: Boolean(options.mobile), hasTouch: Boolean(options.mobile), serviceWorkers: 'block', colorScheme: options.scheme || 'light' });
   await context.addInitScript(({ theme, paired, defaults, dropFirst }) => {
@@ -73,6 +74,31 @@ async function setup(browser, options = {}) {
     let body = { success: false, error: 'QA fixture' };
     if(url.pathname==='/api/account/session') body={success:true,user:{sub:'qa-sub',name:'QA account'},expiresAt:Date.now()+86400000,devices:claimed?[{device_id:'MAP-1234567890AB',device_name:'Máy ấp nhà mình',role:'owner'}]:[]};
     if(url.pathname==='/api/account/devices/claim'){claimed=true;body={success:true,device_id:'MAP-1234567890AB',device_name:'Máy ấp nhà mình'};}
+    const notesMatch=url.pathname.match(/^\/api\/device\/MAP-1234567890AB\/notes(?:\/([0-9a-f-]{36}))?$/i);
+    const remindersMatch=url.pathname.match(/^\/api\/device\/MAP-1234567890AB\/reminders(?:\/([0-9a-f-]{36}))?$/i);
+    if(notesMatch){
+      const method=route.request().method();
+      if(method==='GET')body={success:true,notes:cloudNotes.filter(n=>!n.deletedAt)};
+      else if(method==='POST'){
+        const data=route.request().postDataJSON(), existing=cloudNotes.find(n=>n.id===data.id);
+        if(existing){Object.assign(existing,{type:data.type,title:data.title,content:data.content,version:existing.version+1,updatedAt:Date.now()});body={success:true,note:{...existing}};}
+        else{const note={id:data.id,type:data.type,title:data.title,content:data.content,version:1,createdAt:Date.now(),updatedAt:Date.now()};cloudNotes.push(note);body={success:true,note:{...note}};}
+      }else if(method==='DELETE'){
+        const note=cloudNotes.find(n=>n.id===notesMatch[1]);if(note)note.deletedAt=Date.now();body={success:true,deleted:true};
+      }
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+    }
+    if(remindersMatch){
+      const method=route.request().method();
+      if(method==='GET')body={success:true,reminders:cloudReminders.filter(n=>!n.deletedAt)};
+      else if(method==='POST'){
+        const data=route.request().postDataJSON(), item={id:data.id,day:data.day,label:data.label,version:1,createdAt:Date.now(),updatedAt:Date.now()};
+        cloudReminders.push(item);body={success:true,reminder:{...item}};
+      }else if(method==='DELETE'){
+        const item=cloudReminders.find(n=>n.id===remindersMatch[1]);if(item)item.deletedAt=Date.now();body={success:true,deleted:true};
+      }
+      return route.fulfill({status:200,contentType:'application/json',body:JSON.stringify(body)});
+    }
 
     if (url.pathname.endsWith('/realtime-session') && authFailures-- > 0)
       return route.fulfill({status:503,contentType:'application/json',body:JSON.stringify(body)});
@@ -566,17 +592,20 @@ async function main() {
       await page.locator('#notesBubble').click();
       await page.locator('#notesPanel').getByRole('button',{name:'Tạo ghi chú đầu tiên'}).click();
       await page.locator('#notesPanel input[name=title]').fill('<img src=x onerror=alert(1)>');
-      await page.locator('#notesPanel textarea').fill('Ghi chú tiếng Việt giữ nguyên bản nháp.');
-      assert.equal(await page.locator('#notesPanel button[type=submit]').isDisabled(),true);
-      assert.ok((await page.locator('#notesPanel').textContent()).includes('Chưa có giao thức lưu'));
-      assert.equal(await page.locator('#notesPanel img').count(),0);
-      assert.equal(await page.locator('#notesPanel .noteCard').count(),0);
+      await page.locator('#notesPanel textarea').fill('Ghi chú tiếng Việt lưu trực tiếp D1.');
+      assert.equal(await page.locator('#notesPanel button[type=submit]').isEnabled(),true);
+      await page.locator('#notesPanel button[type=submit]').click();
+      await page.locator('#notesPanel .noteCard').waitFor();
+      assert.ok((await page.locator('#notesPanel').textContent()).includes('Ghi chú tiếng Việt lưu trực tiếp D1.'));
+      assert.ok((await page.locator('#notesPanel').textContent()).includes('<img src=x onerror=alert(1)>'));
+      assert.equal(await page.locator('#notesPanel img').count(),0,'Untrusted note title must remain text');
+      assert.equal(await page.locator('#notesPanel .noteCard').count(),1);
       assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));
       const bounds=await page.locator('#notesPanel').boundingBox();
       assert.ok(bounds.x>=0&&bounds.y>=0&&bounds.x+bounds.width<=viewport.width&&bounds.y+bounds.height<=viewport.height);
       await qa.context.close();
     }
-    results.push('Notes UI-only: preserved Vietnamese draft, disabled save, safe text and desktop/tablet/mobile/low-height viewport PASS.');
+    results.push('Notes D1 UI: authenticated create succeeds, Vietnamese text persists, XSS stays inert, desktop/tablet/mobile/low-height layout PASS.');
     fs.writeFileSync(path.join(out,'web-browser-qa.json'),JSON.stringify({ passed:true, results, palettes, controls, headers, layouts, safeAreas },null,2));
     console.log(results.join('\n'));
   } finally { await browser.close(); }

@@ -2322,7 +2322,11 @@
     if(summary)summary.textContent=!device?'Chọn máy để xem Nhắc nhở':
       device.remindersLoading?'Đang tải từ Cloud…':device.remindersError?'Chưa tải được Nhắc nhở':
       list.length?`${list.length}/32 nhắc đã lưu trên Cloud`:'Chưa có nhắc nào';
-    if(device?.remindersError){const error=document.createElement('p');error.className='formError show';error.textContent=device.remindersError;root.append(error);}
+    if(device?.remindersError){
+      const error=document.createElement('p');error.className='formError show';error.textContent=device.remindersError;root.append(error);
+      const retry=document.createElement('button');retry.type='button';retry.className='ghost full';retry.textContent='Thử tải lại';
+      retry.addEventListener('click',()=>loadCloudReminders(device,true));root.append(retry);
+    }
     list.slice().sort((a,b)=>a.day-b.day||a.label.localeCompare(b.label,'vi')).forEach(item=>{
       const row=document.createElement('div');row.className='deviceListItem';
       const text=document.createElement('div'),strong=document.createElement('strong'),small=document.createElement('small');
@@ -2338,7 +2342,8 @@
       row.append(text,remove);root.append(row);
     });
     const addBtn=$('addReminderBtn');
-    if(addBtn)addBtn.disabled=!device?.id||device.accountRole==='viewer'||Boolean(device.remindersPending)||list.length>=32;
+    if(addBtn)addBtn.disabled=!device?.id||device.accountRole==='viewer'||Boolean(device.remindersPending)||
+      Boolean(device.remindersLoading)||!device.remindersLoaded||Boolean(device.remindersError)||list.length>=32;
   }
 
   function handleSnapshot(device, snapshot) {

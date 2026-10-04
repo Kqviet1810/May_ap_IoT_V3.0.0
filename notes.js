@@ -175,8 +175,8 @@
         return;
       }
       const create = button('+ Ghi chú mới','primary full',() => form());
-      body.append(create);
-      if (!writable()) body.append(el('small','notesNotice',context().notesStatus||'Máy chưa sẵn sàng lưu.'));
+      create.disabled=!writable();body.append(create);
+      if (!writable()) body.append(el('small','notesNotice',context().notesStatus||'Tài khoản này chỉ có quyền xem.'));
       let items = sorted();
       if (all) {
         const search = el('input'); search.type = 'search'; search.placeholder = 'Tìm ghi chú…'; search.setAttribute('aria-label','Tìm ghi chú'); search.value = query;
@@ -267,12 +267,16 @@
     position();
     return { open, close:requestClose, contextChanged() {
       if (busy || confirmPending) return;
-      if(scope===currentScope()&&view==='form'){const save=body.querySelector('button[type=submit]');if(save)save.disabled=!writable();
-        const error=body.querySelector('.notesError');if(error)error.textContent=writable()?'':context().notesStatus||'Máy chưa sẵn sàng lưu Ghi chú.';return;}
-      if (panel.hidden) { generation++; records = []; badge.hidden = true; return; }
-      // Keep a draft bound to its original device until cancelled.
-      if (view === 'form') return;
-      load();
+      const nextScope=currentScope();
+      if(scope===nextScope){
+        if(view==='form'){const save=body.querySelector('button[type=submit]');if(save)save.disabled=!writable();
+          const error=body.querySelector('.notesError');if(error)error.textContent=writable()?'':context().notesStatus||'Tài khoản này chỉ có quyền xem.';}
+        return; // Realtime snapshots must never turn into repeated D1 reads.
+      }
+      generation++;scope=nextScope;records=[];error='';badge.hidden=true;
+      // Keep a draft bound to its original device until explicitly cancelled.
+      if(view==='form')return;
+      if(!panel.hidden)load();else setCount();
     } };
   }
   root.MayapNotes = { mount };
