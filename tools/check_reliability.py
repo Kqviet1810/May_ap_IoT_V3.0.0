@@ -137,6 +137,17 @@ require(read("MAYAP_INDUSTRIAL_v1_0_0/attiny_state_sync.h"), "TRANSITION_TIMEOUT
 require(machine, "keepPowerLossArmed", "batch-stop no-gap handoff")
 require(machine, "refreshPendingResumeElapsedFromRtc();", "pending resume elapsed follows RTC")
 require(machine, "savedElapsedAtCheckpoint_) + delta", "pending resume elapsed uses checkpoint anchor")
+# Turning scheduler: homing only restores mechanical position; it must never
+# create a new schedule anchor. Manual re-anchor is a real scheduler event and
+# must be persisted immediately, not left in RAM until the 5-minute checkpoint.
+finish_homing = machine[machine.find("void finishHoming"):machine.find("void stopTurn", machine.find("void finishHoming"))]
+if "setTurnScheduleAnchor(now)" in finish_homing:
+    raise SystemExit("FAIL: homing must not reset the turning schedule")
+require(finish_homing, "scheduleNextTurnFromAnchor(now);", "homing preserves turning deadline")
+manual_anchor = machine[machine.find("else if (config_.manualTurnReanchorsSchedule)"):machine.find("void finishHoming")]
+require(manual_anchor, "(void)saveBatchRecord();", "manual turning re-anchor persists immediately")
+require(machine, "previousConfig.turnIntervalMin != config_.turnIntervalMin", "turn interval edit reprojects from persistent anchor")
+require(machine, "MayapTurning::fromEpoch", "production turning uses tested epoch projection")
 require(attiny, "if (p & V9PIN)", "ATtiny 9V sensing retained")
 require(attiny, "F_9VFAULT", "ATtiny 9V low reporting retained")
 require(attiny, "flags & (F_BATCH | F_ACTIVITY)", "ATtiny power-loss alarm OR policy")

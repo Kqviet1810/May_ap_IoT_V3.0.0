@@ -3,6 +3,7 @@
 #include "config.h"
 #include "adaptive_thermal_balance.h"
 #include "adaptive_persistence.h"
+#include "turn_schedule_policy.h"
 #include "firmware_update_guard.h"
 #include "boot_diagnostic.h"
 #include "startup_output_policy.h"
@@ -4426,6 +4427,16 @@ class MachineController {
           pidPower_ = pid_.output();
         }
 
+        // Lich dao la moc tuyet doi tinh tu LAN DAO THAT gan nhat. Doi chu ky
+        // hoac BAT/TAT dao trong luc me dang chay chi chieu lai deadline tu
+        // lastTurnEpoch_/lastTurnAt_, tuyet doi khong lay thoi diem bam LUU
+        // lam moc moi (neu khong moi lan sua chu ky se bi dem lai tu dau).
+        if (batchRunning_ &&
+            (previousConfig.turningEnabled != config_.turningEnabled ||
+             previousConfig.turnIntervalMin != config_.turnIntervalMin)) {
+          scheduleNextTurnFromAnchor(now);
+        }
+
       } else if (saveAllowed) {
         latchStorageFault("CONFIG SAVE");
       }
@@ -5532,16 +5543,13 @@ class MachineController {
     }
     const uint32_t intervalSec = static_cast<uint32_t>(config_.turnIntervalMin) * 60UL;
     if (rtc_.valid() && lastTurnEpoch_ != 0U) {
-      const uint32_t currentEpoch = rtc_.epoch();
-      const uint64_t dueEpoch64 = static_cast<uint64_t>(lastTurnEpoch_) + intervalSec;
-      if (dueEpoch64 <= currentEpoch) {
-        nextTurnAt_ = now; // qua han: dao ngay tai co hoi an toan tiep theo
-      } else {
-        const uint64_t remainingMs = (dueEpoch64 - currentEpoch) * 1000ULL;
-        nextTurnAt_ = now + static_cast<uint32_t>(
-            std::min<uint64_t>(remainingMs, 0x7FFFFFFFULL));
+      const MayapTurning::EpochSchedule projected =
+          MayapTurning::fromEpoch(rtc_.epoch(), lastTurnEpoch_,
+                                  config_.turnIntervalMin);
+      if (projected.scheduled) {
+        nextTurnAt_ = projected.due ? now : now + projected.remainingMs;
+        return;
       }
-      return;
     }
     const uint32_t intervalMs = intervalSec * 1000UL;
     if (lastTurnAt_ != 0U) {
@@ -5776,15 +5784,15 @@ class MachineController {
       (void)saveBatchRecord();
     } else if (config_.manualTurnReanchorsSchedule) {
       // F-13: dao TAY (moveCounts_ false) nhung cau hinh yeu cau dong lich -
-      // chi doi lai moc thoi gian dao tu dong (lastTurnAt_/nextTurnAt_) de
-      // tranh dao tu dong THEM 1 lan gan nhu ngay lap tuc sau khi vua dao
-      // tay (truoc day luon xay ra neu chu ky da het han trong luc dao tay).
-      // KHONG dem vao turnCountToday_/turnCountBatch_ va KHONG doi
-      // config_.nextDirection - 2 gia tri do van danh rieng cho thong ke/
-      // hien thi dao TU DONG, khong lien quan huong dao tay vua roi. Huong
-      // dao tu dong ke tiep van tu tinh dung tu trayPosition_ vat ly (xem
-      // updateTurning()), khong phu thuoc gia tri nay.
+      // coi day la mot lan dao THAT cho scheduler, nen doi moc thoi gian dao
+      // tu dong. KHONG dem vao turnCountToday_/turnCountBatch_ va KHONG doi
+      // nextDirection (thong ke/hien thi Auto van doc lap voi dao tay).
+      //
+      // Quan trong: luu batch NGAY tai day. Truoc day anchor moi chi nam RAM,
+      // neu mat dien truoc checkpoint 5 phut thi reboot nap lai lastTurnEpoch
+      // cu va lich dao bi sai.
       setTurnScheduleAnchor(now);
+      (void)saveBatchRecord();
     }
     moveIsHoming_ = false;
     moveCounts_ = false;
@@ -5793,8 +5801,14 @@ class MachineController {
   void finishHoming(uint32_t now) {
     needHome_ = false;
     if (batchPhase_ == BatchPhase::Homing) batchPhase_ = BatchPhase::Running;
-    // Homing la mot chuyen dong day du den CTHT; lay day lam moc lich dau tien.
-    setTurnScheduleAnchor(now);
+
+    // HOMING chi xac dinh lai VI TRI CO KHI, khong phai mot lan dao theo lich.
+    // Giu nguyen lastTurnEpoch_/lastTurnAt_ va chieu lai deadline tu anchor cu.
+    // Nho vay mat dien/reset hoac MANUAL->AUTO khi khay dang o giua khong con
+    // lam chu ky dao dem lai tu dau. Neu day la ban ghi legacy khong co anchor,
+    // scheduleNextTurnFromAnchor() van tu tao fallback RAM an toan tu thoi diem
+    // homing xong.
+    scheduleNextTurnFromAnchor(now);
     mayapSerialPrintf(false, "[TURN] HOME OK pos=%s\n",
                      trayPosition_ == TrayPosition::Left ? "LEFT" : "RIGHT");
   }
