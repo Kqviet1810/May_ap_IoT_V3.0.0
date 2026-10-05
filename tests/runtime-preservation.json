@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "d3d63bd3f564727920de02c9aa25ccd9d0cf323640ab36d697d4ceb261716b0c"
+      "sha256": "a3f19ab71ed9f2bfc7c12230d851565e1f03cc4dc2c8d36f57ae12e6d96737ad"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -62,7 +62,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "dd5cc6086b4667a08f6823465a4c011984b50bcfacc4dbb10e3addd96a78ab1e",
+      "sha256": "b1573ca6e2dd47d4108c62bbf1a3dc40d9b6b3cc82aae23a691a0ce650549ae6",
       "signature": "class MachineController {"
     },
     {
@@ -416,11 +416,11 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_observer.h",
-      "sha256": "4f4cc0e1c978cae4eaed6df4a10169990900766fba756d821345f27e5cddc058"
+      "sha256": "40ed4ae0650fa42cd270eb204e03e8645334827a4804f0cdad655de585f59773"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_thermal_balance.h",
-      "sha256": "d20320b730c9c838c170d848372e96d0a009a96f4ccef51f26f66947b94e04f7"
+      "sha256": "89540424110817dcebaaf1c2f6fc2a37eca11844478ff96a2370913cc67db564"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_model.h",

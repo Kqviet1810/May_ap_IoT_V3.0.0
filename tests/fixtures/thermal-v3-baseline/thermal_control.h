@@ -48,12 +48,9 @@ class ThermalController {
   }
 
   float updateOnNewSample(uint32_t now, float setpoint, float input,
-                          const MachineConfig &cfg, bool enabled,
-                          float actuatorCeiling = INFINITY, bool freezePositiveIntegral = false) {
+                          const MachineConfig &cfg, bool enabled) {
     if (!enabled || !isfinite(input) || !isfinite(setpoint)) { reset(); return 0.0f; }
-    const float maxOut = isfinite(actuatorCeiling)
-        ? clampFloat(actuatorCeiling, 0.0f, static_cast<float>(cfg.maxHeaterPower))
-        : static_cast<float>(cfg.maxHeaterPower);
+    const float maxOut = static_cast<float>(cfg.maxHeaterPower);
     if (cfg.controlMode == ControlMode::OnOff) {
       const float half = cfg.tempHysteresis * 0.5f;
       if (!initialized_) { output_ = input < setpoint ? maxOut : 0.0f; initialized_ = true; }
@@ -90,10 +87,8 @@ class ThermalController {
     // the old +/-maxOut bound alone can prevent beta<1 reaching the setpoint.
     // Anti-windup uses the ACTUAL 0..maxOut actuator limits.
     const float integralLimit = maxOut + fabsf(cfg.kp * (1.0f - beta_) * setpoint);
-    const float integralDelta = cfg.ki * error * dt;
-    const float candidateIntegral = clampFloat(integral_ +
-        (freezePositiveIntegral && integralDelta > 0.0f ? 0.0f : integralDelta),
-        -integralLimit, integralLimit);
+    const float candidateIntegral = clampFloat(
+        integral_ + cfg.ki * error * dt, -integralLimit, integralLimit);
     const float unsaturated = p + candidateIntegral + d;
     const float previousUnsaturated = p + integral_ + d;
     const float integralStep = candidateIntegral - integral_;
@@ -123,156 +118,6 @@ class ThermalController {
   float lastInput_ = 0.0f;
   uint32_t lastComputeAt_ = 0;
   float output_ = 0.0f;
-};
-
-// Physical heat is metered from the arbiter's actual SSR state, not PID demand.
-// The bounded 2 s buckets retain 240 s of energy and no credit across a cut.
-class ThermalStartupController {
- public:
-  enum class Phase : uint8_t { FullHeat, Approach, SoftLanding, Hold };
-  void reset() {
-    for (uint8_t i = 0; i < Buckets; ++i) onMs_[i] = 0;
-    phase_ = Phase::FullHeat; initialized_ = false; observed_ = false; historyGap_ = false;
-    bucket_ = 0; firstHeatAt_ = 0; firstRiseAt_ = 0;
-    lastHeatOffAt_ = 0; energyWindowStartedAt_ = 0; coastCleared_ = false;
-    stableAt_ = 0; lastRequested_ = 0; holdPower_ = 0;
-    slope_ = 0; lastSampleAt_ = 0; lastPeak_ = 0;
-  }
-  void observe(uint32_t now, bool heaterOn) {
-    if (!observed_) { observed_ = true; observedAt_ = bucketAt_ = now; lastOn_ = heaterOn; return; }
-    uint32_t dt = static_cast<uint32_t>(now - observedAt_);
-    observedAt_ = now;
-    if (dt > 2000U) {
-      reset(); historyGap_ = true;
-      observed_ = true; observedAt_ = bucketAt_ = now; return;
-    }
-    while (dt) {
-      const uint32_t left = 2000U - static_cast<uint32_t>(observedAt_ - dt - bucketAt_);
-      const uint32_t part = dt < left ? dt : left;
-      if (lastOn_) onMs_[bucket_] += part;
-      dt -= part;
-      if (part == left) {
-        bucketAt_ += 2000U;
-        bucket_ = (bucket_ + 1U) % Buckets;
-        onMs_[bucket_] = 0;
-      }
-    }
-    if (lastOn_ && !heaterOn) { lastHeatOffAt_ = now; coastCleared_ = false; }
-    lastOn_ = heaterOn;
-    if (heaterOn && firstHeatAt_ == 0U) firstHeatAt_ = now;
-  }
-  struct Decision { float ceiling; bool freezePositiveIntegral; Phase phase; float peak; };
-  Decision decide(uint32_t now, float sp, float pv, float maxPower) {
-    if (!isfinite(sp) || !isfinite(pv)) return {0, true, phase_, pv};
-    historyGap_ = false; // only a fresh real sensor sample can resume heat
-    if (!initialized_) {
-      initialized_ = true; lastPv_ = pv; lastSp_ = sp;
-      lastSampleAt_ = now;
-    }
-    const float dt = clampFloat(static_cast<float>(static_cast<uint32_t>(now-lastSampleAt_))*0.001f, 0.25f, 10.0f);
-    const float measuredRate = (pv-lastPv_)/dt;
-    slope_ += dt/(10.0f+dt)*(measuredRate-slope_);
-    lastPv_ = pv; lastSampleAt_ = now;
-    if (sp != lastSp_) { stableAt_ = 0U; phase_ = Phase::Approach; lastSp_ = sp; }
-    if (firstRiseAt_ == 0U && firstHeatAt_ != 0U && slope_ > 0.003f &&
-        static_cast<uint32_t>(now-firstHeatAt_) >= 15000U) firstRiseAt_ = now;
-    const uint32_t riseDelayMs = firstRiseAt_ == 0U ? 0U :
-        static_cast<uint32_t>(firstRiseAt_-firstHeatAt_);
-    const bool longDelay = riseDelayMs > 80000U;
-    const float coastSeconds = firstRiseAt_ == 0U ? 135.0f :
-        clampFloat(static_cast<float>(riseDelayMs)*0.001f+14.0f, 18.0f, 135.0f);
-    if (!coastCleared_ && !lastOn_ && lastHeatOffAt_ != 0U &&
-        static_cast<uint32_t>(now-lastHeatOffAt_) >= static_cast<uint32_t>(coastSeconds*1000.0f) &&
-        slope_ <= 0.001f) {
-      for (uint8_t i = 0; i < Buckets; ++i) onMs_[i] = 0;
-      energyWindowStartedAt_ = now;
-      coastCleared_ = true;
-    }
-    const float slopeCoast = fmaxf(0.0f, slope_) * coastSeconds;
-    // The long-term loss-compensation duty is deliberately slow and cannot
-    // be learned until after the first delayed heat response. It removes the
-    // permanent offset of proportional-only braking without banking pulse
-    // energy for a later burst.
-    if (firstRiseAt_ != 0U && (!longDelay || coastCleared_ || sp-pv > 1.0f) &&
-        static_cast<uint32_t>(now-firstRiseAt_) >= (longDelay ? 240000U : 180000U)) {
-      if (sp-pv > 0.08f && slope_ <= 0.003f)
-        holdPower_ += dt/60.0f;
-      else if (sp-pv < -0.05f || slope_ > 0.006f)
-        holdPower_ -= 3.0f*dt/60.0f;
-      holdPower_ = clampFloat(holdPower_,0.0f,maxPower);
-    }
-    const uint32_t horizonMs = longDelay ? 240000U : 160000U;
-    const uint8_t recentBuckets = static_cast<uint8_t>(horizonMs/2000U);
-    uint32_t recentOnMs = 0;
-    for (uint8_t i = 0; i < recentBuckets; ++i)
-      recentOnMs += onMs_[(bucket_+Buckets-i)%Buckets];
-    const float windowMs = static_cast<float>(std::min<uint32_t>(horizonMs,
-        static_cast<uint32_t>(now-energyWindowStartedAt_)));
-    const float excessOnMs = fmaxf(0.0f, static_cast<float>(recentOnMs) -
-        holdPower_ * 0.01f * windowMs);
-    // Rated watts are not a calibration of transfer to this one probe.
-    // Keep a bounded 35% reserve for heater effectiveness, sensor filter lag
-    // and delayed heat before trusting a first-rise estimate.
-    // Do not subtract PV rise over this ring: with transport delay, that rise
-    // can be caused by an older pulse which already aged out of the ring.
-    const float energyCoast = excessOnMs*16.0f*1.35f/MinimumCapacity;
-    const float expectedCoast = fmaxf(slopeCoast, energyCoast);
-    const float error = sp-pv;
-    const float peak = pv+expectedCoast;
-    lastPeak_ = peak;
-    if (fabsf(error) <= 0.45f && fabsf(slope_) <= 0.002f) {
-      if (stableAt_ == 0U) stableAt_ = now;
-      if (static_cast<uint32_t>(now-stableAt_) >= 60000U) phase_ = Phase::Hold;
-    } else stableAt_ = 0U;
-    if (phase_ == Phase::Hold && (error > 0.7f || error < -0.25f || slope_ > 0.006f))
-      phase_ = Phase::Approach;
-    if (phase_ != Phase::Hold) {
-      if (error > 2.0f && peak < sp-1.0f) phase_ = Phase::FullHeat;
-      else if (error > 0.8f && peak < sp-0.3f) phase_ = Phase::Approach;
-      else phase_ = Phase::SoftLanding;
-    }
-    // HOLD is still a delayed 16 kW plant. Never bypass the same braking
-    // envelope merely because the filtered PV was momentarily stationary.
-    const float remaining = error-expectedCoast;
-    const float brakeFraction=clampFloat((remaining+0.05f)/0.5f, 0.0f, 1.0f);
-    // The predictive fraction refers to the rated bank. External authority
-    // remains a separate final limit and never redefines physical 100%.
-    float cap = 100.0f*brakeFraction;
-    // Near SP, a stationary heavy load can suddenly become light before the
-    // remote sensor sees it. Allow only a bounded increment above established
-    // maintenance duty until the changed slope is observed.
-    if (error < 2.0f) cap = fminf(cap, fmaxf(20.0f,holdPower_+5.0f));
-    if (slope_ > 0.0f) {
-      const float rateCap = 100.0f*clampFloat(
-          (error+0.1f)/(slope_*coastSeconds+0.1f), 0.0f, 1.0f);
-      cap = fminf(cap, rateCap);
-    }
-    cap = clampFloat(cap, 0.0f, maxPower);
-    cap = fminf(cap, lastRequested_+30.0f);
-    const bool freezeIntegral = phase_ != Phase::Hold &&
-        !(error > 0.15f && slope_ <= 0.001f && peak < sp-0.2f);
-    return {cap, freezeIntegral, phase_, peak};
-  }
-  void requested(float power) { lastRequested_ = fmaxf(0.0f, power); }
-  bool sampleStale(uint32_t now) const {
-    return historyGap_ ||
-        (initialized_ && static_cast<uint32_t>(now-lastSampleAt_) > 6000U);
-  }
-  Phase phase() const { return phase_; }
-  float predictedPeak() const { return lastPeak_; }
- private:
-  static constexpr uint8_t Buckets = 120U;
-  static constexpr float MinimumCapacity = 180000.0f;
-  uint32_t onMs_[Buckets]{};
-  uint32_t observedAt_ = 0, bucketAt_ = 0;
-  uint32_t firstHeatAt_ = 0, firstRiseAt_ = 0, lastHeatOffAt_ = 0;
-  uint32_t energyWindowStartedAt_ = 0, stableAt_ = 0, lastSampleAt_ = 0;
-  uint8_t bucket_ = 0;
-  bool initialized_ = false, observed_ = false, lastOn_ = false, coastCleared_ = false;
-  bool historyGap_ = false;
-  float lastPv_ = 0, lastSp_ = 0, slope_ = 0;
-  float lastRequested_ = 0, holdPower_ = 0, lastPeak_ = 0;
-  Phase phase_ = Phase::FullHeat;
 };
 
 // These phases/reasons are service diagnostics, not changes to public state codes.
