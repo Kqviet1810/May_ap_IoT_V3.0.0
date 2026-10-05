@@ -3,10 +3,29 @@ static void assertOld(const TuneHarness &h){assert(h.config_.kp==18 && h.config_
 static void begin(TuneHarness &h,float pv=37.4f){
   h.sample(pv,pv);const char *message=nullptr;assert(h.startAutoTune(1000,message));h.cycle(1000);
 }
-static void oscillate(TuneHarness &h){
+static void makeCandidate(TuneHarness &h){
   for(uint32_t t=41000;t<=401000 && h.autotune_.running();t+=40000){
     const float pv=((t-41000)/40000)%2?36.9f:38.1f;h.sample(pv,pv);h.cycle(t);
   }
+  assert(h.autotune_.validating()&&h.autotune_.candidateGenerated());
+  assert(h.store_.saves==0);
+}
+static void oscillate(TuneHarness &h){
+  makeCandidate(h);
+  for(uint32_t n=1;n<=100 && h.autotune_.validating();++n){
+    h.sample(37.5f,37.5f);h.cycle(clockMs+2000);
+  }
+}
+static void validationRejects(){
+  TuneHarness overshoot;begin(overshoot);makeCandidate(overshoot);
+  overshoot.sample(38.0f,38.0f);overshoot.cycle(clockMs+2000);
+  assert(overshoot.autotune_.state()==AutoTuneState::Failed);
+  assert(overshoot.autotune_.reason()==AutoTuneReason::ValidationOvershoot);
+  assert(overshoot.store_.saves==0);assertOld(overshoot);
+
+  TuneHarness safety;begin(safety);makeCandidate(safety);safety.faults_.inhibit=true;
+  safety.cycle(clockMs+5,false);assert(safety.autotune_.reason()==AutoTuneReason::SafetyAbort);
+  assert(!safety.outputs_.state().heaterSsr&&safety.store_.saves==0);assertOld(safety);
 }
 static void eventOutsideBatch(){
   TuneHarness h;assert(!h.eventLog_.loggingEnabled());serialEnabled=true;diagnosticLines.clear();
@@ -46,7 +65,7 @@ static void preheatAndTimeouts(){
   MachineConfig cfg,result;RelayAutoTune wrap;wrap.configure(37.5f);wrap.start(0U-40000U,37.4f);
   wrap.update(0U-40000U,37.4f,cfg,result);
   for(uint32_t n=0;n<10 && wrap.running();++n)wrap.update(n*40000U,n%2?36.9f:38.1f,cfg,result);
-  assert(wrap.state()==AutoTuneState::Success);
+  assert(wrap.phase()==AutoTunePhase::Candidate&&wrap.candidateGenerated());
 }
 static void safetyAndReset(){
   for(bool preheat:{false,true})for(unsigned reason=0;reason<17;++reason){
@@ -103,5 +122,5 @@ static void savesAndRejections(){
   cfg.autotuneRelayPowerPercent=0;tune.start(1000,37.4f);
   assert(!tune.update(1000,37.4f,cfg,result) && tune.reason()==AutoTuneReason::InvalidKu);
 }
-int main(){eventOutsideBatch();preheatAndTimeouts();safetyAndReset();savesAndRejections();
+int main(){eventOutsideBatch();preheatAndTimeouts();validationRejects();safetyAndReset();savesAndRejections();
   std::puts("Actual AutoTune: preheat/capped actual swing, rolling quality, 34 immediate cuts, bounded deadlines, atomic save/power-cut/reset, outside-batch events and bounded diagnostics PASS");}

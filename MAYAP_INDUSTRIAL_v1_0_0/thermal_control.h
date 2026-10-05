@@ -276,18 +276,25 @@ class ThermalStartupController {
 };
 
 // These phases/reasons are service diagnostics, not changes to public state codes.
-enum class AutoTunePhase : uint8_t { Idle, Preheat, Heating, Cooling, Validating, Success, Failed };
+enum class AutoTunePhase : uint8_t {
+  Idle, Preheat, Heating, Cooling, CycleValidating, Candidate, Validating,
+  Accepted, Rejected, Failed
+};
 enum class AutoTuneReason : uint8_t {
   None, SafetyAbort, SensorAbort, ModeAbort, PreheatTimeout, PhaseTimeout,
   TotalTimeout, NonRepeatable, AmplitudeTooSmall, PeriodTooSmall,
-  InvalidKu, InvalidGains, SaveFailed, Success
+  InvalidKu, InvalidGains, InvalidRatios, BoundaryGain, CandidateReady,
+  ValidationOvershoot, ValidationOscillation, ValidationBangBang,
+  ValidationNoConvergence, ValidationWorse, ValidationTimeout,
+  SaveFailed, Accepted
 };
 inline const char *autoTunePhaseName(AutoTunePhase phase) {
   switch(phase) {
     case AutoTunePhase::Idle:return "IDLE";case AutoTunePhase::Preheat:return "PREHEAT";
     case AutoTunePhase::Heating:return "HEATING";case AutoTunePhase::Cooling:return "COOLING";
-    case AutoTunePhase::Validating:return "VALIDATING";case AutoTunePhase::Success:return "SUCCESS";
-    case AutoTunePhase::Failed:return "FAILED";
+    case AutoTunePhase::CycleValidating:return "CYCLE_VALIDATING";case AutoTunePhase::Candidate:return "CANDIDATE";
+    case AutoTunePhase::Validating:return "VALIDATING";case AutoTunePhase::Accepted:return "ACCEPTED";
+    case AutoTunePhase::Rejected:return "REJECTED";case AutoTunePhase::Failed:return "FAILED";
   }
   return "UNKNOWN";
 }
@@ -299,7 +306,15 @@ inline const char *autoTuneReasonName(AutoTuneReason reason) {
     case AutoTuneReason::TotalTimeout:return "TOTAL_TIMEOUT";case AutoTuneReason::NonRepeatable:return "NON_REPEATABLE";
     case AutoTuneReason::AmplitudeTooSmall:return "AMPLITUDE_TOO_SMALL";case AutoTuneReason::PeriodTooSmall:return "PERIOD_TOO_SMALL";
     case AutoTuneReason::InvalidKu:return "INVALID_KU";case AutoTuneReason::InvalidGains:return "INVALID_GAINS";
-    case AutoTuneReason::SaveFailed:return "SAVE_FAILED";case AutoTuneReason::Success:return "SUCCESS";
+    case AutoTuneReason::InvalidRatios:return "INVALID_RATIOS";case AutoTuneReason::BoundaryGain:return "BOUNDARY_GAIN";
+    case AutoTuneReason::CandidateReady:return "CANDIDATE_READY";
+    case AutoTuneReason::ValidationOvershoot:return "VALIDATION_OVERSHOOT";
+    case AutoTuneReason::ValidationOscillation:return "VALIDATION_OSCILLATION";
+    case AutoTuneReason::ValidationBangBang:return "VALIDATION_BANG_BANG";
+    case AutoTuneReason::ValidationNoConvergence:return "VALIDATION_NO_CONVERGENCE";
+    case AutoTuneReason::ValidationWorse:return "VALIDATION_WORSE";
+    case AutoTuneReason::ValidationTimeout:return "VALIDATION_TIMEOUT";
+    case AutoTuneReason::SaveFailed:return "SAVE_FAILED";case AutoTuneReason::Accepted:return "ACCEPTED";
   }
   return "UNKNOWN";
 }
@@ -314,6 +329,7 @@ class RelayAutoTune {
     state_=AutoTuneState::Running;phase_=AutoTunePhase::Preheat;reason_=AutoTuneReason::None;
     rejection_=AutoTuneReason::None;startedAt_=phaseStartedAt_=now;preheatMs_=firstUpperMs_=0;
     hasUpper_=false;cycleCount_=0;cycleSerial_=validationSerial_=0;warmupDiscarded_=false;
+    candidateGenerated_=false;
     currentLow_=currentHigh_=input;capturedHigh_=NAN;lastCycle_=Cycle{};result_=Result{};
     power_=relayHigh_=relayLow_=0;levelsLocked_=false;progress_=1;
     if(!isfinite(input) || !isfinite(target_))abort(AutoTuneReason::SensorAbort);
@@ -342,6 +358,7 @@ class RelayAutoTune {
     if(!running())return false;
     if(!isfinite(input)){abort(AutoTuneReason::SensorAbort);return false;}
     checkTimeout(now);if(!running())return false;
+    if(phase_==AutoTunePhase::Candidate||phase_==AutoTunePhase::Validating)return false;
     if(!levelsLocked_) {
       relayHigh_=static_cast<float>(std::min<uint8_t>(cfg.autotuneRelayPowerPercent,cfg.maxHeaterPower));
       relayLow_=0;levelsLocked_=true;
@@ -387,7 +404,7 @@ class RelayAutoTune {
       phase_=AutoTunePhase::Heating;phaseStartedAt_=now;currentLow_=input;power_=relayHigh_;
     }
     if(cycleCount_<AUTOTUNE_REQUIRED_CYCLES)return false;
-    phase_=AutoTunePhase::Validating;++validationSerial_;result_=Result{};
+    phase_=AutoTunePhase::CycleValidating;++validationSerial_;result_=Result{};
     for(uint8_t i=0;i<AUTOTUNE_REQUIRED_CYCLES;++i) {
       result_.amplitude+=cycles_[i].amplitude/AUTOTUNE_REQUIRED_CYCLES;
       result_.periodSec+=cycles_[i].periodMs*0.001f/AUTOTUNE_REQUIRED_CYCLES;
@@ -410,7 +427,8 @@ class RelayAutoTune {
     }
     // Preserve Tyreus-Luyben coefficients and proportional gain scaling.
     const float kp=result_.ku/2.2f,ki=kp/(2.2f*result_.periodSec),kd=kp*result_.periodSec/6.3f;
-    result_.gainScale=fmaxf(1.0f,fmaxf(kp/100.0f,fmaxf(ki/20.0f,kd/200.0f)));
+    result_.gainScale=fmaxf(1.0f,fmaxf(kp/(100.0f*AUTOTUNE_GAIN_LIMIT_FRACTION),
+        fmaxf(ki/(20.0f*AUTOTUNE_GAIN_LIMIT_FRACTION),kd/(200.0f*AUTOTUNE_GAIN_LIMIT_FRACTION))));
     // Round the common scale UP by one float ULP, so an exact boundary (e.g.
     // Kd=200) cannot divide to 200.000015 and be rejected/clipped by sanitize.
     if(result_.gainScale>1.0f && isfinite(result_.gainScale))
@@ -423,8 +441,66 @@ class RelayAutoTune {
     const float p=candidate.kp,i=candidate.ki,dGain=candidate.kd;
     sanitizeMachineConfig(candidate);
     if(candidate.kp!=p || candidate.ki!=i || candidate.kd!=dGain) {abort(AutoTuneReason::InvalidGains);return false;}
-    tunedOut=candidate;state_=AutoTuneState::Success;phase_=AutoTunePhase::Success;
-    reason_=AutoTuneReason::Success;power_=0;progress_=100;return true;
+    candidate_=candidate;candidateGenerated_=true;phase_=AutoTunePhase::Candidate;
+    reason_=AutoTuneReason::CandidateReady;power_=0;progress_=92;
+    const float ti=candidate.kp/candidate.ki,td=candidate.kd/candidate.kp;
+    if(!isfinite(ti)||!isfinite(td)||ti<20.0f||ti>1800.0f||td<1.0f||td>120.0f||
+       result_.amplitude>AUTOTUNE_VALIDATION_MAX_OVERSHOOT_C*4.0f||result_.periodSec>900.0f) {
+      reject(AutoTuneReason::InvalidRatios);return false;
+    }
+    // A candidate that removes nearly all P/I authority while raising D is
+    // clearly worse than the known working gain set; do not trial it on heat.
+    if(candidate.kp<cfg.kp*0.15f||candidate.ki<cfg.ki*0.01f) {
+      reject(AutoTuneReason::InvalidRatios);return false;
+    }
+    if(candidate.kp>=95.0f||candidate.ki>=19.0f||candidate.kd>=190.0f) {
+      reject(AutoTuneReason::BoundaryGain);return false;
+    }
+    tunedOut=candidate;return true;
+  }
+  void beginValidation(uint32_t now,float input) {
+    if(phase_!=AutoTunePhase::Candidate||!isfinite(input)) {abort(AutoTuneReason::SensorAbort);return;}
+    phase_=AutoTunePhase::Validating;reason_=AutoTuneReason::None;power_=0;progress_=94;
+    validationStartedAt_=validationWindowAt_=now;validationSamples_=validationWindow_=0;
+    validationSumAbs_=validationFirstMean_=validationPreviousRange_=0;
+    validationMin_=validationMax_=input;validationExtreme_=validationBaselineModerate_=0;
+    validationLastError_=input-target_;validationLastOn_=false;validationTransitions_=0;
+  }
+  void validate(uint32_t now,float input,float requested,float baselineRequested,
+                float maxPower,bool actualOn) {
+    if(phase_!=AutoTunePhase::Validating)return;
+    if(!isfinite(input)||!isfinite(requested)||!isfinite(baselineRequested)||
+       requested<0||requested>maxPower) {reject(AutoTuneReason::InvalidGains);return;}
+    const float error=input-target_,absolute=fabsf(error);
+    if(error>AUTOTUNE_VALIDATION_MAX_OVERSHOOT_C) {reject(AutoTuneReason::ValidationOvershoot);return;}
+    validationSumAbs_+=absolute;++validationSamples_;
+    validationMin_=fminf(validationMin_,input);validationMax_=fmaxf(validationMax_,input);
+    const bool extreme=requested<=0.5f||requested>=maxPower-0.5f;
+    if(extreme)++validationExtreme_;
+    if(extreme&&baselineRequested>maxPower*0.10f&&baselineRequested<maxPower*0.90f)
+      ++validationBaselineModerate_;
+    if(actualOn!=validationLastOn_){++validationTransitions_;validationLastOn_=actualOn;}
+    validationLastError_=error;
+    if(elapsedMs(now,validationWindowAt_)<AUTOTUNE_VALIDATION_WINDOW_MS)return;
+    const float mean=validationSamples_?validationSumAbs_/validationSamples_:INFINITY;
+    const float range=validationMax_-validationMin_;
+    const float extremeFraction=validationSamples_?static_cast<float>(validationExtreme_)/validationSamples_:1.0f;
+    const float worseFraction=validationSamples_?static_cast<float>(validationBaselineModerate_)/validationSamples_:1.0f;
+    if(validationWindow_==0)validationFirstMean_=mean;
+    else if(range>validationPreviousRange_*1.35f+0.05f) {reject(AutoTuneReason::ValidationOscillation);return;}
+    if(extremeFraction>0.90f&&mean>0.20f) {reject(AutoTuneReason::ValidationBangBang);return;}
+    if(worseFraction>0.60f&&mean>0.15f) {reject(AutoTuneReason::ValidationWorse);return;}
+    validationPreviousRange_=range;++validationWindow_;
+    if(elapsedMs(now,validationStartedAt_)>=AUTOTUNE_VALIDATION_MS) {
+      if(mean>0.25f||mean>validationFirstMean_*1.10f+0.02f) {
+        reject(AutoTuneReason::ValidationNoConvergence);return;
+      }
+      state_=AutoTuneState::Success;phase_=AutoTunePhase::Accepted;
+      reason_=AutoTuneReason::Accepted;power_=0;progress_=100;return;
+    }
+    validationWindowAt_=now;validationSamples_=validationExtreme_=validationBaselineModerate_=0;
+    validationSumAbs_=0;validationMin_=validationMax_=input;
+    progress_=static_cast<uint8_t>(94U+std::min<uint32_t>(5U,elapsedMs(now,validationStartedAt_)*5U/AUTOTUNE_VALIDATION_MS));
   }
   AutoTuneState state()const{return state_;}
   AutoTunePhase phase()const{return phase_;}
@@ -441,8 +517,14 @@ class RelayAutoTune {
   uint32_t firstUpperMs()const{return firstUpperMs_;}
   const Cycle &lastCycle()const{return lastCycle_;}
   const Result &result()const{return result_;}
+  const MachineConfig &candidate()const{return candidate_;}
+  bool validating()const{return phase_==AutoTunePhase::Validating;}
+  bool candidateGenerated()const{return candidateGenerated_;}
   bool running()const{return state_==AutoTuneState::Running;}
  private:
+  void reject(AutoTuneReason reason){
+    state_=AutoTuneState::Failed;phase_=AutoTunePhase::Rejected;reason_=reason;power_=0;progress_=0;
+  }
   const uint8_t preheatPercent_;
   AutoTuneState state_=AutoTuneState::Idle;
   AutoTunePhase phase_=AutoTunePhase::Idle;
@@ -453,5 +535,11 @@ class RelayAutoTune {
   bool hasUpper_=false,levelsLocked_=false,warmupDiscarded_=false;
   float currentLow_=NAN,currentHigh_=NAN,capturedHigh_=NAN;
   Cycle cycles_[AUTOTUNE_REQUIRED_CYCLES]{};Cycle lastCycle_{};Result result_{};
+  MachineConfig candidate_{};
+  uint32_t validationStartedAt_=0,validationWindowAt_=0;
+  uint16_t validationSamples_=0,validationExtreme_=0,validationBaselineModerate_=0,validationTransitions_=0;
+  uint8_t validationWindow_=0;float validationSumAbs_=0,validationFirstMean_=0,validationPreviousRange_=0;
+  float validationMin_=0,validationMax_=0,validationLastError_=0;bool validationLastOn_=false;
+  bool candidateGenerated_=false;
   uint8_t cycleCount_=0,progress_=0;
 };

@@ -51,7 +51,9 @@ struct Harness {
   OutputArbiter outputs_;
   ThermalController pid_;
 #ifndef THERMAL_V3_BASELINE
+  ThermalController autoTuneBaselinePid_;
   ThermalStartupController startupHeat_;
+  float autoTuneCandidatePower_=0,autoTuneBaselinePower_=0;
 #endif
   RelayAutoTune autotune_;
 #include "actual-burst-member.inc"

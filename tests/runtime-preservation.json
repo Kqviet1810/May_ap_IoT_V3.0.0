@@ -17,7 +17,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
-      "sha256": "a3f19ab71ed9f2bfc7c12230d851565e1f03cc4dc2c8d36f57ae12e6d96737ad"
+      "sha256": "517e26ad1bfab0f673c9746cf4261e3909cdcb01c09546dd0e851b876c5a82b6"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/firmware_update_guard.h",
@@ -57,12 +57,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "43fca8cbaa8279a7d2af3b1548be703ad4407071f7c2cb10c3ed5b5307f1d886",
+      "sha256": "294021faaf97d17236f50cae627cf49c9f4f82aa640e857796b240c6dc5e75a8",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "b1573ca6e2dd47d4108c62bbf1a3dc40d9b6b3cc82aae23a691a0ce650549ae6",
+      "sha256": "2ebfa03d1d217a15e19acd68ef14341f0efb03b4707161878f1790aefda8a932",
       "signature": "class MachineController {"
     },
     {
@@ -367,7 +367,7 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_control.h",
       "signature": "class RelayAutoTune {",
-      "sha256": "034f80dbb8b5379b1c5b3e070d3485cd1b45e8d6112c808a4e5329a71f62418e"
+      "sha256": "8bd1b424f198d3dbcb505488df141f6ebf55586782b8046f21fbcfda4539550b"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
@@ -382,12 +382,12 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
       "signature": "bool startAutoTune(",
-      "sha256": "159b3345e88ff6ba9cd131948fbc8bafc522bdf3671ac1c4e38e45f8bd8de22f"
+      "sha256": "43a955b954f40ce2b493ded71374b14c5e5ed62b45f5c22f083cfdcea6f0410a"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
       "signature": "void updateAutoTune(",
-      "sha256": "9b0539a1d8abd233e84c0f724ab7118612078378ec306f08480e6fbf564021c1"
+      "sha256": "630d62e2b7ff58696cbfc23428d5bd98469e62e3cea9ac95798419e30f65d94a"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
@@ -451,5 +451,6 @@
   "journalDiagnosticsReviewNote": "2026-10-04: reviewed only app.js publish (preserve Hub error codes), retrySameRequest (bounded journal stage diagnostics, unchanged exact envelope/deadline/attempt limit), and handleAck (journal received/completed stage timestamps and explicit definitive device result). Thermal/safety/controller/output/EEPROM layout and all other protected function hashes unchanged. EEPROM driver adds per-instance read diagnostic fields only; I/O, retries, locking and error results unchanged. Final journal-only ACK guard checks operation/live/original boot before state updates, including rejected ACKs whose crypto verification completes after new-boot presence. No authentication domain or non-journal ACK behavior changes.",
   "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged.",
   "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged.",
-  "thermalPhase1ReviewNote": "2026-10-04: reviewed Phase-1 ThermalController transient actuator ceiling/integral freeze, new ThermalStartupController, and MachineController heating-route integration only. The adaptive observer clamps measured coast time to its pre-existing evidence horizon after a new braking waveform exposed invalid learned seeds. PID gains/beta, RelayAutoTune body, sensor filter, PDM, OutputArbiter, FaultManager, High/Emergency thresholds, hardware pinmap and nonthermal logic remain unchanged. Frozen f7e4373 production heating route is compared with the new route on the same 788-case model; unmet accuracy targets remain visible in CSV and are not physical qualification."
+  "thermalPhase1ReviewNote": "2026-10-04: reviewed Phase-1 ThermalController transient actuator ceiling/integral freeze, new ThermalStartupController, and MachineController heating-route integration only. The adaptive observer clamps measured coast time to its pre-existing evidence horizon after a new braking waveform exposed invalid learned seeds. PID gains/beta, RelayAutoTune body, sensor filter, PDM, OutputArbiter, FaultManager, High/Emergency thresholds, hardware pinmap and nonthermal logic remain unchanged. Frozen f7e4373 production heating route is compared with the new route on the same 788-case model; unmet accuracy targets remain visible in CSV and are not physical qualification.",
+  "autotuneCandidateValidationReviewNote": "2026-10-05: reviewed AutoTune-only candidate gating and a bounded 180-second production PID/PDM validation before atomic save. Candidate sanity checks finite gains, Ti/Td, relay period/amplitude, scaling margin and regression against the previously stored P/I authority. Validation rejects overshoot, growing oscillation, prolonged extreme output, non-convergence and output behavior clearly worse than the old gain set. Reject, timeout, sensor/safety fault and cancel retain old gains and write nothing. PID baseline, Adaptive, sensor pipeline, PDM implementation, High/Emergency thresholds, OutputArbiter, EEPROM schema and nonthermal logic are unchanged."
 }
