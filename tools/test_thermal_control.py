@@ -154,7 +154,7 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
     if args.sanitize: common += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer', '-fno-pie', '-no-pie']
     plant_source=(ROOT / 'tests/thermal-plant.cpp').read_text()
     (out / 'actual-plants.inc').write_text(re.search(r'const Plant plants\[\]=[^;]+;', plant_source)[0])
-    for test in ['adaptive-observer','adaptive-thermal','thermal-autotune','thermal-control','thermal-startup','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter']:
+    for test in ['adaptive-observer','adaptive-thermal','thermal-autotune','thermal-control','thermal-startup','thermal-v2','thermal-output','thermal-heating','thermal-e115','thermal-config','thermal-filter','thermal-plant-identifier','thermal-tune-candidate']:
         variants = [1] if test in ('thermal-output','thermal-heating') else [0]
         for groups in variants:
             executable = out / (test + str(groups))
