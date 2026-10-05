@@ -64,6 +64,7 @@ static void run(Plant plant,double ambient,unsigned dead,double resolution,uint8
   }
   const bool completedPreheat=h.autotune_.phase()!=AutoTunePhase::Preheat && h.autotune_.firstUpperMs()>0;
   const double preheatTime=h.autotune_.preheatMs()?h.autotune_.preheatMs()*0.001:completedPreheat?0:(last-1000)*0.001;
+  const bool generated=h.autotune_.candidateGenerated();
   const bool success=h.autotune_.state()==AutoTuneState::Success;
   assert(!h.outputs_.state().heaterSsr && h.runtime_.heaterPower==0);
   assert(last-1000<=AUTOTUNE_TOTAL_MAX_MS);
@@ -75,15 +76,15 @@ static void run(Plant plant,double ambient,unsigned dead,double resolution,uint8
   if(!success){assert(h.config_.kp==18 && h.config_.ki==0.8f && h.config_.kd==45 && stored.kp==18 && h.store_.saves==0);}
   else assert(h.store_.saves==1 && stored.kp==h.config_.kp && stored.ki==h.config_.ki && stored.kd==h.config_.kd);
   const auto &r=h.autotune_.result();Metrics def{},tuned{};
-  if(success){MachineConfig defaults;def=post(plant,ambient,dead,resolution,defaults);tuned=post(plant,ambient,dead,resolution,h.config_);}
-  if(!success){def.mae=def.p95=def.ripple=def.overshoot=NAN;tuned.mae=tuned.p95=tuned.ripple=tuned.overshoot=NAN;}
-  const bool bad=success && (tuned.emergency || tuned.settling<0 || tuned.ripple>1.0);
+  if(generated){MachineConfig defaults;def=post(plant,ambient,dead,resolution,defaults);tuned=post(plant,ambient,dead,resolution,h.autotune_.candidate());}
+  if(!generated){def.mae=def.p95=def.ripple=def.overshoot=NAN;tuned.mae=tuned.p95=tuned.ripple=tuned.overshoot=NAN;}
+  const bool bad=generated && (tuned.emergency || tuned.settling<0 || tuned.ripple>1.0);
   const bool holdingInsufficient=relay*160.0<=plant.loss*(h.config_.targetTemp-ambient);
   std::cout<<plant.name<<','<<ambient<<','<<dead<<','<<resolution<<','<<unsigned(relay)<<','<<unsigned(preheat)<<','
     <<preheatTime<<','<<success<<','<<autoTuneReasonName(h.autotune_.reason())<<','
     <<unsigned(h.autotune_.cycleCount())<<','<<r.amplitude<<','<<r.periodSec<<','<<r.heatSec<<','<<r.coolSec<<','
-    <<(r.coolSec?r.heatSec/r.coolSec:0)<<','<<r.ku<<','<<(success?h.config_.kp:0)<<','<<(success?h.config_.ki:0)<<','
-    <<(success?h.config_.kd:0)<<','<<r.gainScale<<','<<(last-1000)*0.001<<','<<high<<','<<emergency<<','
+    <<(r.coolSec?r.heatSec/r.coolSec:0)<<','<<r.ku<<','<<(generated?h.autotune_.candidate().kp:0)<<','<<(generated?h.autotune_.candidate().ki:0)<<','
+    <<(generated?h.autotune_.candidate().kd:0)<<','<<r.gainScale<<','<<(last-1000)*0.001<<','<<high<<','<<emergency<<','
     <<tuned.mae<<','<<tuned.p95<<','<<tuned.ripple<<','<<tuned.overshoot<<','<<(h.autotune_.firstUpperMs()?h.autotune_.firstUpperMs()*0.001:-1)<<','
     <<h.config_.targetTemp<<','<<h.config_.autotuneBandC<<','
     <<h.config_.targetTemp+h.config_.autotuneBandC<<','<<h.config_.highTempAlarm<<','
@@ -91,8 +92,10 @@ static void run(Plant plant,double ambient,unsigned dead,double resolution,uint8
     <<h.autotune_.relayHigh()<<','<<h.autotune_.relayLow()<<','<<holdingInsufficient<<','
     <<def.mae<<','<<def.p95<<','<<def.ripple<<','<<def.overshoot<<','<<def.settling<<','<<def.high<<','<<def.emergency<<','
     <<tuned.settling<<','<<tuned.high<<','<<tuned.emergency<<','
-    <<(success?(bad?"BAD":"UNVERIFIED_CANDIDATE"):h.autotune_.reason()==AutoTuneReason::SafetyAbort?"SAFETY_ABORT":"FAIL_CLEANLY")<<','
-    <<autoTuneReasonName(h.autotune_.rejection())<<','<<(initial==ambient?"COLD":"NEAR_SP")<<','<<initial<<",CONTROL-ONLY POST VALIDATION / PHYSICAL UNVERIFIED\n";
+    <<(success?(bad?"ACCEPTED_BAD":"ACCEPTED_GOOD"):generated?"REJECTED":h.autotune_.reason()==AutoTuneReason::SafetyAbort?"SAFETY_ABORT":"FAIL_CLEANLY")<<','
+    <<autoTuneReasonName(h.autotune_.rejection())<<','<<(initial==ambient?"COLD":"NEAR_SP")<<','<<initial
+    <<",CONTROL-ONLY POST VALIDATION / PHYSICAL UNVERIFIED,"<<generated<<','<<success<<','
+    <<(generated&&!success)<<'\n';
 }
 static void disturbances(){
   for(double initial:{25.,37.4})for(unsigned disturbance=0;disturbance<3;++disturbance){
@@ -117,17 +120,21 @@ static void disturbances(){
 }
 int main(int argc,char **argv){
   disturbances();
-  assert(argc==2);std::ofstream cycles(argv[1]);assert(cycles);
+  assert(argc==2||argc==3);const bool subset=argc==3&&std::string(argv[2])=="--subset";
+  std::ofstream cycles(argv[1]);assert(cycles);
   cycles<<"plant,ambient,deadtime,sensor_resolution,relay_power,preheat_power,cycle,heat_s,cool_s,high,low,amplitude,period_s,heat_cool_ratio,rejection,start_condition,initial_temperature\n";
   std::cout<<std::fixed<<std::setprecision(6);
-  std::cout<<"plant,ambient,deadtime,sensor_resolution,relay_power,preheat_power,preheat_time_s,success,failure_reason,cycle_count,mean_amplitude,mean_period_s,mean_heat_s,mean_cool_s,heat_cool_ratio,Ku,Kp,Ki,Kd,gain_scale,total_tune_time_s,high_crossed,emergency_crossed,post_tune_mae,post_tune_p95,post_tune_ripple,post_tune_overshoot,first_upper_cross_s,target,band,upper_threshold,high_alarm,margin_to_high,peak_after_off,peak,actual_relay_high,actual_relay_low,holding_power_insufficient,default_mae,default_p95,default_ripple,default_overshoot,default_settling_s,default_high_crossed,default_emergency_crossed,post_tune_settling_s,post_tune_high_crossed,post_tune_emergency_crossed,candidate,rejection,start_condition,initial_temperature,post_model_scope\n";
+  std::cout<<"plant,ambient,deadtime,sensor_resolution,relay_power,preheat_power,preheat_time_s,success,failure_reason,cycle_count,mean_amplitude,mean_period_s,mean_heat_s,mean_cool_s,heat_cool_ratio,Ku,Kp,Ki,Kd,gain_scale,total_tune_time_s,high_crossed,emergency_crossed,post_tune_mae,post_tune_p95,post_tune_ripple,post_tune_overshoot,first_upper_cross_s,target,band,upper_threshold,high_alarm,margin_to_high,peak_after_off,peak,actual_relay_high,actual_relay_low,holding_power_insufficient,default_mae,default_p95,default_ripple,default_overshoot,default_settling_s,default_high_crossed,default_emergency_crossed,post_tune_settling_s,post_tune_high_crossed,post_tune_emergency_crossed,candidate,rejection,start_condition,initial_temperature,post_model_scope,candidate_generated,accepted,rejected\n";
 #include "actual-plants.inc"
   for(const auto &plant:plants)for(double ambient:{20.,25.,28.})for(unsigned dead:{5U,15U,30U,60U})
-    for(double resolution:{0.1,0.01})for(uint8_t relay:{20U,30U,40U})for(uint8_t preheat:{30U,40U,50U})
-      run(plant,ambient,dead,resolution,relay,preheat,ambient,cycles);
+    for(double resolution:{0.1,0.01})for(uint8_t relay:{20U,30U,40U})for(uint8_t preheat:{30U,40U,50U}) {
+      if(!subset||(ambient==25&&preheat==30&&(dead==5||dead==60)))
+        run(plant,ambient,dead,resolution,relay,preheat,ambient,cycles);
+    }
   // Separate warmed-chamber qualification isolates relay/timeout behavior from
   // cold preheat. Same plant, no fabricated PV; temperature then evolves in-loop.
   for(const auto &plant:plants)for(double ambient:{20.,25.,28.})for(unsigned dead:{5U,15U,30U,60U})
     for(double resolution:{0.1,0.01})for(uint8_t relay:{20U,30U,40U})
-      run(plant,ambient,dead,resolution,relay,AUTOTUNE_PREHEAT_POWER_PERCENT,37.0,cycles);
+      if(!subset||(ambient==25&&(dead==5||dead==60)&&relay==30))
+        run(plant,ambient,dead,resolution,relay,AUTOTUNE_PREHEAT_POWER_PERCENT,37.0,cycles);
 }

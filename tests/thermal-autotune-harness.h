@@ -81,7 +81,8 @@ constexpr uint8_t HEATER_GROUP_COUNT=1;
 struct TuneHarness {
   FakeInputs inputs_;FakeRtc rtc_;FakeFaults faults_;MachineConfig config_;
   TuneStore store_;EventLog eventLog_;OutputArbiter outputs_;
-  ThermalController pid_;RelayAutoTune autotune_;
+  ThermalController pid_,autoTuneBaselinePid_;ThermalStartupController startupHeat_;RelayAutoTune autotune_;
+  float autoTuneCandidatePower_=0,autoTuneBaselinePower_=0;
 #include "actual-burst-member.inc"
   struct{float heaterPower=0;bool adaptiveEnabled=false,adaptiveSelfHeating=false;
     uint8_t adaptiveState=0,lastAdaptiveReason=0;

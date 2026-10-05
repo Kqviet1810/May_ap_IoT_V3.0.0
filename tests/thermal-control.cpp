@@ -35,10 +35,14 @@ int main() {
     if (ms < 361000) assert(!done); // warmup discarded + 3 complete cycles
     if (done) break;
   }
-  assert(done && tune.state() == AutoTuneState::Success && tune.power() == 0);
+  assert(done && tune.phase() == AutoTunePhase::Candidate && tune.power() == 0);
   assert(result.controlMode == ControlMode::Pid);
   assert(result.kp > 0 && result.kp <= 100 && result.ki > 0 && result.ki <= 20);
   assert(result.kd > 0 && result.kd <= 200);
+  tune.beginValidation(401000,37.5f);
+  for(uint32_t ms=403000;ms<=583000&&tune.running();ms+=2000)
+    tune.validate(ms,37.5f,10,10,100,false);
+  assert(tune.state()==AutoTuneState::Success&&tune.phase()==AutoTunePhase::Accepted);
   // Restart must forget prior successes and fail cold/no-response with heater OFF.
   tune.start(1000, 25);
   assert(!tune.update(AUTOTUNE_PHASE_MAX_MS + 1000, 25, cfg, result));

@@ -66,7 +66,15 @@ static Metrics run(Plant plant,double ambient,unsigned dead,double resolution,fl
     const auto &e=h.adaptiveThermal_.observer().estimates();const auto &d=h.adaptiveThermal_.decision();
     assert(std::isfinite(d.effective)&&d.effective>=0&&d.effective<=h.config_.maxHeaterPower);
     assert(std::isfinite(h.runtime_.heaterPower)&&h.runtime_.heaterPower>=0&&h.runtime_.heaterPower<=h.config_.maxHeaterPower);
-    if(e.windows!=previous&&!e.learningValid){++result.falseLearn;assert(false);}
+    if(e.windows!=previous&&!e.learningValid){
+      std::cerr<<"adaptive invalid window "<<plant.name<<" "<<scenario<<" t="<<t
+               <<" enabled="<<enabled<<" energy="<<result.energy
+               <<" high="<<h.highTemperatureActive_<<" emergency="<<h.emergencyActive_
+               <<" sensor="<<h.sensorUsable_<<" test="<<h.testModeActive_
+               <<" state="<<static_cast<int>(d.state)<<" reason="<<static_cast<int>(d.reason)
+               <<" prev="<<previous<<" now="<<e.windows<<"\n";
+      ++result.falseLearn;assert(false);
+    }
     if(h.highTemperatureActive_||h.emergencyActive_||h.faults_.inhibit||!h.sensorUsable_||h.abnormalResetLatched_)
       assert(!h.outputs_.state().heaterSsr);
     const bool on=h.outputs_.state().heaterSsr;
@@ -94,7 +102,7 @@ static Metrics run(Plant plant,double ambient,unsigned dead,double resolution,fl
     if(t>=10200){errors.push_back(std::fabs(m.temp-h.config_.targetTemp));tail.push_back(m.temp);}
     if(trace&&tick%600==0){
       const std::string prefix=std::string(plant.name)+","+scenario+","+(enabled?"ADAPTIVE":"BASELINE")+","+std::to_string(t)+",";
-      observer<<prefix<<m.temp<<','<<h.config_.targetTemp<<','<<on<<','<<h.runtime_.heaterPower<<','<<d.effective<<','<<e.load<<','<<e.coast<<','<<e.hold<<','<<e.confidence<<','<<MayapAdaptive::stateName(d.state)<<','<<d.selfHeating<<','<<d.coolingDemand<<','<<e.windows<<','<<e.learningValid<<'\n';
+      observer<<prefix<<m.temp<<','<<h.config_.targetTemp<<','<<on<<','<<h.runtime_.heaterPower<<','<<d.effective<<','<<e.load<<','<<e.coast<<','<<e.hold<<','<<e.confidence<<','<<MayapAdaptive::stateName(d.state)<<','<<d.selfHeating<<','<<d.coolingDemand<<','<<e.windows<<','<<e.learningValid<<','<<e.rate<<','<<d.fastPredictedPeak<<','<<d.fastPath<<'\n';
       control<<prefix<<m.temp<<','<<h.config_.targetTemp<<','<<on<<','<<h.runtime_.heaterPower<<','<<d.effective<<','<<e.load<<','<<e.coast<<','<<e.hold<<','<<h.adaptiveThermal_.effectiveConfidence()<<','<<MayapAdaptive::stateName(d.state)<<','<<d.selfHeating<<','<<d.coolingDemand<<','<<h.outputs_.state().ventFan<<','<<h.highTemperatureActive_<<','<<h.emergencyActive_<<'\n';
     }
   }
@@ -106,7 +114,7 @@ static Metrics run(Plant plant,double ambient,unsigned dead,double resolution,fl
 }
 int main(int argc,char **argv){
   assert(argc==3);std::ofstream observer(argv[1]),control(argv[2]);
-  observer<<"plant,scenario,mode,time,PV,SP,actualHeater,requestedPower,effectiveMax,loadIndex,coast,holdPower,confidence,adaptiveState,selfHeating,coolingDemand,validWindows,learningValid\n";
+  observer<<"plant,scenario,mode,time,PV,SP,actualHeater,requestedPower,effectiveMax,loadIndex,coast,holdPower,confidence,adaptiveState,selfHeating,coolingDemand,validWindows,learningValid,rate,predictedPeak,fastPath\n";
   control<<"plant,scenario,mode,time,PV,SP,actualHeater,requestedPower,effectiveMax,loadIndex,coast,holdPower,confidence,adaptiveState,selfHeating,coolingDemand,actualVent,High,Emergency\n";
   std::cout<<"plant,scenario,mode,ambient,deadtime,resolution,SP,MAE,P95,ripple,overshoot,settling,High,Emergency,energy_j,heater_transitions,vent_runtime_s,max_authority_slew_pct_min,normal_authority_slew_pct_min,confidence_final,false_learning_count,self_heating_s,adaptive_s,cooling_capacity_w\n"<<std::fixed<<std::setprecision(6);
 #include "actual-plants.inc"
@@ -114,7 +122,8 @@ int main(int argc,char **argv){
     for(double ambient:{20.,25.,28.})for(unsigned dead:{5U,15U,30U,60U})for(double resolution:{.1,.01})for(float sp:{30.f,32.f,35.f,37.5f}){
       if(scenario!="steady"&&(ambient!=25||sp!=37.5f))continue;
       for(bool enabled:{false,true}){
-        const bool trace=ambient==25&&dead==15&&resolution==.1&&sp==37.5f;
+        const bool trace=(ambient==25&&dead==15&&resolution==.1&&sp==37.5f)||
+          (std::string(p.name)=="medium"&&scenario=="heavy_to_light"&&ambient==25&&dead==60&&resolution==.1&&sp==37.5f);
         const auto m=run(p,ambient,dead,resolution,sp,scenario,enabled,observer,control,trace);
         std::cout<<p.name<<','<<scenario<<','<<(enabled?"ADAPTIVE":"BASELINE")<<','<<ambient<<','<<dead<<','<<resolution<<','<<sp<<','<<m.mae<<','<<m.p95<<','<<m.ripple<<','<<m.overshoot<<','<<m.settling<<','<<m.high<<','<<m.emergency<<','<<m.energy<<','<<m.transitions<<','<<m.ventTicks*.1<<','<<m.maxSlew<<','<<m.normalSlew<<','<<m.confidence<<','<<m.falseLearn<<','<<m.selfTicks*.1<<','<<m.adaptiveTicks*.1<<",0\n";
       }

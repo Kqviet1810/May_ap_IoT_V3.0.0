@@ -854,6 +854,10 @@ constexpr uint32_t AUTOTUNE_MAX_MS = AUTOTUNE_TOTAL_MAX_MS; // legacy host compa
 constexpr uint32_t AUTOTUNE_PHASE_MAX_MS = 900000UL; // moi pha toi da 15 phut
 constexpr uint32_t AUTOTUNE_MIN_PERIOD_MS = 10000UL;
 constexpr float AUTOTUNE_MIN_AMPLITUDE_C = 0.10f;
+constexpr uint32_t AUTOTUNE_VALIDATION_MS = 180000UL;
+constexpr uint32_t AUTOTUNE_VALIDATION_WINDOW_MS = 60000UL;
+constexpr float AUTOTUNE_VALIDATION_MAX_OVERSHOOT_C = 0.40f;
+constexpr float AUTOTUNE_GAIN_LIMIT_FRACTION = 0.80f;
 
 // LED RGB - do sang thap de khong nong/khong choi trong tu dien.
 constexpr uint8_t RGB_BRIGHTNESS_LOW = 6;
