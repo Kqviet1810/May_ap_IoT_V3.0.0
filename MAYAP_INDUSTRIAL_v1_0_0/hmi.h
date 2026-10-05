@@ -3515,7 +3515,8 @@ void drawConnectionInfo() {
     const int32_t dbm = currentRuntime.networkRssiDbm;
     snprintf(text, sizeof(text), "SONG: %ld dBm (%u/4)",
              static_cast<long>(dbm), rssiToBars(static_cast<int8_t>(constrain(dbm, -127L, 0L))));
-  } else if (currentRuntime.networkConfigured && !wifiStableLossObserved) {
+  } else if (currentRuntime.networkConfigured &&
+             currentRuntime.networkState == NetworkStateCode::Connecting && !wifiStableLossObserved) {
     snprintf(text, sizeof(text), "SONG: DANG KET NOI");
   } else if (currentRuntime.networkConfigured) {
     snprintf(text, sizeof(text), "SONG: MAT KET NOI");
