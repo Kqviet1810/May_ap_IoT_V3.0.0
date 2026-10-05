@@ -1015,9 +1015,8 @@ HmiEventSnapshot eventLogInbox;
 bool runtimeInboxPending = false;
 bool configInboxPending = false;
 bool eventLogInboxPending = false;
-// Man hinh khoi dong: thoat khi DA nhan du ca runtime lan config that (de man
-// chinh hien ra la da day du so lieu, khong con o trong) va da qua
-// SPLASH_MIN_MS; hoac het SPLASH_MAX_MS thi thoat du chua nhan duoc gi.
+// Man hinh khoi dong: chi thoat khi boot coordinator release Home. Coordinator
+// doi sensor driver ket luan Present/Missing, nhung khong doi Wi-Fi/Internet.
 bool splashActive = true;
 uint32_t splashStartedAt = 0;
 bool splashHadRuntime = false;
