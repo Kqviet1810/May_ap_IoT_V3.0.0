@@ -4190,9 +4190,9 @@ class MachineController {
     const bool wifiOfflineCandidate =
         status.requestedMode == ConnectivityMode::Online &&
         status.credentialsConfigured &&
-        status.state != NetworkStateCode::NotConfigured &&
+        status.state == NetworkStateCode::Connecting &&
         !status.connected &&
-        portal.state == WifiPortalState::Idle;
+        (portal.state == WifiPortalState::Idle || portal.state == WifiPortalState::Failed);
     if (wifiOfflineCandidate) {
       if (!wifiOfflineFaultTracking_) {
         wifiOfflineFaultTracking_ = true;

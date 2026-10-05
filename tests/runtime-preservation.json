@@ -63,7 +63,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "11662d78df9d090400cd41e4a3158e0ffe15f1c705d40901e49ed8611b4a8068",
+      "sha256": "e4db21c2785717501a883b55b19099bc179c70869fa9a28cb25fd431d36a4d65",
       "signature": "class MachineController {"
     },
     {
@@ -457,5 +457,6 @@
   "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged.",
   "alarmDeliveryReview": "2026-10-05: bounded Cloud-only fault edge mailbox, event-aware TLS lease and alarm priority. FaultManager safety fingerprint is preserved by removing only the three conditional notification hooks; all PID, output, controller, storage and safety bodies remain protected. Config changes only Cloud queue 8->16 and fault tracking 16->48. TLS memory thresholds are unchanged. D1 durable receipts and per-recipient bounded Push retries replace HTTP-status-only delivery acknowledgment.",
   "turningRtcReviewNote": "2026-10-05: only reject zero/unavailable automatic deadline while awaiting RTC anchor; homing/manual persistence from main retained. No thermal, motor safety or EEPROM schema changes.",
-  "wifiStateReviewNote": "2026-10-05: reviewed config declaration and OTA admission accessor changes only: raw Wi-Fi for network I/O, stable presentation for controller/HMI faults. OTA interlocks, schemas, PID, Adaptive, heater safety and signed transactions unchanged."
+  "wifiStateReviewNote": "2026-10-05: reviewed config declaration and OTA admission accessor changes only: raw Wi-Fi for network I/O, stable presentation for controller/HMI faults. OTA interlocks, schemas, PID, Adaptive, heater safety and signed transactions unchanged.",
+  "e405PortalReviewNote": "2026-10-05: only E405 predicate accepts terminal Failed portal and requires published Connecting state; control, PID, thermal/output safety, turning, ATtiny and transactions unchanged."
 }

@@ -1203,6 +1203,8 @@
 
   function applySnapshotToUi(device) {
     const runtime = device?.snapshot?.runtime;
+    if ($('thermalBalanceFeature')) $('thermalBalanceFeature').textContent = 'Cân bằng nhiệt thông minh';
+    if ($('adaptiveThermalStatus')) $('adaptiveThermalStatus').textContent = '—';
     if (!runtime) {
       $('liveTemp').textContent = '—';
       $('liveHumidity').textContent = '—';
@@ -1313,9 +1315,9 @@
     }
     renderBatchAction(device, runtime);
 
-    const adaptiveNames = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
+    const adaptiveNames = ['Tắt', 'Đang học', 'Đang cân bằng', 'Đang cân bằng', 'Tự làm mát', 'Đang học', 'Tạm ngưng'];
     const thermalFeature = $('thermalBalanceFeature');
-    if (runtime.adaptiveThermal) {
+    if (runtime.adaptiveThermal && runtime.adaptiveThermal.state != null) {
       const adaptiveName = adaptiveNames[Number(runtime.adaptiveThermal.state)] || 'Tạm ngưng';
       if ($('adaptiveThermalStatus')) $('adaptiveThermalStatus').textContent = adaptiveName;
       if (thermalFeature) thermalFeature.textContent = 'Cân bằng nhiệt · ' + adaptiveName;
@@ -1323,7 +1325,7 @@
       thermalFeature.textContent = 'Cân bằng nhiệt thông minh';
     }
     if (thermalFeature) {
-      thermalFeature.title = 'Tự học phản ứng nhiệt của buồng để giảm vọt lố; bảo vệ nhiệt vẫn độc lập.';
+      thermalFeature.title = 'Máy học phản ứng nhiệt thực tế của buồng ấp để điều chỉnh giới hạn gia nhiệt, giảm vọt lố và giữ nhiệt ổn định hơn; các lớp bảo vệ nhiệt vẫn độc lập.';
     }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));

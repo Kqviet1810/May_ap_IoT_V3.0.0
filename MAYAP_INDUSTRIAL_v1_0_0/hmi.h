@@ -973,6 +973,7 @@ uint32_t wifiOfflineSinceAt = 0U;
 uint32_t wifiOfflineLastReminderAt = 0U;
 bool wifiOfflineTracking = false;
 bool wifiOfflineNoticeActive = false;
+bool wifiStableLossObserved = false;
 uint32_t wifiWeakSinceAt = 0U;
 bool wifiWeakTracking = false;
 bool wifiWeakNoticeActive = false;
@@ -1185,7 +1186,8 @@ void serviceOnlineHealthNotice(uint32_t now) {
   const bool onlineConfigured =
       currentRuntime.connectivityMode == ConnectivityMode::Online &&
       currentRuntime.networkConfigured;
-  const bool portalIdle = currentRuntime.wifiPortalState == WifiPortalState::Idle;
+  const bool portalIdle = currentRuntime.wifiPortalState == WifiPortalState::Idle ||
+      currentRuntime.wifiPortalState == WifiPortalState::Failed;
   const bool offline = onlineConfigured && portalIdle &&
       !currentRuntime.networkConnected;
 
@@ -1201,6 +1203,7 @@ void serviceOnlineHealthNotice(uint32_t now) {
         wifiOfflineNoticeActive && wifiOfflineLastReminderAt != 0U &&
         now - wifiOfflineLastReminderAt >= 600000UL;
     if (firstReminderDue || repeatReminderDue) {
+      wifiStableLossObserved = true;
       wifiOfflineNoticeActive = true;
       wifiOfflineLastReminderAt = now;
       showToast("E405 MAT WIFI", true, 8000UL);
@@ -1214,6 +1217,7 @@ void serviceOnlineHealthNotice(uint32_t now) {
     wifiOfflineNoticeActive = false;
     wifiOfflineSinceAt = 0U;
     wifiOfflineLastReminderAt = 0U;
+    wifiStableLossObserved = false;
   }
 
   const bool weak = onlineConfigured && currentRuntime.networkConnected &&
@@ -2228,6 +2232,10 @@ void exitSettingGroup() {
 bool requestAlarmAcknowledge() {
   const uint32_t snapshot = currentRuntime.alarmMask & ALARM_KNOWN_MASK;
   if (!snapshot) {
+    if (currentRuntime.activeFaultDisplayCount) {
+      showToast("DA DONG THONG BAO");
+      return true;
+    }
     showToast("KHONG CO CANH BAO");
     return false;
   }
@@ -3507,6 +3515,8 @@ void drawConnectionInfo() {
     const int32_t dbm = currentRuntime.networkRssiDbm;
     snprintf(text, sizeof(text), "SONG: %ld dBm (%u/4)",
              static_cast<long>(dbm), rssiToBars(static_cast<int8_t>(constrain(dbm, -127L, 0L))));
+  } else if (currentRuntime.networkConfigured && !wifiStableLossObserved) {
+    snprintf(text, sizeof(text), "SONG: DANG KET NOI");
   } else if (currentRuntime.networkConfigured) {
     snprintf(text, sizeof(text), "SONG: MAT KET NOI");
   } else {
@@ -4653,6 +4663,7 @@ void applyRuntime(MachineRuntime runtime) {
   const bool visibleChange = runtimeVisibleChanged(currentRuntime, runtime);
   currentRuntime = runtime;
   if (wifiJustLost) {
+    wifiStableLossObserved = true;
     // Stable-state vua xac nhan mat Wi-Fi. Bat dau dem cho E405/UI reminder,
     // khong chen toast ngay tai canh de tranh hai co che thong bao lap nhau.
     wifiOfflineTracking = true;
@@ -4660,6 +4671,7 @@ void applyRuntime(MachineRuntime runtime) {
     wifiOfflineLastReminderAt = 0U;
     wifiOfflineNoticeActive = false;
   } else if (wifiJustRecovered) {
+    wifiStableLossObserved = false;
     wifiOfflineTracking = false;
     wifiOfflineNoticeActive = false;
     wifiOfflineSinceAt = 0U;
@@ -4741,7 +4753,7 @@ void applyRuntime(MachineRuntime runtime) {
     // man hinh (drawHeader) va coi/buzzer van bao binh thuong nhu cu - chi
     // khac o cho khong chen ngang man hinh nguoi dung dang dung thao tac.
     alarmPresentedMask |= newFaultAlarmBit;
-  } else if (!runtime.alarmMask && view == View::Alarm) {
+  } else if (!runtime.alarmMask && !runtime.activeFaultDisplayCount && view == View::Alarm) {
     view = alarmReturnView;
     dirty = true;
   }
