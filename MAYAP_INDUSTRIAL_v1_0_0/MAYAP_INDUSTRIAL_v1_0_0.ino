@@ -106,6 +106,9 @@ static volatile uint32_t supervisorHeartbeatMs = 0U;
 static volatile uint8_t controlStarted = 0U;
 static volatile uint8_t hmiStarted = 0U;
 static volatile uint8_t sensorHealthy = 0U;
+// Tach "da co ket luan khoi dong" khoi "dang healthy": cam bien hong van
+// duoc phep roi splash sau khi driver ket luan MissingAtStartup.
+static volatile uint8_t sensorStartupResolved = 0U;
 static volatile uint8_t displayHealthy = 0U;
 static volatile uint8_t networkReady = 0U;
 static volatile uint8_t mqttReady = 0U;
@@ -169,6 +172,8 @@ void controlTask(void *parameter) {
     __atomic_store_n(&sensorHealthy,
         runtime.sensorOnline && !runtime.sensorStartupGrace && isfinite(runtime.temperature) ? 1U : 0U,
         __ATOMIC_RELEASE);
+    __atomic_store_n(&sensorStartupResolved,
+        Machine.sensorStartupResolved() ? 1U : 0U, __ATOMIC_RELEASE);
     const uint32_t cycleUs = static_cast<uint32_t>(
         std::min<int64_t>(UINT32_MAX, esp_timer_get_time() - cycleStartedUs));
     __atomic_store_n(&controlLastCycleUs, cycleUs, __ATOMIC_RELEASE);
@@ -581,7 +586,13 @@ static void updateBootStability(uint32_t now) {
   // this decision. Levels 2/3 release Home before any network task exists.
   const uint32_t homeDelay = bootSequence.homeBeforeNetwork()
       ? MayapBoot::LOCAL_SETTLE_MS : MayapBoot::LOCAL_SETTLE_MS + 1500U;
-  if (!bootReadyShown && localTaskStability.held(now, homeDelay)) {
+  const bool sensorResolved =
+      __atomic_load_n(&sensorStartupResolved, __ATOMIC_ACQUIRE) != 0U;
+  // Home chi mo sau khi driver RS485 da ket luan Present/Missing. Missing
+  // khong khoa giao dien: driver co timeout rieng, sau do HMI vao Home de
+  // hien loi cam bien va cho phep chan doan.
+  if (!bootReadyShown && sensorResolved &&
+      localTaskStability.held(now, homeDelay)) {
     mayapBootShowReady();
     bootReadyShown = true;
     bootReadyAt = now;
