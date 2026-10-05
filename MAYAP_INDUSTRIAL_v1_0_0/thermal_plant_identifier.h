@@ -64,6 +64,8 @@ struct ThermalPlantModel {
   float normalizedResidual = NAN;
   float confidence = 0.0f;
   float actualStep = NAN;
+  float baselineSlope = NAN;      // degC/s pre-step linear trend diagnostic
+  float postSlope = NAN;          // degC/s early post-step trend diagnostic
   float deliveredOnSec = 0.0f;
   uint16_t samples = 0;          // total raw observations, saturated at uint16 max
 };
@@ -135,17 +137,24 @@ class ThermalPlantIdentifier {
     if (totalSamples_ < 0xffffffffU) ++totalSamples_;
 
     if (!stepDetected_) {
-      if (haveLast_ && lastActual_ <= INPUT_OFF_MAX && actualDeliveredFraction > INPUT_OFF_MAX) {
-        freezeBaseline();
-        stepDetected_ = true;
-        // The delivered fraction belongs to the interval ending at this sample,
-        // so the physical step begins at the previous observation boundary.
-        stepTimestampMs_ = lastTimestampMs_;
-        deliveredOnSec_ += actualDeliveredFraction * static_cast<float>(timestampMs-lastTimestampMs_) * 0.001f;
-        postInputMin_ = postInputMax_ = actualDeliveredFraction;
-        appendResponse(timestampMs, filteredPv, actualDeliveredFraction);
+      const bool enoughBaseline = baselineTotal_ >= MIN_BASELINE_SAMPLES;
+      const float instantaneousStep = haveLast_ ? actualDeliveredFraction - lastActual_ : 0.0f;
+      if (enoughBaseline && haveLast_ && std::fabs(instantaneousStep) >= STEP_DETECT_ABS) {
+        freezeBaseline(lastTimestampMs_);
+        const float stepFromBaseline = actualDeliveredFraction - baselineInput_;
+        if (std::isfinite(stepFromBaseline) && std::fabs(stepFromBaseline) >= MIN_ACTUAL_STEP) {
+          stepDetected_ = true;
+          // The delivered fraction belongs to the interval ending at this sample,
+          // so the physical signed step begins at the previous observation boundary.
+          stepTimestampMs_ = lastTimestampMs_;
+          deliveredOnSec_ += actualDeliveredFraction * static_cast<float>(timestampMs-lastTimestampMs_) * 0.001f;
+          postInputMin_ = postInputMax_ = actualDeliveredFraction;
+          appendResponse(timestampMs, filteredPv, actualDeliveredFraction);
+        } else {
+          pushBaseline(timestampMs, filteredPv, actualDeliveredFraction);
+        }
       } else {
-        pushBaseline(filteredPv, actualDeliveredFraction);
+        pushBaseline(timestampMs, filteredPv, actualDeliveredFraction);
       }
     } else {
       const float dtSec = static_cast<float>(timestampMs - lastTimestampMs_) * 0.001f;
@@ -165,6 +174,7 @@ class ThermalPlantIdentifier {
     ThermalPlantModel out;
     out.samples = totalSamples_ > 65535U ? 65535U : static_cast<uint16_t>(totalSamples_);
     out.deliveredOnSec = deliveredOnSec_;
+    out.baselineSlope = baselineSlope_;
     if (terminalReason_ == ThermalPlantIdReason::InvalidSample ||
         terminalReason_ == ThermalPlantIdReason::NonMonotonicTime ||
         terminalReason_ == ThermalPlantIdReason::CapacityExceeded) {
@@ -180,26 +190,47 @@ class ThermalPlantIdentifier {
     const size_t finalStart = firstAtOrAfter(response_[responseCount_-1].timestampMs - static_cast<uint32_t>(tailWindowSec * 1000.0f));
     const float finalInput = meanResponseInput(finalStart, responseCount_);
     const float actualStep = finalInput - baselineInput_;
+    const float stepMagnitude = std::fabs(actualStep);
     out.actualStep = actualStep;
-    if (!std::isfinite(actualStep) || actualStep < MIN_ACTUAL_STEP) { out.reason=ThermalPlantIdReason::NoActualStep; return out; }
+    if (!std::isfinite(actualStep) || stepMagnitude < MIN_ACTUAL_STEP) { out.reason=ThermalPlantIdReason::NoActualStep; return out; }
     if (!baselineInputStable_) { out.reason=ThermalPlantIdReason::UnstableActualInput; return out; }
-    const float inputTolerance=fmaxf(INPUT_STABILITY_ABS,actualStep*INPUT_STABILITY_FRACTION);
+    const float inputTolerance=fmaxf(INPUT_STABILITY_ABS,stepMagnitude*INPUT_STABILITY_FRACTION);
     if (std::fabs(postInputMin_-finalInput)>inputTolerance || std::fabs(postInputMax_-finalInput)>inputTolerance) {
       out.reason=ThermalPlantIdReason::UnstableActualInput; return out;
     }
 
+    // V4.3A: non-steady pre-step PV is valid evidence. A noise-aware
+    // persistent derivative change gates a continuous piecewise-linear fit.
+    // Heater input magnitude/sign still comes only from actual delivered energy.
+    if (std::fabs(baselineSlope_) >= TREND_BASELINE_ACTIVE_SLOPE ||
+        baselineInput_ > INPUT_OFF_MAX) {
+      if (!std::isfinite(baselineTrendRmse_) ||
+          baselineTrendRmse_ > TREND_MAX_BASELINE_RMSE_C) {
+        out.reason=ThermalPlantIdReason::ExcessiveNoise; return out;
+      }
+      ThermalPlantModel trend=identifyTrendSlope(out,actualStep,postSec);
+      if (trend.valid) return trend;
+      if (trend.reason==ThermalPlantIdReason::ExcessiveNoise ||
+          trend.reason==ThermalPlantIdReason::PoorFit ||
+          trend.reason==ThermalPlantIdReason::NoResponse ||
+          trend.reason==ThermalPlantIdReason::InvalidParameters) return trend;
+    }
+
+    // Frozen V4.2 settled path below; only sign normalization is added.
     const float y0=baselinePv_;
     const float yFinal=meanResponsePv(finalStart,responseCount_);
     const float delta=yFinal-y0;
-    if (!std::isfinite(delta) || delta < MIN_RESPONSE_C) { out.reason=ThermalPlantIdReason::NoResponse; return out; }
-    if (baselineSigma_ > delta*MAX_NOISE_FRACTION) { out.reason=ThermalPlantIdReason::ExcessiveNoise; return out; }
+    const float responseMagnitude=std::fabs(delta);
+    if (!std::isfinite(delta) || responseMagnitude < MIN_RESPONSE_C ||
+        delta*actualStep <= 0.0f) { out.reason=ThermalPlantIdReason::NoResponse; return out; }
+    if (baselineSigma_ > responseMagnitude*MAX_NOISE_FRACTION) { out.reason=ThermalPlantIdReason::ExcessiveNoise; return out; }
 
     const uint32_t finalStartMs=response_[finalStart].timestampMs;
     const uint32_t endMs=response_[responseCount_-1].timestampMs;
     const size_t finalHalf=firstAtOrAfter(finalStartMs + (endMs-finalStartMs)/2U);
     if (finalHalf<=finalStart || finalHalf>=responseCount_) return out;
     const float finalDrift=std::fabs(meanResponsePv(finalHalf,responseCount_)-meanResponsePv(finalStart,finalHalf));
-    const float settleLimit=fmaxf(MAX_FINAL_DRIFT_C,delta*MAX_FINAL_DRIFT_FRACTION);
+    const float settleLimit=fmaxf(MAX_FINAL_DRIFT_C,responseMagnitude*MAX_FINAL_DRIFT_FRACTION);
 
     if (finalDrift <= settleLimit) {
       ThermalPlantModel fopdt = identifyFopdt(out, y0, delta, actualStep, finalDrift, postSec);
@@ -218,12 +249,17 @@ class ThermalPlantIdentifier {
   }
 
  private:
-  struct BaselineSample { float pv; float actual; };
+  struct BaselineSample { uint32_t timestampMs; float pv; float actual; };
   struct Sample { uint32_t timestampMs; float pv; float actual; };
+  struct Regression {
+    bool valid=false;
+    float slope=NAN,intercept=NAN,rmse=NAN,slopeStdErr=NAN;
+    size_t count=0;
+  };
 
   static constexpr size_t MIN_TOTAL_SAMPLES=40U,MIN_BASELINE_SAMPLES=12U,MIN_RESPONSE_SAMPLES=24U;
   static constexpr float FINAL_WINDOW_MAX_SEC=800.0f,MIN_FINAL_WINDOW_SEC=60.0f;
-  static constexpr float INPUT_OFF_MAX=0.02f,MIN_ACTUAL_STEP=0.08f;
+  static constexpr float INPUT_OFF_MAX=0.02f,MIN_ACTUAL_STEP=0.08f,STEP_DETECT_ABS=0.05f;
   static constexpr float INPUT_STABILITY_ABS=0.025f,INPUT_STABILITY_FRACTION=0.05f;
   static constexpr float MIN_RESPONSE_C=0.25f,MAX_NOISE_FRACTION=0.20f;
   static constexpr float MAX_FINAL_DRIFT_C=0.05f,MAX_FINAL_DRIFT_FRACTION=0.03f;
@@ -237,14 +273,25 @@ class ThermalPlantIdentifier {
   static constexpr float SLOW_REGRESSION_SEC=600.0f;
   static constexpr float SLOW_MIN_R2=0.94f;
   static constexpr float SLOW_MAX_NORMALIZED_RESIDUAL=0.18f;
+  // V4.3A trend-only thresholds. The settled V4.2 path above is unchanged.
+  static constexpr float TREND_BASELINE_ACTIVE_SLOPE=0.00015f;
+  static constexpr float TREND_MAX_BASELINE_RMSE_C=0.12f;
+  static constexpr float TREND_MIN_SLOPE_CHANGE=0.00008f;
+  static constexpr float TREND_SLOPE_SIGMA_MULT=2.5f;
+  static constexpr float TREND_MAX_NORMALIZED_RESIDUAL=0.32f;
+  static constexpr float TREND_MIN_SIGNIFICANCE=1.10f;
+  static constexpr float TREND_MIN_CONFIDENCE=0.80f;
+  static constexpr uint32_t TREND_LOCAL_WINDOW_SEC=180U;
+  static constexpr uint32_t TREND_POST_FIT_SEC=600U;
+  static constexpr uint8_t TREND_PERSIST_WINDOWS=3U;
 
   static float clamp01(float value){return value<0?0:value>1?1:value;}
 
-  void pushBaseline(float pv,float actual) {
+  void pushBaseline(uint32_t timestampMs,float pv,float actual) {
     if (baselineRingCount_ < BASELINE_WINDOW) {
-      baseline_[baselineRingCount_++]={pv,actual};
+      baseline_[baselineRingCount_++]={timestampMs,pv,actual};
     } else {
-      baseline_[baselineRingNext_]={pv,actual};
+      baseline_[baselineRingNext_]={timestampMs,pv,actual};
       baselineRingNext_=(baselineRingNext_+1U)%BASELINE_WINDOW;
     }
     ++baselineTotal_;
@@ -257,11 +304,44 @@ class ThermalPlantIdentifier {
     return baseline_[(baselineRingNext_+chronological)%BASELINE_WINDOW];
   }
 
-  void freezeBaseline() {
+  Regression fitBaseline(uint32_t originMs) const {
+    if (baselineRingCount_ < MIN_BASELINE_SAMPLES) return Regression{};
+    const double n=static_cast<double>(baselineRingCount_);
+    double st=0,sy=0,stt=0,sty=0;
+    for(size_t i=0;i<baselineRingCount_;++i) {
+      const BaselineSample sample=baselineAt(i);
+      const double t=static_cast<int32_t>(sample.timestampMs-originMs)*0.001;
+      st+=t; sy+=sample.pv; stt+=t*t; sty+=t*sample.pv;
+    }
+    const double denom=n*stt-st*st;
+    if (!(denom>0.0)) return Regression{};
+    const double slope=(n*sty-st*sy)/denom;
+    const double intercept=(sy-slope*st)/n;
+    double sse=0,sxx=0;
+    const double meanT=st/n;
+    for(size_t i=0;i<baselineRingCount_;++i) {
+      const BaselineSample sample=baselineAt(i);
+      const double t=static_cast<int32_t>(sample.timestampMs-originMs)*0.001;
+      const double error=sample.pv-(intercept+slope*t);
+      const double centered=t-meanT;
+      sse+=error*error; sxx+=centered*centered;
+    }
+    Regression out;
+    out.valid=std::isfinite(slope)&&std::isfinite(intercept);
+    out.slope=static_cast<float>(slope);
+    out.intercept=static_cast<float>(intercept);
+    out.rmse=sqrtf(static_cast<float>(sse/n));
+    out.slopeStdErr=(n>2.0&&sxx>0.0)
+        ? sqrtf(static_cast<float>((sse/(n-2.0))/sxx)) : INFINITY;
+    out.count=baselineRingCount_;
+    return out;
+  }
+
+  void freezeBaseline(uint32_t originMs) {
     baselineSamplesAtStep_=baselineTotal_;
     if (!baselineRingCount_) return;
     double pv=0,input=0;
-    for(size_t i=0;i<baselineRingCount_;++i){const BaselineSample s=baselineAt(i);pv+=s.pv;input+=s.actual;}
+    for(size_t i=0;i<baselineRingCount_;++i){const BaselineSample sample=baselineAt(i);pv+=sample.pv;input+=sample.actual;}
     baselinePv_=static_cast<float>(pv/baselineRingCount_);
     baselineInput_=static_cast<float>(input/baselineRingCount_);
     double squared=0;
@@ -269,6 +349,13 @@ class ThermalPlantIdentifier {
     baselineSigma_=sqrtf(static_cast<float>(squared/baselineRingCount_));
     baselineInputStable_=std::fabs(baselineInputMin_-baselineInput_)<=INPUT_STABILITY_ABS &&
                          std::fabs(baselineInputMax_-baselineInput_)<=INPUT_STABILITY_ABS;
+    const Regression regression=fitBaseline(originMs);
+    if (regression.valid) {
+      baselineSlope_=regression.slope;
+      baselineTrendAtStep_=regression.intercept;
+      baselineTrendRmse_=regression.rmse;
+      baselineSlopeStdErr_=regression.slopeStdErr;
+    }
   }
 
   uint32_t retentionSpacingMs(uint32_t timestampMs) const {
@@ -298,6 +385,163 @@ class ThermalPlantIdentifier {
   float meanResponseInput(size_t first,size_t end)const{
     double sum=0;for(size_t i=first;i<end;++i)sum+=response_[i].actual;
     return end>first?static_cast<float>(sum/(end-first)):NAN;
+  }
+
+  Regression fitResponse(size_t first,size_t end) const {
+    Regression out;
+    if (end<=first+2U || end>responseCount_) return out;
+    const double n=static_cast<double>(end-first);
+    double st=0,sy=0,stt=0,sty=0;
+    for(size_t i=first;i<end;++i) {
+      const double t=(response_[i].timestampMs-stepTimestampMs_)*0.001;
+      st+=t; sy+=response_[i].pv; stt+=t*t; sty+=t*response_[i].pv;
+    }
+    const double denom=n*stt-st*st;
+    if (!(denom>0.0)) return out;
+    const double slope=(n*sty-st*sy)/denom;
+    const double intercept=(sy-slope*st)/n;
+    double sse=0,sxx=0;
+    const double meanT=st/n;
+    for(size_t i=first;i<end;++i) {
+      const double t=(response_[i].timestampMs-stepTimestampMs_)*0.001;
+      const double error=response_[i].pv-(intercept+slope*t);
+      const double centered=t-meanT;
+      sse+=error*error; sxx+=centered*centered;
+    }
+    out.valid=std::isfinite(slope)&&std::isfinite(intercept);
+    out.slope=static_cast<float>(slope);
+    out.intercept=static_cast<float>(intercept);
+    out.rmse=sqrtf(static_cast<float>(sse/n));
+    out.slopeStdErr=(n>2.0&&sxx>0.0)
+        ? sqrtf(static_cast<float>((sse/(n-2.0))/sxx)) : INFINITY;
+    out.count=end-first;
+    return out;
+  }
+
+  ThermalPlantModel identifyTrendSlope(ThermalPlantModel out,float actualStep,float postSec) const {
+    if (!std::isfinite(baselineSlope_) || !std::isfinite(baselineTrendAtStep_) ||
+        !std::isfinite(baselineSlopeStdErr_)) {
+      out.reason=ThermalPlantIdReason::InsufficientSamples; return out;
+    }
+    const float direction=actualStep>0.0f?1.0f:-1.0f;
+    const float slopeThreshold=fmaxf(TREND_MIN_SLOPE_CHANGE,
+        TREND_SLOPE_SIGMA_MULT*baselineSlopeStdErr_);
+
+    // Require a persistent derivative change before estimating the change point.
+    uint8_t persistent=0;
+    size_t firstWindowEnd=responseCount_;
+    for(size_t i=0;i<responseCount_;++i) {
+      const uint32_t endMs=response_[i].timestampMs+TREND_LOCAL_WINDOW_SEC*1000U;
+      size_t end=i;
+      while(end<responseCount_ && static_cast<int32_t>(response_[end].timestampMs-endMs)<=0) ++end;
+      if (end-i<6U) continue;
+      const Regression local=fitResponse(i,end);
+      if (!local.valid) continue;
+      const float signedChange=(local.slope-baselineSlope_)*direction;
+      const float localNoise=fmaxf(slopeThreshold,
+          TREND_SLOPE_SIGMA_MULT*local.slopeStdErr);
+      if (signedChange>=localNoise) {
+        if (!persistent) firstWindowEnd=end;
+        if (++persistent>=TREND_PERSIST_WINDOWS) break;
+      } else {
+        persistent=0;
+        firstWindowEnd=responseCount_;
+      }
+    }
+    if (persistent<TREND_PERSIST_WINDOWS || firstWindowEnd==responseCount_) {
+      out.reason=ThermalPlantIdReason::NoResponse; return out;
+    }
+
+    // Continuous two-line model:
+    // pre:  PV=a0+m0*t
+    // post: PV=(a0-q*theta)+(m0+q)*t
+    // so q=m1-m0 and kPrime=q/dU. Scan theta only after persistent evidence.
+    const float horizon=fminf(postSec,static_cast<float>(TREND_POST_FIT_SEC));
+    size_t fitEnd=0;
+    while(fitEnd<responseCount_ &&
+          static_cast<float>(response_[fitEnd].timestampMs-stepTimestampMs_)*0.001f<=horizon) ++fitEnd;
+    if (fitEnd<10U) { out.reason=ThermalPlantIdReason::InsufficientSamples; return out; }
+    const float detectBound=static_cast<float>(
+        response_[firstWindowEnd-1U].timestampMs-stepTimestampMs_)*0.001f;
+    double bestSse=INFINITY;
+    float bestTheta=NAN,bestQ=NAN;
+    size_t bestCount=0;
+    for(size_t candidate=0;candidate<fitEnd;++candidate) {
+      const float theta=candidate==0 ? 0.0f :
+          static_cast<float>(response_[candidate-1U].timestampMs-stepTimestampMs_)*0.001f;
+      if (theta>detectBound) break;
+      double sxx=0,sxy=0;
+      for(size_t i=0;i<fitEnd;++i) {
+        const float t=static_cast<float>(response_[i].timestampMs-stepTimestampMs_)*0.001f;
+        const float x=fmaxf(0.0f,t-theta);
+        const float baseline=baselineTrendAtStep_+baselineSlope_*t;
+        const float residual=response_[i].pv-baseline;
+        sxx+=static_cast<double>(x)*x;
+        sxy+=static_cast<double>(x)*residual;
+      }
+      if (!(sxx>0.0)) continue;
+      const float q=static_cast<float>(sxy/sxx);
+      if (!std::isfinite(q) || q*direction<=0.0f) continue;
+      double sse=0;
+      size_t count=0;
+      for(size_t i=0;i<fitEnd;++i) {
+        const float t=static_cast<float>(response_[i].timestampMs-stepTimestampMs_)*0.001f;
+        const float x=fmaxf(0.0f,t-theta);
+        const float predicted=baselineTrendAtStep_+baselineSlope_*t+q*x;
+        const float error=response_[i].pv-predicted;
+        sse+=static_cast<double>(error)*error;
+        ++count;
+      }
+      if (sse<bestSse) {
+        bestSse=sse; bestTheta=theta; bestQ=q; bestCount=count;
+      }
+    }
+    if (!std::isfinite(bestTheta) || !std::isfinite(bestQ) || bestCount<8U) {
+      out.reason=ThermalPlantIdReason::InvalidParameters; return out;
+    }
+    const float signedChange=bestQ*direction;
+    if (signedChange<slopeThreshold*TREND_MIN_SIGNIFICANCE) {
+      out.reason=ThermalPlantIdReason::NoResponse; return out;
+    }
+    const float kPrime=bestQ/actualStep;
+    if (!std::isfinite(kPrime) || kPrime<=0.0f || kPrime>MAX_PROCESS_GAIN) {
+      out.reason=ThermalPlantIdReason::InvalidParameters; return out;
+    }
+    const float rmse=sqrtf(static_cast<float>(bestSse/bestCount));
+    const float signalRise=std::fabs(bestQ)*fmaxf(1.0f,horizon-bestTheta);
+    const float normalized=rmse/fmaxf(signalRise,
+        fmaxf(0.04f,baselineTrendRmse_*2.0f));
+    if (!std::isfinite(normalized) || normalized>TREND_MAX_NORMALIZED_RESIDUAL) {
+      out.reason=ThermalPlantIdReason::PoorFit; return out;
+    }
+    const float significance=clamp01(
+        signedChange/fmaxf(slopeThreshold*3.0f,1e-7f));
+    const float fitScore=clamp01(
+        1.0f-normalized/TREND_MAX_NORMALIZED_RESIDUAL);
+    const float durationScore=clamp01(
+        postSec/fmaxf(bestTheta+TREND_POST_FIT_SEC,1.0f));
+    const float baselineScore=clamp01(
+        1.0f-baselineTrendRmse_/fmaxf(signalRise,0.05f));
+    const float confidence=0.35f*significance+0.35f*fitScore+
+        0.15f*durationScore+0.15f*baselineScore;
+    if (confidence<TREND_MIN_CONFIDENCE) {
+      out.reason=ThermalPlantIdReason::PoorFit;
+      out.confidence=confidence;
+      return out;
+    }
+    out.valid=true;
+    out.reason=ThermalPlantIdReason::Valid;
+    out.mode=ThermalPlantModelMode::SlowSlope;
+    out.processGain=NAN;
+    out.tauSec=NAN;
+    out.thetaSec=bestTheta;
+    out.kPrime=kPrime;
+    out.baselineSlope=baselineSlope_;
+    out.postSlope=baselineSlope_+bestQ;
+    out.residualRmseC=rmse;
+    out.normalizedResidual=normalized;
+    out.confidence=confidence;
+    return out;
   }
 
   bool crossingTime(float y0,float delta,float level,float &seconds)const{
@@ -334,11 +578,11 @@ class ThermalPlantIdentifier {
       squared+=static_cast<double>(error)*error;
     }
     const float rmse=responseCount_?sqrtf(static_cast<float>(squared/responseCount_)):INFINITY;
-    const float normalized=rmse/delta;
+    const float normalized=rmse/std::fabs(delta);
     if (!std::isfinite(normalized)||normalized>MAX_NORMALIZED_RESIDUAL) { out.reason=ThermalPlantIdReason::PoorFit; return out; }
     const float fitScore=clamp01(1.0f-normalized/MAX_NORMALIZED_RESIDUAL);
     const float durationScore=clamp01(postSec/(theta+4.0f*tau));
-    const float stabilityScore=clamp01(1.0f-finalDrift/fmaxf(MAX_FINAL_DRIFT_C,delta*MAX_FINAL_DRIFT_FRACTION));
+    const float stabilityScore=clamp01(1.0f-finalDrift/fmaxf(MAX_FINAL_DRIFT_C,std::fabs(delta)*MAX_FINAL_DRIFT_FRACTION));
     out.valid=true;out.reason=ThermalPlantIdReason::Valid;out.mode=ThermalPlantModelMode::FOPDT;
     out.processGain=gain;out.tauSec=tau;out.thetaSec=theta;out.kPrime=gain/tau;
     out.residualRmseC=rmse;out.normalizedResidual=normalized;
@@ -348,10 +592,15 @@ class ThermalPlantIdentifier {
 
   ThermalPlantModel identifySlowSlope(ThermalPlantModel out,float y0,float observedDelta,float actualStep,float postSec) const {
     if (postSec < SLOW_MIN_OBSERVATION_SEC) return out;
+    const float direction=actualStep>=0.0f?1.0f:-1.0f;
+    const float stepMagnitude=std::fabs(actualStep);
     const float onsetRise=fmaxf(SLOW_ONSET_MIN_C,baselineSigma_*4.0f);
     size_t onset=responseCount_;
     for(size_t i=1;i+2U<responseCount_;++i) {
-      if(response_[i].pv-y0>=onsetRise && response_[i+1U].pv-y0>=onsetRise*0.8f && response_[i+2U].pv-y0>=onsetRise*0.8f){onset=i;break;}
+      const float z0=(response_[i].pv-y0)*direction;
+      const float z1=(response_[i+1U].pv-y0)*direction;
+      const float z2=(response_[i+2U].pv-y0)*direction;
+      if(z0>=onsetRise && z1>=onsetRise*0.8f && z2>=onsetRise*0.8f){onset=i;break;}
     }
     if(onset==responseCount_) return out;
     const uint32_t regressionEndMs=response_[onset].timestampMs+static_cast<uint32_t>(SLOW_REGRESSION_SEC*1000.0f);
@@ -361,29 +610,29 @@ class ThermalPlantIdentifier {
 
     double sw=0,st=0,sy=0,stt=0,sty=0;
     for(size_t i=onset;i<end;++i){
-      const double w=1.0;
       const double t=(response_[i].timestampMs-stepTimestampMs_)*0.001;
-      sw+=w;st+=w*t;sy+=w*response_[i].pv;stt+=w*t*t;sty+=w*t*response_[i].pv;
+      const double z=(response_[i].pv-y0)*direction;
+      sw+=1.0;st+=t;sy+=z;stt+=t*t;sty+=t*z;
     }
     const double denom=sw*stt-st*st;
     if(!(denom>0.0)) return out;
     const double slope=(sw*sty-st*sy)/denom;
     const double intercept=(sy-slope*st)/sw;
     if(!std::isfinite(slope)||slope<=0.0) { out.reason=ThermalPlantIdReason::InvalidParameters; return out; }
-    const double theta=(y0-intercept)/slope;
-    const double kPrime=slope/actualStep;
+    const double theta=-intercept/slope;
+    const double kPrime=slope/stepMagnitude;
     if(!std::isfinite(theta)||!std::isfinite(kPrime)||theta<0.0||theta>MAX_THETA_SEC||kPrime<=0.0||kPrime>MAX_PROCESS_GAIN) {
       out.reason=ThermalPlantIdReason::InvalidParameters; return out;
     }
 
     double squared=0,total=0,mean=sy/sw;
     for(size_t i=onset;i<end;++i){
-      const double w=1.0;
       const double t=(response_[i].timestampMs-stepTimestampMs_)*0.001;
+      const double z=(response_[i].pv-y0)*direction;
       const double predicted=intercept+slope*t;
-      const double e=response_[i].pv-predicted;
-      const double d=response_[i].pv-mean;
-      squared+=w*e*e;total+=w*d*d;
+      const double e=z-predicted;
+      const double d=z-mean;
+      squared+=e*e;total+=d*d;
     }
     const float rmse=sqrtf(static_cast<float>(squared/sw));
     const float regressionRise=static_cast<float>(slope*((response_[end-1U].timestampMs-response_[onset].timestampMs)*0.001));
@@ -392,7 +641,7 @@ class ThermalPlantIdentifier {
     if(!std::isfinite(normalized)||normalized>SLOW_MAX_NORMALIZED_RESIDUAL||r2<SLOW_MIN_R2) { out.reason=ThermalPlantIdReason::PoorFit; return out; }
 
     const float fitScore=clamp01((r2-SLOW_MIN_R2)/(1.0f-SLOW_MIN_R2));
-    const float snrScore=clamp01(observedDelta/fmaxf(0.5f,baselineSigma_*10.0f));
+    const float snrScore=clamp01(std::fabs(observedDelta)/fmaxf(0.5f,baselineSigma_*10.0f));
     const float durationScore=clamp01(postSec/(SLOW_MIN_OBSERVATION_SEC*2.0f));
     out.valid=true;out.reason=ThermalPlantIdReason::Valid;out.mode=ThermalPlantModelMode::SlowSlope;
     out.processGain=NAN;out.tauSec=NAN;out.thetaSec=static_cast<float>(theta);out.kPrime=static_cast<float>(kPrime);
@@ -411,5 +660,7 @@ class ThermalPlantIdentifier {
   float baselinePv_=NAN,baselineInput_=NAN,baselineSigma_=NAN;
   float baselineInputMin_=0.0f,baselineInputMax_=0.0f;
   float postInputMin_=0.0f,postInputMax_=0.0f;
+  float baselineSlope_=0.0f,baselineTrendAtStep_=NAN;
+  float baselineTrendRmse_=NAN,baselineSlopeStdErr_=NAN;
   ThermalPlantIdReason terminalReason_=ThermalPlantIdReason::InsufficientSamples;
 };
