@@ -113,6 +113,11 @@ int main() {
   clockMs=0;
   SHT485Industrial sensor;
   sensor.begin();
+  assert(!sensor.startupResolved());
+  run(sensor, SHT485Config::STARTUP_REPORT_MS - 1U);
+  assert(!sensor.startupResolved());
+  run(sensor, 1U);
+  assert(sensor.startupResolved() && !sensor.online());
   for (unsigned i=0; i<25000 && !uartEnds; ++i) run(sensor,1);
   assert(uartEnds==1 && uartBegins==2 && !sensor.online() && !sensor.dataValid());
   const uint32_t recoveredAt=clockMs;
@@ -132,7 +137,9 @@ int main() {
   replyMode=1; replyTemperature=3751;
   SHT485Industrial precise;
   precise.begin();
+  assert(!precise.startupResolved());
   run(precise,9000);
+  assert(precise.startupResolved());
   assert(precise.online() && !precise.dataValid()); // boot heater gate before sixth sample
   run(precise,4000);
   assert(precise.dataValid() && precise.formatLocked());

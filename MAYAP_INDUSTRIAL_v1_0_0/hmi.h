@@ -970,8 +970,10 @@ char toastLine[27] = "";
 bool toastError = false;
 uint32_t toastUntil = 0;
 uint32_t wifiOfflineSinceAt = 0U;
+uint32_t wifiOfflineLastReminderAt = 0U;
 bool wifiOfflineTracking = false;
 bool wifiOfflineNoticeActive = false;
+bool wifiStableLossObserved = false;
 uint32_t wifiWeakSinceAt = 0U;
 bool wifiWeakTracking = false;
 bool wifiWeakNoticeActive = false;
@@ -1014,9 +1016,8 @@ HmiEventSnapshot eventLogInbox;
 bool runtimeInboxPending = false;
 bool configInboxPending = false;
 bool eventLogInboxPending = false;
-// Man hinh khoi dong: thoat khi DA nhan du ca runtime lan config that (de man
-// chinh hien ra la da day du so lieu, khong con o trong) va da qua
-// SPLASH_MIN_MS; hoac het SPLASH_MAX_MS thi thoat du chua nhan duoc gi.
+// Man hinh khoi dong: chi thoat khi boot coordinator release Home. Coordinator
+// doi sensor driver ket luan Present/Missing, nhung khong doi Wi-Fi/Internet.
 bool splashActive = true;
 uint32_t splashStartedAt = 0;
 bool splashHadRuntime = false;
@@ -1185,7 +1186,8 @@ void serviceOnlineHealthNotice(uint32_t now) {
   const bool onlineConfigured =
       currentRuntime.connectivityMode == ConnectivityMode::Online &&
       currentRuntime.networkConfigured;
-  const bool portalIdle = currentRuntime.wifiPortalState == WifiPortalState::Idle;
+  const bool portalIdle = currentRuntime.wifiPortalState == WifiPortalState::Idle ||
+      currentRuntime.wifiPortalState == WifiPortalState::Failed;
   const bool offline = onlineConfigured && portalIdle &&
       !currentRuntime.networkConnected;
 
@@ -1193,11 +1195,18 @@ void serviceOnlineHealthNotice(uint32_t now) {
     if (!wifiOfflineTracking) {
       wifiOfflineTracking = true;
       wifiOfflineSinceAt = now;
+      wifiOfflineLastReminderAt = 0U;
     }
-    if (!wifiOfflineNoticeActive &&
-        now - wifiOfflineSinceAt >= 5000UL) {
+    const bool firstReminderDue =
+        !wifiOfflineNoticeActive && now - wifiOfflineSinceAt >= 5000UL;
+    const bool repeatReminderDue =
+        wifiOfflineNoticeActive && wifiOfflineLastReminderAt != 0U &&
+        now - wifiOfflineLastReminderAt >= 600000UL;
+    if (firstReminderDue || repeatReminderDue) {
+      wifiStableLossObserved = true;
       wifiOfflineNoticeActive = true;
-      showToast("MAT WIFI - MAY VAN CHAY", true, 8000UL);
+      wifiOfflineLastReminderAt = now;
+      showToast("E405 MAT WIFI", true, 8000UL);
     }
   } else {
     if (wifiOfflineNoticeActive && onlineConfigured &&
@@ -1207,6 +1216,8 @@ void serviceOnlineHealthNotice(uint32_t now) {
     wifiOfflineTracking = false;
     wifiOfflineNoticeActive = false;
     wifiOfflineSinceAt = 0U;
+    wifiOfflineLastReminderAt = 0U;
+    wifiStableLossObserved = false;
   }
 
   const bool weak = onlineConfigured && currentRuntime.networkConnected &&
@@ -2221,6 +2232,10 @@ void exitSettingGroup() {
 bool requestAlarmAcknowledge() {
   const uint32_t snapshot = currentRuntime.alarmMask & ALARM_KNOWN_MASK;
   if (!snapshot) {
+    if (currentRuntime.activeFaultDisplayCount) {
+      showToast("DA DONG THONG BAO");
+      return true;
+    }
     showToast("KHONG CO CANH BAO");
     return false;
   }
@@ -2941,6 +2956,7 @@ uint32_t alarmBitForFaultCode(uint16_t code) {
     case 201: case 202: case 203: case 204: case 205: return AlarmTurning;
     case 301: case 302: case 303: case 304: case 305: case 306:
     case 313: case 314: case 315: return AlarmSystem;
+    case 405: return AlarmNone;
     case 501: case 502: return AlarmSystem;
     default: return AlarmSystem;
   }
@@ -2986,6 +3002,7 @@ const char *faultTitle(uint16_t code) {
     case 402: return "RAM SAP CAN";
     case 403: return "XU HUONG NHIET BAT THUONG";
     case 404: return "EEPROM GHI LOI NHIEU";
+    case 405: return "MAT KET NOI WIFI";
     case 501: return "MAT LIEN LAC ATTINY";
     case 502: return "PIN COI SAP HET";
     case 503: return "LECH TRANG THAI ATTINY";
@@ -3045,6 +3062,8 @@ void faultDetail(const HmiFaultItem &fault, char *out, size_t size) {
                fault.detail < 0 ? "GIAM" : "TANG", abs(fault.detail)); break;
     case 404:
       snprintf(out, size, "EEPROM THU LAI %d LAN", fault.detail); break;
+    case 405:
+      snprintf(out, size, "MAY VAN CHAY - KIEM TRA WIFI"); break;
     case 501: snprintf(out, size, "ATTINY KHONG PHAN HOI"); break;
     case 502: snprintf(out, size, "HAY THAY PIN 9V SOM"); break;
     case 503: snprintf(out, size, "KIEM TRA DONG BO TRANG THAI"); break;
@@ -3472,7 +3491,7 @@ uint8_t rssiToBars(int8_t dbm) {
 }
 
 void drawConnectionInfo() {
-  char text[28];
+  char text[42];
   drawHeader("KET NOI", false);
   lcd.setFont(u8g2_font_6x12_tf);
 
@@ -3484,10 +3503,10 @@ void drawConnectionInfo() {
   drawLeftFit(6, 20, text, u8g2_font_6x12_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 
-  if (currentRuntime.networkConnected) {
-    snprintf(text, sizeof(text), "WIFI: DA KET NOI");
+  if (currentRuntime.networkConfigured && currentRuntime.networkSsid[0]) {
+    snprintf(text, sizeof(text), "WIFI: %s", currentRuntime.networkSsid);
   } else {
-    snprintf(text, sizeof(text), "WIFI: CHUA KET NOI");
+    snprintf(text, sizeof(text), "WIFI: CHUA CAU HINH");
   }
   drawLeftFit(6, 31, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
@@ -3496,7 +3515,14 @@ void drawConnectionInfo() {
     const int32_t dbm = currentRuntime.networkRssiDbm;
     snprintf(text, sizeof(text), "SONG: %ld dBm (%u/4)",
              static_cast<long>(dbm), rssiToBars(static_cast<int8_t>(constrain(dbm, -127L, 0L))));
-  } else snprintf(text, sizeof(text), "SONG: CHUA KET NOI");
+  } else if (currentRuntime.networkConfigured &&
+             currentRuntime.networkState == NetworkStateCode::Connecting && !wifiStableLossObserved) {
+    snprintf(text, sizeof(text), "SONG: DANG KET NOI");
+  } else if (currentRuntime.networkConfigured) {
+    snprintf(text, sizeof(text), "SONG: MAT KET NOI");
+  } else {
+    snprintf(text, sizeof(text), "SONG: --");
+  }
   drawLeftFit(6, 43, text, u8g2_font_5x8_tf, u8g2_font_5x8_tf,
               u8g2_font_5x8_tf);
 
@@ -4200,10 +4226,9 @@ void render(uint32_t now) {
   // (ke ca man canh bao/xac nhan) chen vao giua luc dang khoi dong.
   if (splashActive) {
     if (splashStartedAt == 0U) splashStartedAt = now;
-    const uint32_t elapsed = now - splashStartedAt;
-    // Home is a local startup decision; neither Internet nor sensor faults
-    // may hide local alarms/controls indefinitely. Max remains a failsafe.
-    if (mayapBootHomeReleased() || elapsed >= SPLASH_MAX_MS) {
+    // Boot coordinator chi release sau khi sensor driver da ket luan
+    // PresentAtStartup/MissingAtStartup. Wi-Fi/Internet khong tham gia gate.
+    if (mayapBootHomeReleased()) {
       splashActive = false;
       dirty = true;
     }
@@ -4427,6 +4452,7 @@ void hmiBegin() {
 void sanitizeRuntime(MachineRuntime &runtime) {
   runtime.dateText[sizeof(runtime.dateText) - 1U] = '\0';
   runtime.machineState[sizeof(runtime.machineState) - 1U] = '\0';
+  runtime.networkSsid[sizeof(runtime.networkSsid) - 1U] = '\0';
   runtime.alarmMask &= ALARM_KNOWN_MASK;
   if (!isfinite(runtime.temperature) || !isfinite(runtime.humidity)) {
     runtime.sensorOnline = false;
@@ -4551,8 +4577,12 @@ bool runtimeVisibleChanged(const MachineRuntime &before,
              before.turningLockdown != after.turningLockdown;
 
     case View::ConnectionInfo:
-      return before.networkConnected != after.networkConnected ||
-             before.networkRssiDbm != after.networkRssiDbm;
+      return before.networkConfigured != after.networkConfigured ||
+             before.networkState != after.networkState ||
+             before.networkConnected != after.networkConnected ||
+             before.networkRssiDbm != after.networkRssiDbm ||
+             fixedTextChanged(before.networkSsid, after.networkSsid,
+                              sizeof(before.networkSsid));
 
     // QR ma hoa ID may - hang so trong suot phien chay, khong bao gio can
     // ve lai vi runtime thay doi.
@@ -4634,14 +4664,19 @@ void applyRuntime(MachineRuntime runtime) {
   const bool visibleChange = runtimeVisibleChanged(currentRuntime, runtime);
   currentRuntime = runtime;
   if (wifiJustLost) {
+    wifiStableLossObserved = true;
+    // Stable-state vua xac nhan mat Wi-Fi. Bat dau dem cho E405/UI reminder,
+    // khong chen toast ngay tai canh de tranh hai co che thong bao lap nhau.
     wifiOfflineTracking = true;
     wifiOfflineSinceAt = millis();
-    wifiOfflineNoticeActive = true;
-    showToast("MAT WIFI - MAY VAN CHAY", true, 8000UL);
+    wifiOfflineLastReminderAt = 0U;
+    wifiOfflineNoticeActive = false;
   } else if (wifiJustRecovered) {
+    wifiStableLossObserved = false;
     wifiOfflineTracking = false;
     wifiOfflineNoticeActive = false;
     wifiOfflineSinceAt = 0U;
+    wifiOfflineLastReminderAt = 0U;
     showToast("WIFI DA KET NOI LAI");
   }
   buzzer.acknowledgedAlarmMask &= currentRuntime.alarmMask;
@@ -4719,7 +4754,7 @@ void applyRuntime(MachineRuntime runtime) {
     // man hinh (drawHeader) va coi/buzzer van bao binh thuong nhu cu - chi
     // khac o cho khong chen ngang man hinh nguoi dung dang dung thao tac.
     alarmPresentedMask |= newFaultAlarmBit;
-  } else if (!runtime.alarmMask && view == View::Alarm) {
+  } else if (!runtime.alarmMask && !runtime.activeFaultDisplayCount && view == View::Alarm) {
     view = alarmReturnView;
     dirty = true;
   }

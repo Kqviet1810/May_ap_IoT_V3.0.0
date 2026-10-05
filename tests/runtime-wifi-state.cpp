@@ -1,17 +1,25 @@
 #include <cstdint>
+#include <cstddef>
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
+#include <cstring>
 enum class NetworkStateCode : uint8_t { Offline, NotConfigured, Connecting, Connected };
 enum class ConnectivityMode : uint8_t { Offline, Online };
-struct NetworkStatus { ConnectivityMode requestedMode; NetworkStateCode state; bool credentialsConfigured,connected; int8_t rssiDbm; };
+struct NetworkStatus { ConnectivityMode requestedMode; NetworkStateCode state; bool credentialsConfigured,connected; int8_t rssiDbm; char ssid[33]{}; };
 static volatile uint8_t requestedMode=static_cast<uint8_t>(ConnectivityMode::Online);
 static uint32_t clockMs=0;
 uint32_t millis() { return clockMs; }
 void mayapSerialPrintf(bool,const char*,...) {}
-bool credentialsConfigured() { return true; }
+bool configured=true;
+bool credentialsConfigured() { return configured; }
 struct { bool connected=false; bool isConnected() const { return connected; } int RSSI() const { return -50; } uint32_t localIP() const { return 1234; } } WiFi;
 constexpr int WIFI_PS_NONE=0, ESP_OK=0;
+constexpr std::size_t WIFI_PORTAL_SSID_MAX=32;
+using portMUX_TYPE=int;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux) ((void)(mux))
 static bool wifiPowerModeAppliedValid=false;
 static unsigned powerCalls=0; static int powerResult=ESP_OK;
 int esp_wifi_set_ps(int mode) { assert(mode==WIFI_PS_NONE); ++powerCalls; return powerResult; }
@@ -19,6 +27,19 @@ namespace MayapNetworkInternal {}
 #include "actual-wifi-globals.inc"
 #include "actual-wifi-publish.inc"
 #include "actual-wifi-getters.inc"
+enum class WifiPortalState { Idle, Active, Failed };
+struct WifiPortalStatus { WifiPortalState state=WifiPortalState::Idle; } portal;
+WifiPortalStatus mayapGetWifiPortalStatus() { return portal; }
+enum class FaultCode { WifiDisconnected=405 };
+uint32_t elapsedMs(uint32_t now,uint32_t then) { return now-then; }
+struct WifiFaultHarness {
+ bool wifiOfflineFaultTracking_=false;
+ uint32_t wifiOfflineFaultSince_=0;
+ struct { bool active=false; unsigned raised=0;
+   void set(FaultCode,bool condition,uint32_t) { if(condition&&!active) ++raised; active=condition; }
+ } faults_;
+ #include "actual-e405.inc"
+};
 namespace MayapRealtimeInternal {
 struct { bool active=true; unsigned closes=0; bool busy() const { return active; } void disconnect() { active=false; ++closes; } } socketTransport;
 bool connectionAnnounced=true;
@@ -31,7 +52,9 @@ void sample(uint32_t time,bool raw) {
  clockMs=time; WiFi.connected=raw; publish(raw?NetworkStateCode::Connected:NetworkStateCode::Connecting,raw,raw?-50:-127);
 }
 int main() {
+ std::snprintf(publishedSsid,sizeof(publishedSsid),"%s","CNC-WORKSHOP");
  sample(0,true); assert(!mayapGetNetworkStatus().connected && mayapGetNetworkStatus().state==NetworkStateCode::Connecting);
+ assert(std::strcmp(mayapGetNetworkStatus().ssid,"CNC-WORKSHOP")==0);
  assert(mayapGetRawNetworkStatus().connected); sample(250,true); sample(500,true); sample(750,true);
  assert(publishedConnected);
  // Short driver glitch must not appear in HMI/Fault/Web snapshot.
@@ -45,11 +68,30 @@ int main() {
  sample(2000,false);
  for(uint32_t t=2250;t<6000;t+=250) { sample(t,false); assert(publishedConnected); }
  sample(6000,false); assert(!publishedConnected);
+ WifiFaultHarness fault;
+ fault.processNetworkState(6000); fault.processNetworkState(10999); assert(!fault.faults_.active);
+ fault.processNetworkState(11000); assert(fault.faults_.active && fault.faults_.raised==1);
+ for(uint32_t t=11001;t<1211000;t+=1000) fault.processNetworkState(t);
+ assert(fault.faults_.raised==1); // Reminders never re-arm the condition/history edge.
  // One positive sample during router reboot cannot flicker UI online.
  sample(6250,true); assert(!publishedConnected);
  sample(6500,false); assert(!publishedConnected);
  sample(6750,true); sample(7000,true); sample(7250,true); sample(7500,true);
  assert(publishedConnected);
+ fault.processNetworkState(7500); assert(!fault.faults_.active);
+ publish(NetworkStateCode::Offline,false); fault.processNetworkState(8000); fault.processNetworkState(14000);
+ assert(!fault.faults_.active);
+ portal.state=WifiPortalState::Active; sample(15000,false);
+ fault.processNetworkState(15000); fault.processNetworkState(21000); assert(!fault.faults_.active);
+ portal.state=WifiPortalState::Failed;
+ fault.processNetworkState(22000); fault.processNetworkState(27000); assert(fault.faults_.active);
+ requestedMode=static_cast<uint8_t>(ConnectivityMode::Offline);
+ fault.processNetworkState(28000); assert(!fault.faults_.active);
+ requestedMode=static_cast<uint8_t>(ConnectivityMode::Online);
+ configured=false; sample(28500,false);
+ fault.processNetworkState(28500); fault.processNetworkState(34500); assert(!fault.faults_.active);
+ configured=true;
+ sample(29000,true); sample(29250,true); sample(29500,true); sample(29750,true);
  for(unsigned n=0;n<1000;++n) {
   uint32_t t=10000+n*2000; sample(t,false); sample(t+250,false);sample(t+500,true);sample(t+750,true);
   assert(publishedConnected);

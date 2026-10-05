@@ -417,6 +417,9 @@ enum class FaultCode : uint16_t {
   HeapCritical = 402,
   TemperatureTrendWarning = 403,
   StorageRetryTrend = 404,
+  // Nhac van hanh: may van dieu khien cuc bo binh thuong khi mat Wi-Fi.
+  // Khong co AlarmBit, khong tac dong output va khong phat coi.
+  WifiDisconnected = 405,
   // Nhom 500: bao mat dien qua ATtiny13A (mach doc lap dung pin CR2032, xem
   // doc/attiny_power_alarm.md) - CHI CANH BAO CHAN DOAN, khong anh huong
   // dieu khien nhiet/dao (dropHeatMaster/inhibitSsr deu false).
@@ -431,7 +434,7 @@ enum class FaultCode : uint16_t {
 // co 36 ma loi thuc nhung MAX_FAULTS chi la 32, lam FaultManager tran o va
 // ghi de len nhau - vd 4 ma loi dao trung E201-E204 bi xoa khoi he thong canh
 // bao chi sau ~30s).
-constexpr uint8_t FAULT_CODE_REAL_COUNT = 41U;
+constexpr uint8_t FAULT_CODE_REAL_COUNT = 42U;
 
 struct FaultDescriptor {
   FaultCode code;
@@ -544,6 +547,7 @@ inline const FaultDescriptor &faultDescriptor(FaultCode code) {
     {FaultCode::HeapCritical, FaultSeverity::Warning, 35U, AlarmSystem, false, false, false, false, false, false, "HEAP CRITICAL"},
     {FaultCode::TemperatureTrendWarning, FaultSeverity::Warning, 48U, AlarmTempHigh, false, false, false, false, false, false, "TEMP TREND WARNING"},
     {FaultCode::StorageRetryTrend, FaultSeverity::Warning, 72U, AlarmSystem, false, false, false, false, false, false, "STORAGE RETRY TREND"},
+    {FaultCode::WifiDisconnected, FaultSeverity::Info, 20U, AlarmNone, false, false, false, false, false, false, "WIFI DISCONNECTED"},
     // Nhom 500: bao mat dien qua ATtiny13A - chi chan doan, khong dropHeatMaster/
     // inhibitSsr/inhibitsTurning (mach nay hoan toan tach biet dieu khien chinh).
     {FaultCode::AttinyBusUnresponsive, FaultSeverity::Warning, 73U, AlarmSystem, false, false, false, false, false, false, "ATTINY BUS UNRESPONSIVE"},
@@ -576,7 +580,8 @@ class FaultManager {
     const FaultDescriptor &desc = faultDescriptor(code);
     if (condition) {
 #ifdef MAYAP_CLOUD_FAULT_EVENTS
-      if (!state.condition) mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),true,now);
+      if (code != FaultCode::WifiDisconnected && !state.condition)
+        mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),true,now);
 #endif
       state.condition = true;
       state.detail = detail;
@@ -599,7 +604,8 @@ class FaultManager {
     }
 
 #ifdef MAYAP_CLOUD_FAULT_EVENTS
-    if (state.condition) mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),false,now);
+    if (code != FaultCode::WifiDisconnected && state.condition)
+      mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),false,now);
 #endif
     state.condition = false;
     if (!state.active) return;
@@ -2910,6 +2916,7 @@ class SHT485Industrial {
     return true;
   }
   bool online() const { return online_; }
+  bool startupResolved() const { return startupResolved_; }
   bool dataValid() const {
     return decoder_.valid() && online_ && hasEverReceivedData_ &&
            elapsedMs(millis(), lastGoodFrameMs_) < SHT485Config::DATA_STALE_MS;
@@ -3838,6 +3845,7 @@ class MachineController {
   const MachineConfig &config() const { return config_; }
   const MachineRuntime &runtime() const { return runtime_; }
   const OutputState &outputs() const { return outputs_.state(); }
+  bool sensorStartupResolved() const { return sensor_.startupResolved(); }
 
  private:
   enum class BatchPhase : uint8_t { Stopped, Prestart, Homing, Running };
@@ -4178,6 +4186,26 @@ class MachineController {
 
   void processNetworkState(uint32_t now) {
     const NetworkStatus status = mayapGetNetworkStatus();
+    const WifiPortalStatus portal = mayapGetWifiPortalStatus();
+    const bool wifiOfflineCandidate =
+        status.requestedMode == ConnectivityMode::Online &&
+        status.credentialsConfigured &&
+        status.state == NetworkStateCode::Connecting &&
+        !status.connected &&
+        (portal.state == WifiPortalState::Idle || portal.state == WifiPortalState::Failed);
+    if (wifiOfflineCandidate) {
+      if (!wifiOfflineFaultTracking_) {
+        wifiOfflineFaultTracking_ = true;
+        wifiOfflineFaultSince_ = now;
+      }
+      faults_.set(FaultCode::WifiDisconnected,
+                  elapsedMs(now, wifiOfflineFaultSince_) >= 5000UL, now);
+    } else {
+      wifiOfflineFaultTracking_ = false;
+      wifiOfflineFaultSince_ = 0U;
+      faults_.set(FaultCode::WifiDisconnected, false, now);
+    }
+
     if (!networkStatusInitialized_) {
       lastNetworkStatus_ = status;
       networkStatusInitialized_ = true;
@@ -7026,6 +7054,7 @@ class MachineController {
     runtime_.networkConfigured = network.credentialsConfigured;
     runtime_.networkConnected = network.connected;
     runtime_.networkRssiDbm = network.rssiDbm;
+    snprintf(runtime_.networkSsid, sizeof(runtime_.networkSsid), "%s", network.ssid);
     runtime_.testModeActive = testModeActive_;
     runtime_.testOutputMaskActive = testOutputMaskActive_;
     runtime_.testLimitTarget = testLimitTarget_;
@@ -7114,6 +7143,10 @@ class MachineController {
       stateCode = MachineStateCode::SystemFault;
     } else if (batchClearPending_) {
       state = "CHO XOA DU LIEU"; stateCode = MachineStateCode::SystemFault;
+    } else if (runtime_.sensorStartupGrace && sensor_.startupResolved() && !sensor_.online()) {
+      // Startup Missing is already conclusive for presentation. Keep the
+      // existing thermal grace and fault timers independent of this label.
+      state = "MAT CAM BIEN"; stateCode = MachineStateCode::SensorFault;
     } else if (runtime_.sensorStartupGrace) {
       state = "KHOI TAO CAM BIEN"; stateCode = MachineStateCode::Boot;
     } else if (!sensorUsable_) {
@@ -7786,6 +7819,8 @@ class MachineController {
   uint32_t lastStorageHealthCheckAt_ = 0U;
   NetworkStatus lastNetworkStatus_{};
   bool networkStatusInitialized_ = false;
+  bool wifiOfflineFaultTracking_ = false;
+  uint32_t wifiOfflineFaultSince_ = 0U;
 
   float pidPower_ = 0.0f;
   MayapAdaptive::AdaptiveThermalSupervisor adaptiveThermal_;

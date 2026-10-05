@@ -49,6 +49,10 @@ static volatile bool publishedConfigured = false;
 static volatile bool publishedConnected = false;
 static volatile int8_t publishedRssiDbm = -127;
 static uint32_t publishedLocalIp = 0U;
+// Chuoi snapshot do networkTask ghi, cac task khac chi doc. Khong goi
+// WiFi.SSID() ngoai owner task de giu isolation driver.
+static char publishedSsid[WIFI_PORTAL_SSID_MAX + 1U] = "";
+static portMUX_TYPE networkStatusTextMux = portMUX_INITIALIZER_UNLOCKED;
 
 // Raw connected is immediate I/O availability; association remains independent
 // while RadioGate drains owners or memory pressure pauses Online services.
@@ -101,6 +105,9 @@ inline void loadCredentialsOnce() {
   }
   snprintf(activeSsid, sizeof(activeSsid), "%s", ssid.c_str());
   snprintf(activePassword, sizeof(activePassword), "%s", pass.c_str());
+  portENTER_CRITICAL(&networkStatusTextMux);
+  snprintf(publishedSsid, sizeof(publishedSsid), "%s", activeSsid);
+  portEXIT_CRITICAL(&networkStatusTextMux);
 }
 
 inline bool saveCredentials(const char *ssid, const char *password) {
@@ -113,6 +120,9 @@ inline bool saveCredentials(const char *ssid, const char *password) {
   wifiPrefs.putString("pass", password ? password : "");
   snprintf(activeSsid, sizeof(activeSsid), "%s", ssid);
   snprintf(activePassword, sizeof(activePassword), "%s", password ? password : "");
+  portENTER_CRITICAL(&networkStatusTextMux);
+  snprintf(publishedSsid, sizeof(publishedSsid), "%s", activeSsid);
+  portEXIT_CRITICAL(&networkStatusTextMux);
   return true;
 }
 
@@ -853,6 +863,9 @@ inline NetworkStatus mayapGetNetworkStatus() {
       &publishedConfigured, __ATOMIC_ACQUIRE);
   status.connected = __atomic_load_n(&publishedConnected, __ATOMIC_ACQUIRE);
   status.rssiDbm = __atomic_load_n(&publishedRssiDbm, __ATOMIC_ACQUIRE);
+  portENTER_CRITICAL(&networkStatusTextMux);
+  snprintf(status.ssid, sizeof(status.ssid), "%s", publishedSsid);
+  portEXIT_CRITICAL(&networkStatusTextMux);
   return status;
 }
 

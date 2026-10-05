@@ -466,13 +466,10 @@ constexpr uint32_t BUTTON_RELEASE_DEBOUNCE_MS = 70UL;
 constexpr uint32_t BUTTON_LONG_PRESS_MS = 700UL;
 constexpr uint32_t DISPLAY_MIN_DRAW_MS = 110UL;
 constexpr uint32_t HOME_REFRESH_MS = 5000UL;
-// Man hinh khoi dong (splash): hien toi thieu ngan nay roi moi vao man chinh,
-// va chi vao khi da nhan du du lieu that (runtime + config) de nguoi dung
-// khong bao gio thay man chinh voi cac o con trong/gia tri mac dinh.
+// Man hinh khoi dong (splash): hien toi thieu ngan nay. Viec roi splash do
+// boot coordinator quyet dinh sau khi sensor driver da ket luan Present/Missing;
+// Wi-Fi/Internet khong tham gia dieu kien release.
 constexpr uint32_t SPLASH_MIN_MS = 1500UL;
-// Chan tren: du chua nhan duoc du lieu (cam bien/EEPROM loi) cung khong ket o
-// man khoi dong mai - sau moc nay luon vao man chinh de con thao tac duoc.
-constexpr uint32_t SPLASH_MAX_MS = 6000UL;
 constexpr uint32_t ALARM_REFRESH_MS = 5000UL;
 // Man hinh "Dang cap nhat firmware..." can lam moi nhanh hon nhieu de thanh
 // % chay muot, khac han HOME_REFRESH_MS (5s qua cham cho viec nay).
@@ -1166,6 +1163,9 @@ struct NetworkStatus {
   bool credentialsConfigured = false;
   bool connected = false;
   int8_t rssiDbm = -127;
+  // Snapshot chi-doc do networkTask xuat ban. Giu SSID cu khi mat song de
+  // HMI biet may dang co gang ket noi lai vao mang nao.
+  char ssid[33] = "";
 };
 
 // Trang thai cong 1 "Doi Wi-Fi" tren HMI: mo AP cau hinh giong nhu giu nut
@@ -1285,6 +1285,7 @@ struct MachineRuntime {
   bool networkConfigured = false;
   bool networkConnected = false;
   int8_t networkRssiDbm = -127;
+  char networkSsid[33] = "";
   char dateText[11] = "--/--/----";
   char timeText[6] = "--:--";  // "HH:MM" tu RTC, hien o thanh trang thai man chinh
   char machineState[20] = "KHOI DONG";

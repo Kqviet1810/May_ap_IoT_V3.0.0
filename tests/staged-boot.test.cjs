@@ -46,14 +46,17 @@ test('admission follows local, Wi-Fi, MQTT, Cloud, OTA order with owner-only ini
   assert.doesNotMatch(body(read(dir + 'network_service.h'), 'inline void mayapNetworkBegin()'), /__atomic_store_n\(&requestedMode/);
 });
 
-test('Home and boot success depend on local stability, never server connectivity', () => {
+test('Home waits for sensor startup resolution but never for server connectivity', () => {
   const stability = body(ino, 'static void updateBootStability(');
   assert.doesNotMatch(stability, /WiFi|mqttConnected|networkReady|mayapGetNetworkStatus|mqtt\.connected/);
   assert.match(stability, /localSuccessStability\.held\(now, MayapBoot::SUCCESS_STABLE_MS\)/);
   assert.match(stability, /sensorHealthy/);
+  assert.match(stability, /sensorStartupResolved/);
+  assert.match(stability, /sensorResolved[\s\S]*localTaskStability\.held\(now, homeDelay\)/);
   assert.match(stability, /displayHealthy/);
   assert.match(body(ino, 'static bool localTasksHealthy('), /supervisorHeartbeatMs/);
-  assert.match(hmi, /mayapBootHomeReleased\(\) \|\| elapsed >= SPLASH_MAX_MS/);
+  assert.match(hmi, /if \(mayapBootHomeReleased\(\)\)/);
+  assert.doesNotMatch(hmi, /mayapBootHomeReleased\(\) \|\|/);
 });
 
 test('Supervisor admission gates retain fatal thresholds and persist reason before TWDT fallback', () => {
