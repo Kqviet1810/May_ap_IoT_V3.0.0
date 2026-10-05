@@ -128,6 +128,8 @@ jobs:
         run: |
           g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/runtime-recovery.cpp -o /tmp/mayap-runtime-test
           /tmp/mayap-runtime-test
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/turn-schedule.cpp -o /tmp/mayap-turn-schedule-test
+          /tmp/mayap-turn-schedule-test
           python3 tools/test_runtime_buses.py --sanitize
 
       - name: Reject unsafe firmware shortcuts
