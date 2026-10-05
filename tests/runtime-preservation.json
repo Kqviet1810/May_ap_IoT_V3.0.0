@@ -58,12 +58,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "2744712bfbd714381b88a9fe4a0c7e66ced5aa7f660a60585bcde214713136ef",
+      "sha256": "8c18fff6775de5472882fa1a3f2f1aa9592c01c6daf6cd4094df0cc774a3f498",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "198d86eb8cefc3bc0b6c77db9cd2541778a2f7911de5ed95c53f6a402edd7943",
+      "sha256": "11662d78df9d090400cd41e4a3158e0ffe15f1c705d40901e49ed8611b4a8068",
       "signature": "class MachineController {"
     },
     {
@@ -79,7 +79,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "2609cb98483175fccdd2c7074c9802ddaf9319fa2903ebaeaf071b035350082c",
+      "sha256": "56752bff2200d954e3f080025ea5f76b9f0b74ddee83b6821aac35a4d9b9d5a4",
       "signature": "inline const FaultDescriptor &faultDescriptor("
     },
     {
@@ -124,7 +124,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/MAYAP_INDUSTRIAL_v1_0_0.ino",
-      "sha256": "d71825510821917702a1e24debee2d930e74e03ce6220bbe892601295c00504b",
+      "sha256": "ef8d92657e1d46d358d33439c1a24888343c18aa3b1c97d54c78ec0cb2b6f578",
       "signature": "static void updateBootStability("
     },
     {
@@ -433,6 +433,7 @@
       "sha256": "edff38adbe7188ac13530dffe7161aedc47c0643c4a8fd375c0ab17d17ea36a9"
     }
   ],
+  "operatorHardeningReviewNote": "2026-10-05: reviewed boot sensor-resolution gate, read-only SSID snapshot, local E405 Wi-Fi reminder and logged-in thermal-balance presentation. E405 uses AlarmNone and no output/safety authority; cloud fault events remain filtered. No EEPROM schema, PID/thermal safety, turning scheduler or signed Web transaction changes.",
   "webScopeNote": "Web 12.1 permits presentation and connection scheduling changes. Exact a60fe7e function hashes protect signing, ACK verification, config/command publication, transaction phases, replay/retry, uncertain cleanup and report reconciliation. Only listed exact copy replacements are permitted; semantic transaction tests remain unchanged.",
   "versionResetReviewNote": "2026-10-02: repository baseline reset to V1.0.0. Only firmware/HMI display versions and active paths changed; protected control, safety, protocol and storage semantics remain unchanged.",
   "realtimeReviewNote": "2026-10-02: transport-only migration reviewed against e285d1a. Config network constants/version and protocol frame overhead changed; signing function name and Web publication/routes/connection fields changed. All controller, thermal, output, EEPROM, HMI, ATtiny, boot, watchdog/recovery and OTA fingerprints unchanged. V2 HMAC domains and transaction outcomes remain regression-tested. Changed entries: protocol_v2.js, MAYAP_INDUSTRIAL_v1_0_0/config.h, function retrySameRequest(, function rememberOutcome(, async function sendConfig(formId, group) {, async function sendCommand(action, options = {}) {, function handleAck(device, ack) {, function publish(route, payload, options = {}) { Removed obsolete broker wrapper fingerprint only after actual workerd and RFC6455/async DNS/TLS regression passed.",
