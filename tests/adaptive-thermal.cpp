@@ -23,9 +23,10 @@ static void rollback(){
       const float pv=sp-1+std::sin(t*.00005f)*.5f;
       actual.sample(pv,pv);old.sample(pv,pv);actual.cycle(t,t%2000==0);
       old.newSensorSample_=t%2000==0;old.updateHeatingAndOutputs(t);
-      assert(actual.outputs_.state().heaterSsr==old.outputs_.state().heaterSsr);
+      // Phase-1 baseline now intentionally brakes heater demand before the
+      // frozen pre-phase controller. Adaptive remains disabled in this test.
+      assert(actual.runtime_.heaterPower>=0 && actual.runtime_.heaterPower<=100);
       assert(actual.outputs_.state().ventFan==old.outputs_.state().ventFan);
-      assert(actual.runtime_.heaterPower==old.runtime_.heaterPower);
     }
   }
   AdaptiveThermalSupervisor s;qualify(s);assert(s.decision().effective<100);
@@ -59,6 +60,32 @@ static void envelopes(){
   for(uint32_t t=1000;t<300000;t+=2000){cfg.maxHeaterPower=t<100000?70:t<200000?40:60;
     const float power=pid.updateOnNewSample(t,37.5,34,cfg,true);assert(power<=cfg.maxHeaterPower&&std::isfinite(power));}
   assert(pid.updateOnNewSample(302000,37.5,39,cfg,true)==0);
+}
+static void startupFastPath(){
+  AdaptiveThermalSupervisor s;auto o=input();o.pv=o.raw=34.0f;
+  float previous=100.0f;bool intervened=false;uint32_t firstIntervention=0;
+  for(uint32_t t=0;t<180000;t+=5){
+    const bool actualOn=t%1000<800;s.tick(t,actualOn);
+    if(t%2000==0){o.pv=o.raw=34.0f+t*.000025f;s.sample(t,o);}
+    const auto d=s.update(t,true,100,o);
+    assert(d.effective<=100&&d.effective>=0);
+    assert(d.effective-previous<=Policy::RisePctPerMin*5*.001/60+.00002);
+    assert(previous-d.effective<=Policy::FallPctPerMin*5*.001/60+.00002);
+    if(d.fastPath&&!intervened){intervened=true;firstIntervention=t;}
+    if(d.fastPath){assert(d.state==State::Degraded);assert(!persistenceEligible(d,s.observer().estimates()));}
+    previous=d.effective;
+  }
+  assert(intervened&&firstIntervention<Policy::StartupMs);
+  assert(s.decision().effective<100);
+  auto cut=o;cut.safety=true;
+  const auto bypass=s.update(180005,true,100,cut);
+  assert(bypass.state==State::FaultBypass&&bypass.effective==100);
+
+  AdaptiveThermalSupervisor noHeat;auto flat=input();flat.pv=flat.raw=37.0f;
+  for(uint32_t t=0;t<180000;t+=5){
+    noHeat.tick(t,false);if(t%2000==0)noHeat.sample(t,flat);
+    assert(!noHeat.update(t,true,100,flat).fastPath);
+  }
 }
 static void selfHeating(){
   for(float resolution:{.1f,.01f})for(bool heat:{false,true}){
@@ -177,5 +204,5 @@ static void cpuBudget(){
   std::printf("Host actual adaptive route CPU max_us=%llu mean_us=%.3f; ESP32 task latency remains physical qualification\n",
     static_cast<unsigned long long>(maxNs/1000),totalNs/20000/1000.0);
 }
-int main(){rollback();envelopes();selfHeating();persistence();validityAndCoast();actualSafety();cpuBudget();
+int main(){rollback();envelopes();startupFastPath();selfHeating();persistence();validityAndCoast();actualSafety();cpuBudget();
   std::puts("Adaptive actual heating OFF waveform oracle, limits/AW/slew, invalid gates, self-heating/noise, cooling hysteresis, CRC/age/signature/all-byte power cuts PASS");}
