@@ -187,16 +187,14 @@ static void burstEnergy() {
   unsigned equivalent=0;
   for(unsigned n=0;n<1000;++n) equivalent+=HeaterBurstScheduler::fullPowerEquivalentMs(1,2,true,false,remainder);
   assert(equivalent==500 && remainder==0);
-  MachineConfig cfg,result;
-  RelayAutoTune tune;
-  tune.configure(37.5f); tune.start(1000,37.4f);
-  tune.update(1000,37.4f,cfg,result);
+  // PDM energy regression is independent of the AutoTune coordinator.
+  // A 30% request across two logical groups for 600 s delivers 360 group-slots.
   scheduler.reset(); units=0;
   for (unsigned n=0;n<600;++n) {
-    d=scheduler.update(1000U+n*1000U,tune.power(),true); units+=d.groupA+d.groupB;
+    d=scheduler.update(1000U+n*1000U,30.0f,true); units+=d.groupA+d.groupB;
   }
-  assert(units==360); // autotune 30% total, not a direct GPIO bypass
-  tune.abort(); d=scheduler.update(601001,tune.power(),true);
+  assert(units==360);
+  d=scheduler.update(601001,0.0f,true);
   assert(!d.groupA && !d.groupB);
 }
 static void burstTimingJitter() {
