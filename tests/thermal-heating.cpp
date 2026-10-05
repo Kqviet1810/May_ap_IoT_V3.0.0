@@ -67,7 +67,10 @@ int main(){
     guarded.warm();
     // Advance until LKG/Phase-1/PDM has a physical heat pulse, then cut inside it.
     uint32_t at=15000;
-    while(!guarded.outputs_.state().heaterSsr && at<60000)guarded.cycle(at+=50,at%2000==0);
+    while(!guarded.outputs_.state().heaterSsr && at<60000) {
+      at+=50;
+      guarded.cycle(at,at%2000==0);
+    }
     assert(guarded.outputs_.state().heaterSsr);
     switch(reason){
       case 0:guarded.inputs_.in.heaterEnable=false;break;
