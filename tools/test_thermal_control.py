@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser()
 parser.add_argument('--sanitize', action='store_true')
 parser.add_argument('--require-targets', action='store_true', help='Fail if any model misses the fixed acceptance targets')
-parser.add_argument('--autotune-subset', action='store_true', help='Run the 48-case AutoTune development subset only')
+parser.add_argument('--autotune-subset', action='store_true', help='Run the fixed 12-case V4.3B production-integration subset only')
+parser.add_argument('--autotune-full', action='store_true', help='Explicitly run the legacy 864-case AutoTune matrix; never implied by normal CI')
 parser.add_argument('--report-dir', type=Path, default=Path('/tmp/mayap-thermal-report'))
 args = parser.parse_args()
 args.report_dir.mkdir(parents=True, exist_ok=True)
@@ -175,17 +176,31 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
                     bank_report.write('quantum_ms,power_percent,horizon_s,requested_pct,delivered_pct,absolute_energy_error_j,max_no_heat_ms,transitions_per_hour\n')
                     bank_report.writelines(line[5:]+'\n' for line in result.stdout.splitlines() if line.startswith('BANK,'))
     if args.autotune_subset:
-        executable = out / 'thermal-autotune-subset'
-        subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-plant.cpp'), '-o', str(executable)], check=True)
+        executable = out / 'thermal-autotune-v43b-subset'
+        subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-v43b-plant.cpp'), '-o', str(executable)], check=True)
         with (args.report_dir / 'autotune-subset.csv').open('w') as report:
-            subprocess.run([str(executable), str(args.report_dir / 'autotune-subset-cycles.csv'), '--subset'], stdout=report, check=True)
+            subprocess.run([str(executable)], stdout=report, check=True)
         subset_rows=list(csv.DictReader((args.report_dir / 'autotune-subset.csv').open()))
-        assert len(subset_rows)==48
+        assert len(subset_rows)==12
+        valid={p:sum(r['model_valid']=='1' and r['plant']==p for r in subset_rows)
+               for p in ['light','medium','heavy']}
         accepted=sum(r['accepted']=='1' for r in subset_rows)
         generated=sum(r['candidate_generated']=='1' for r in subset_rows)
-        bad=sum(r['candidate']=='ACCEPTED_BAD' for r in subset_rows)
+        validation=sum(r['validation_started']=='1' for r in subset_rows)
+        bad=sum(r['accepted_bad']=='1' for r in subset_rows)
+        high_id=sum(r['high_identification']=='1' for r in subset_rows)
+        emergency_id=sum(r['emergency_identification']=='1' for r in subset_rows)
+        high_val=sum(r['high_validation']=='1' for r in subset_rows)
+        emergency_val=sum(r['emergency_validation']=='1' for r in subset_rows)
+        assert all(valid[p]>=1 for p in valid), 'one representative plant produced no valid model'
+        assert validation>=1, 'no candidate reached production validation'
+        assert accepted>1, 'fewer than two representative cases accepted'
         assert bad==0, 'subset accepted a BAD candidate'
-        print(f'AUTOTUNE subset: 48 cases, candidates={generated}, accepted={accepted}, rejected={generated-accepted}, accepted_bad={bad}')
+        assert high_id==0 and emergency_id==0, 'identification crossed a thermal safety threshold'
+        assert emergency_val==0, 'validation crossed Emergency'
+        print(f'AUTOTUNE V4.3B subset: 12 cases, models={valid}, candidates={generated}, '
+              f'validation={validation}, accepted={accepted}, accepted_bad={bad}, '
+              f'High id/val={high_id}/{high_val}, Emergency id/val={emergency_id}/{emergency_val}')
         raise SystemExit(0)
     current_executable = out / 'adaptive-plant-current'
     subprocess.run(common + ['-O2', '-DMAYAP_ADAPTIVE_FAST_PATH=0',
@@ -227,25 +242,26 @@ with tempfile.TemporaryDirectory(prefix='mayap-thermal-') as directory:
           f'{sum(int(r["false_learning_count"]) for r in fast_adaptive)}')
 
     print('Adaptive actual plant matrix: '+str(len(adaptive_rows))+' baseline/adaptive rows; cooling capacity unknown (zero watts credited)')
-    executable = out / 'thermal-autotune-plant'
-    subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-plant.cpp'), '-o', str(executable)], check=True)
-    with (args.report_dir / 'autotune-plant.csv').open('w') as report:
-        subprocess.run([str(executable), str(args.report_dir / 'autotune-cycles.csv')], stdout=report, check=True)
-    tune_rows=list(csv.DictReader((args.report_dir / 'autotune-plant.csv').open()))
-    assert len(tune_rows)==864
-    tune_candidates=sum(r['candidate_generated']=='1' for r in tune_rows)
-    tune_accepted=sum(r['accepted']=='1' for r in tune_rows)
-    tune_bad=sum(r['candidate']=='ACCEPTED_BAD' for r in tune_rows)
-    assert tune_bad==0, 'full matrix accepted a BAD candidate'
-    print(f'AUTOTUNE candidate validation: generated={tune_candidates}, accepted={tune_accepted}, '
-          f'rejected={tune_candidates-tune_accepted}, accepted_bad={tune_bad}')
-    for preheat in [30,40,50]:
-        subset=[r for r in tune_rows if float(r['preheat_power'])==preheat and r['start_condition']=='COLD']
-        print(f'AUTOTUNE preheat {preheat}%: '+str(sum(r['success']=='1' for r in subset))+'/216 SUCCESS; failures bounded and gains retained')
-    for relay in [20,30,40]:
-        subset=[r for r in tune_rows if float(r['preheat_power'])==30 and float(r['relay_power'])==relay and r['start_condition']=='COLD']
-        print(f'AUTOTUNE candidate preheat30/relay{relay}: '+str(sum(r['success']=='1' for r in subset))+'/72 SUCCESS')
-    executable = out / 'thermal-plant'
+    if args.autotune_full:
+        executable = out / 'thermal-autotune-plant'
+        subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-autotune-plant.cpp'), '-o', str(executable)], check=True)
+        with (args.report_dir / 'autotune-plant.csv').open('w') as report:
+            subprocess.run([str(executable), str(args.report_dir / 'autotune-cycles.csv')], stdout=report, check=True)
+        tune_rows=list(csv.DictReader((args.report_dir / 'autotune-plant.csv').open()))
+        assert len(tune_rows)==864
+        tune_candidates=sum(r['candidate_generated']=='1' for r in tune_rows)
+        tune_accepted=sum(r['accepted']=='1' for r in tune_rows)
+        tune_bad=sum(r['candidate']=='ACCEPTED_BAD' for r in tune_rows)
+        assert tune_bad==0, 'full matrix accepted a BAD candidate'
+        print(f'AUTOTUNE candidate validation: generated={tune_candidates}, accepted={tune_accepted}, '
+              f'rejected={tune_candidates-tune_accepted}, accepted_bad={tune_bad}')
+        for preheat in [30,40,50]:
+            subset=[r for r in tune_rows if float(r['preheat_power'])==preheat and r['start_condition']=='COLD']
+            print(f'AUTOTUNE preheat {preheat}%: '+str(sum(r['success']=='1' for r in subset))+'/216 SUCCESS; failures bounded and gains retained')
+        for relay in [20,30,40]:
+            subset=[r for r in tune_rows if float(r['preheat_power'])==30 and float(r['relay_power'])==relay and r['start_condition']=='COLD']
+            print(f'AUTOTUNE candidate preheat30/relay{relay}: '+str(sum(r['success']=='1' for r in subset))+'/72 SUCCESS')
+        executable = out / 'thermal-plant'
     subprocess.run(common + ['-O2', str(ROOT / 'tests/thermal-plant.cpp'), '-o', str(executable)], check=True)
     with (args.report_dir / 'plant.csv').open('w') as report:
         subprocess.run([str(executable)], stdout=report, check=True)
