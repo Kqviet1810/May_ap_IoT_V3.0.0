@@ -65,6 +65,21 @@ bool sendResetPin() {
   ++resetRequests; return resetSuccess;
 }
 #include "actual-cloud-pin-reset.inc"
+static bool registered=true, dispatchDeferred=false;
+static unsigned dispatchAlarms=0,dispatchHeartbeats=0;
+void serviceRegister(uint32_t){}
+void drainOutbox(uint32_t){
+  if(!outboxCount)return;
+  ++dispatchAlarms;requestDeferred=dispatchDeferred;
+  if(!requestDeferred)--outboxCount;
+}
+void serviceHeartbeat(uint32_t){
+  ++dispatchHeartbeats;requestDeferred=dispatchDeferred;
+  if(requestDeferred)mayapRequestCloudTlsYield(millis());
+}
+void dispatch(uint32_t now){
+#include "actual-cloud-dispatch.inc"
+}
 }
 struct HmiEventItem { uint32_t sequence=0; };
 struct HmiEventSnapshot { uint32_t sourceSequence=0; uint8_t count=0; HmiEventItem items[16]; };
@@ -90,13 +105,62 @@ void mayapRequestWifiHighPerformance(bool highPerformance) {
   ++powerRequests;
 }
 #include "actual-wifi-power.inc"
+struct YieldSocket {
+  bool open=true; unsigned closes=0;
+  bool busy()const{return open;}
+  void disconnect(){open=false;++closes;ESP.free=85000;}
+} socketTransport;
+static bool connectionAnnounced=true;
+static unsigned reconnectAttempts=0;
+void realtimeYieldPoll(uint32_t now) {
+#include "actual-cloud-yield.inc"
+  ++reconnectAttempts;
+}
 int main() {
+  __atomic_store_n(&gMayapSerialDebugEnabled, false, __ATOMIC_RELEASE);
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud && mayapTlsBusy());
     MayapTlsOperation other; assert(!other);
     MayapNetworkBatchOperation bulk; assert(!bulk); }
   assert(!mayapTlsBusy());
   ESP.free=73727;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud && !mayapTlsBusy()); }
+  assert(mayapCloudTlsYieldRequested(clockMs));
+  // Physical failure: resident WS leaves 69-71 KiB. Cloud asks its owner to
+  // release TLS, does not lower admission, and sends once that RAM is free.
+  ESP.free=71476;
+  { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud); }
+  realtimeYieldPoll(clockMs);
+  assert(socketTransport.closes==1&&!connectionAnnounced&&reconnectAttempts==0);
+  realtimeYieldPoll(clockMs+1000);
+  assert(socketTransport.closes==1&&reconnectAttempts==0);
+  assert(!mayapRequestCloudTlsYield(clockMs+1000)); // no reconnect storm
+  ESP.free=85000;
+  { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud);
+    assert(mayapCloudTlsYieldRequested(clockMs+16000)); }
+  // Keep the lease through the mandatory HTTP gap for queued alarms.
+  assert(mayapCloudTlsYieldRequested(clockMs+3000));
+  realtimeYieldPoll(clockMs+3000);
+  assert(reconnectAttempts==0);
+  { MayapTlsOperation alarm(MayapTlsKind::Cloud); assert(alarm); }
+  mayapReleaseCloudTlsYield();
+  assert(!mayapCloudTlsYieldRequested(clockMs));
+  realtimeYieldPoll(clockMs);
+  assert(reconnectAttempts==1);
+  clockMs+=60000;
+  ESP.free=69904;
+  { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(!cloud); }
+  assert(mayapCloudTlsYieldRequested(clockMs));
+  assert(!mayapCloudTlsYieldRequested(clockMs+15000)); // bounded failed handoff
+  clockMs+=60000;
+  const uint32_t savedClock=clockMs;
+  clockMs=0xfffffff0U;
+  MayapNetworkIoInternal::cloudYieldRetryAt=0U;
+  assert(mayapRequestCloudTlsYield(clockMs));
+  assert(mayapCloudTlsYieldRequested(clockMs+1000U));
+  assert(!mayapCloudTlsYieldRequested(clockMs+15000U));
+  assert(!mayapRequestCloudTlsYield(clockMs+20000U));
+  clockMs=savedClock;
+  MayapNetworkIoInternal::cloudYieldUntil=MayapNetworkIoInternal::cloudYieldRetryAt=0U;
   ESP.free=73728;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud); }
   ESP.free=85000; ESP.largest=24575;
@@ -111,6 +175,21 @@ int main() {
   ESP.free=49152;
   { MayapTlsOperation mqtt; assert(mqtt); }
   assert(!mayapTlsBusy() && mayapTlsDeferredCount()>=4);
+  using namespace MayapCloudInternal;
+  outboxCount=2;
+  dispatch(clockMs);
+  assert(dispatchAlarms==1&&dispatchHeartbeats==0&&outboxCount==1);
+  dispatch(clockMs);
+  assert(dispatchAlarms==2&&dispatchHeartbeats==1&&outboxCount==0);
+  dispatchDeferred=true;
+  MayapNetworkIoInternal::cloudYieldRetryAt=0;
+  dispatch(clockMs);
+  assert(mayapCloudTlsYieldRequested(clockMs)); // heartbeat cannot cancel handoff
+  dispatchDeferred=false;
+  dispatch(clockMs);
+  assert(!mayapCloudTlsYieldRequested(clockMs));
+  clockMs=100;
+  __atomic_store_n(&gMayapSerialDebugEnabled, true, __ATOMIC_RELEASE);
 
   char bounded[10]; HTTPClient http;
   http.size=20; assert(!mayapReadBoundedHttpBody(http,bounded,sizeof(bounded)) && http.calls==0);

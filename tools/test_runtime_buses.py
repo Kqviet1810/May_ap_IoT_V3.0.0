@@ -53,6 +53,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = cloud.index('inline void servicePinReset()')
     end = cloud.index('}  // namespace MayapCloudInternal', start)
     (out / 'actual-cloud-pin-reset.inc').write_text(cloud[start:end], encoding='utf-8')
+    start = cloud.index('  servicePinReset();')
+    end = cloud.index('\n}', start)
+    (out / 'actual-cloud-dispatch.inc').write_text(cloud[start:end], encoding='utf-8')
     realtime = (root / 'MAYAP_INDUSTRIAL_v1_0_0/realtime_link.h').read_text(encoding='utf-8')
     start = realtime.index('inline void serviceEventLogPublish()')
     end = realtime.index('}  // namespace MayapRealtimeInternal', start)
@@ -63,6 +66,9 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = realtime.index('inline void serviceWifiPowerMode()')
     end = realtime.index('inline void serviceConfigPublish()', start)
     (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
+    start = realtime.index('  if (mayapCloudTlsYieldRequested(now))')
+    end = realtime.index('  const NetworkStatus status', start)
+    (out / 'actual-cloud-yield.inc').write_text(realtime[start:end], encoding='utf-8')
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),

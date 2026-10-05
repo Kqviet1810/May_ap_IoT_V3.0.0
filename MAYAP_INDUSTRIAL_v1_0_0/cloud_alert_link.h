@@ -575,6 +575,14 @@ inline bool postJson(const char *path, const JsonDocument &doc, const char *logT
   }
   MayapTlsOperation tlsOperation(MayapTlsKind::Cloud);
   if (!tlsOperation) {
+    static uint32_t lastAdmissionLogAt = 0U;
+    if (lastAdmissionLogAt == 0U || elapsedMs(millis(), lastAdmissionLogAt) >= 30000U) {
+      lastAdmissionLogAt = millis();
+      mayapSerialPrintf(false, "[CLOUD] %s deferred TLS heap=%lu largest=%lu yield=%u\n",
+          logTag, static_cast<unsigned long>(ESP.getFreeHeap()),
+          static_cast<unsigned long>(ESP.getMaxAllocHeap()),
+          mayapCloudTlsYieldRequested(millis()) ? 1U : 0U);
+    }
     if (responseCode) *responseCode = 0;
     return false; // defer through the existing bounded Cloud retry queue
   }
@@ -870,8 +878,9 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
   servicePinReset();
   serviceRegister(now);
   if (registered) {
-    serviceHeartbeat(now);
     drainOutbox(now);
+    if (outboxCount == 0U) serviceHeartbeat(now);
+    if (outboxCount == 0U && !requestDeferred) mayapReleaseCloudTlsYield();
   }
 
 }

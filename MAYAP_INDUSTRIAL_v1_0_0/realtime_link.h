@@ -1467,6 +1467,14 @@ inline void mayapMqttRecover(uint32_t now) {
 inline void mayapWebLinkUpdate(uint32_t now) {
   using namespace MayapRealtimeInternal;
   serviceSessionTimeout(now); serviceWifiPowerMode();
+  if (mayapCloudTlsYieldRequested(now)) {
+    if (socketTransport.busy()) {
+      socketTransport.disconnect();
+      mayapSerialPrintf(false, "[WEBLINK] TLS RAM handoff to Cloud; reconnect after send\n");
+    }
+    connectionAnnounced = false;
+    return;
+  }
   const NetworkStatus status = mayapGetNetworkStatus();
   if (status.requestedMode != ConnectivityMode::Online || !status.connected) {
     if (socketTransport.busy()) socketTransport.disconnect();
