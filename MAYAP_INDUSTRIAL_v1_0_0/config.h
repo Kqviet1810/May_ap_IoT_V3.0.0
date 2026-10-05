@@ -1166,6 +1166,9 @@ struct NetworkStatus {
   bool credentialsConfigured = false;
   bool connected = false;
   int8_t rssiDbm = -127;
+  // Snapshot chi-doc do networkTask xuat ban. Giu SSID cu khi mat song de
+  // HMI biet may dang co gang ket noi lai vao mang nao.
+  char ssid[33] = "";
 };
 
 // Trang thai cong 1 "Doi Wi-Fi" tren HMI: mo AP cau hinh giong nhu giu nut
@@ -1285,6 +1288,7 @@ struct MachineRuntime {
   bool networkConfigured = false;
   bool networkConnected = false;
   int8_t networkRssiDbm = -127;
+  char networkSsid[33] = "";
   char dateText[11] = "--/--/----";
   char timeText[6] = "--:--";  // "HH:MM" tu RTC, hien o thanh trang thai man chinh
   char machineState[20] = "KHOI DONG";
