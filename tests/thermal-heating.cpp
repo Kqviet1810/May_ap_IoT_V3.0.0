@@ -50,6 +50,8 @@ int main(){
   Harness tune;tune.batchRunning_=false;tune.temperature_=36.5f;
   tune.autotune_.configure(37.5f);tune.autotune_.start(1000,36.5f);
   MachineConfig result;
+  assert(!tune.autotune_.update(1000,36.5f,tune.config_,result,37.6f,38.2f));
+  assert(tune.autotune_.phase()==AutoTunePhase::CapturePower);
   tune.warm();
   unsigned energy=0;
   for(uint32_t t=16000;t<136000;t+=50){
@@ -64,6 +66,8 @@ int main(){
   for(unsigned reason=0;reason<15;++reason){
     Harness guarded;guarded.batchRunning_=false;guarded.temperature_=36.5f;
     guarded.autotune_.configure(37.5f);guarded.autotune_.start(1000,36.5f);
+    assert(!guarded.autotune_.update(1000,36.5f,guarded.config_,result,37.6f,38.2f));
+    assert(guarded.autotune_.phase()==AutoTunePhase::CapturePower);
     guarded.warm();
     // Advance until LKG/Phase-1/PDM has a physical heat pulse, then cut inside it.
     uint32_t at=15000;
