@@ -1314,17 +1314,16 @@
     renderBatchAction(device, runtime);
 
     const adaptiveNames = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
+    const thermalFeature = $('thermalBalanceFeature');
     if (runtime.adaptiveThermal) {
       const adaptiveName = adaptiveNames[Number(runtime.adaptiveThermal.state)] || 'Tạm ngưng';
       if ($('adaptiveThermalStatus')) $('adaptiveThermalStatus').textContent = adaptiveName;
-      if ($('thermalBalanceFeature')) {
-        $('thermalBalanceFeature').innerHTML =
-          '<strong>Cân bằng nhiệt thông minh</strong> · ' + adaptiveName +
-          ' · Tự học phản ứng nhiệt của buồng để giảm vọt lố; bảo vệ nhiệt vẫn độc lập.';
-      }
-    } else if ($('thermalBalanceFeature')) {
-      $('thermalBalanceFeature').innerHTML =
-        '<strong>Cân bằng nhiệt thông minh</strong> · Tự học phản ứng nhiệt của buồng để giảm vọt lố; các lớp bảo vệ nhiệt vẫn hoạt động độc lập.';
+      if (thermalFeature) thermalFeature.textContent = 'Cân bằng nhiệt · ' + adaptiveName;
+    } else if (thermalFeature) {
+      thermalFeature.textContent = 'Cân bằng nhiệt thông minh';
+    }
+    if (thermalFeature) {
+      thermalFeature.title = 'Tự học phản ứng nhiệt của buồng để giảm vọt lố; bảo vệ nhiệt vẫn độc lập.';
     }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));
