@@ -69,5 +69,36 @@ int main() {
  assert(badRtc.nextTurnAt_==0 && badRtc.turnPhase_==TurnPhase::Idle);
  badRtc.rtc_.ok=true; badRtc.rtc_.now+=70*60; badRtc.updateTurning(6000);
  assert(badRtc.nextTurnAt_==6000+50*60000 && badRtc.turnPhase_==TurnPhase::Idle);
+ // RTC never recovers: bounded one-interval wait, no busy-loop turn storm.
+ Controller lost; lost.rtc_.ok=false; lost.updateTurning(5000); lost.updateTurning(5001);
+ lost.updateTurning(5000+120*60000);
+ assert(lost.turnPhase_==TurnPhase::DeadtimeRight);
+ // Safety conditions still outrank an overdue deadline.
+ for (unsigned fault=0;fault<5;++fault) {
+  Controller blocked; blocked.rtc_.now+=121*60;
+  if(fault==0) blocked.faults_.inhibit=true;
+  if(fault==1) blocked.sensorUsable_=false;
+  if(fault==2) blocked.highTemperatureActive_=true;
+  if(fault==3) blocked.emergencyActive_=true;
+  if(fault==4) blocked.batchElapsed=18*86400;
+  blocked.updateTurning(5000); blocked.updateTurning(5001);
+  assert(blocked.turnPhase_==TurnPhase::Idle);
+ }
+ // Signed deadline arithmetic across millis wrap; epoch is unaffected.
+ Controller wrap; wrap.rtc_.now+=119*60; wrap.updateTurning(0xFFFF8000U);
+ const uint32_t due=uint32_t(0xFFFF8000U+60000U);
+ wrap.updateTurning(due-1); assert(wrap.turnPhase_==TurnPhase::Idle);
+ wrap.updateTurning(due); assert(wrap.turnPhase_==TurnPhase::DeadtimeRight);
+ // Shorter interval can become overdue immediately, still uses original anchor.
+ Controller shorter; shorter.rtc_.now+=70*60; shorter.updateTurning(5000);
+ shorter.config_.turnIntervalMin=60; shorter.scheduleNextTurnFromAnchor(6000);
+ shorter.updateTurning(6000); assert(shorter.turnPhase_==TurnPhase::DeadtimeRight);
+ // Manual -> Auto in mid-travel homes first without erasing overdue state.
+ Controller mode; mode.rtc_.now+=121*60; mode.inputs_.value.limitLeft=false;
+ mode.inputs_.value.autoMode=false; mode.processInputModeTransition(5000);
+ mode.inputs_.value.autoMode=true; mode.processInputModeTransition(6000);
+ mode.updateTurning(6000); mode.updateTurning(6100);
+ mode.inputs_.value.limitLeft=true; mode.updateTurning(6200); mode.updateTurning(6201);
+ assert(mode.lastTurnEpoch_==1000000 && mode.turnPhase_==TurnPhase::DeadtimeRight);
  std::puts("Production turning scheduler regression PASS");
 }
