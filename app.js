@@ -1313,10 +1313,18 @@
     }
     renderBatchAction(device, runtime);
 
-    if (runtime.adaptiveThermal && $('adaptiveThermalStatus')) {
-      const names = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
-      const adapt = runtime.adaptiveThermal;
-      $('adaptiveThermalStatus').textContent = names[Number(adapt.state)] || 'Tạm ngưng';
+    const adaptiveNames = ['Tắt', 'Đang học', 'Đã đủ dữ liệu', 'Đang cân bằng', 'Đang tự làm mát', 'Đang học lại', 'Tạm ngưng'];
+    if (runtime.adaptiveThermal) {
+      const adaptiveName = adaptiveNames[Number(runtime.adaptiveThermal.state)] || 'Tạm ngưng';
+      if ($('adaptiveThermalStatus')) $('adaptiveThermalStatus').textContent = adaptiveName;
+      if ($('thermalBalanceFeature')) {
+        $('thermalBalanceFeature').innerHTML =
+          '<strong>Cân bằng nhiệt thông minh</strong> · ' + adaptiveName +
+          ' · Tự học phản ứng nhiệt của buồng để giảm vọt lố; bảo vệ nhiệt vẫn độc lập.';
+      }
+    } else if ($('thermalBalanceFeature')) {
+      $('thermalBalanceFeature').innerHTML =
+        '<strong>Cân bằng nhiệt thông minh</strong> · Tự học phản ứng nhiệt của buồng để giảm vọt lố; các lớp bảo vệ nhiệt vẫn hoạt động độc lập.';
     }
     const autoTuneState = Number(runtime.autoTuneState || 0);
     const autoTuneProgress = Math.max(0, Math.min(100, Number(runtime.autoTuneProgress || 0)));
@@ -2446,6 +2454,7 @@
     314: 'Lỗi nhật ký an toàn', 315: 'Mất nhật ký mẻ',
     401: 'RAM thấp (cảnh báo sớm)', 402: 'RAM cạn - tự khởi động lại',
     403: 'Dự đoán sắp chạm ngưỡng nhiệt', 404: 'Bộ nhớ máy cần thử lại nhiều',
+    405: 'Mất kết nối Wi‑Fi',
     501: 'Mất liên lạc mạch báo mất điện (ATtiny)', 502: 'Pin còi sắp hết — hãy thay pin'
   };
 
@@ -2488,6 +2497,7 @@
     402: 'RAM cạn kiệt nghiêm trọng - máy tự khởi động lại có kiểm soát để phòng tránh treo máy đột ngột. Nhiệt/đảo trứng phục hồi ngay sau khi khởi động lại xong.',
     403: 'Theo tốc độ thay đổi nhiệt độ hiện tại, dự đoán sắp chạm ngưỡng cảnh báo trong ít phút tới - cảnh báo sớm, không phải đã vượt ngưỡng.',
     404: 'Bộ nhớ máy phải thử lại nhiều lần bất thường khi đọc/ghi - dấu hiệu suy giảm sớm của chip nhớ, nên theo dõi thêm.',
+    405: 'Máy đang ở chế độ Online nhưng mất kết nối Wi‑Fi. Điều khiển nhiệt, đảo và các chức năng cục bộ vẫn tiếp tục bình thường.',
     501: 'Mạch báo mất điện độc lập (ATtiny13A) không phản hồi lệnh/ping từ máy - có thể mạch mất nguồn pin dự phòng hoặc dây tín hiệu bị đứt. Không ảnh hưởng nhiệt/đảo trứng, nhưng nếu mất điện lưới xảy ra lúc này, còi báo dự phòng có thể không kêu.',
     502: 'ATtiny phát hiện pin 9V nuôi còi đã xuống dưới khoảng 7V. Đây là cảnh báo nhẹ, không khóa vận hành; hãy thay pin sớm để còi vẫn hoạt động khi mất điện. Hệ thống sẽ nhắc lại định kỳ cho tới khi ATtiny xác nhận nguồn 9V đã phục hồi.'
   };
