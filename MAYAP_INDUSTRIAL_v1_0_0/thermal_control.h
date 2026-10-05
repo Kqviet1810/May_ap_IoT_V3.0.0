@@ -886,7 +886,9 @@ class RelayAutoTune {
       --energyCount_;
     }
     const uint8_t slot=(energyHead_+energyCount_)%ENERGY_QUEUE;
-    energy_[slot]={at,clampFloat(fraction,0.0f,1.0f),pv};
+    energy_[slot].at=at;
+    energy_[slot].fraction=clampFloat(fraction,0.0f,1.0f);
+    energy_[slot].pv=pv;
     ++energyCount_;
   }
 
