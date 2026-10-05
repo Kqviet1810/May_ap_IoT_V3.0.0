@@ -284,6 +284,7 @@ void networkTask(void *parameter) {
       if (!portalRequested) mayapRadioQuiesceEnd();
       memoryPaused = false;
     }
+    MayapNetworkInternal::tickStableWifi();
     const bool recovering = mayapNetworkDeepRecoveryUpdate(now, externalIoBusy);
     if (!recovering && !(portalRequested && externalIoBusy) &&
         !mayapServiceIsolated(MayapRecovery::Service::Network, now)) {
@@ -347,7 +348,7 @@ void mqttTask(void *parameter) {
       if (mayapSerialDebugEnabled() &&
           (lastMqttDiagAt == 0U || elapsedMs(now, lastMqttDiagAt) >= 5000UL)) {
         lastMqttDiagAt = now;
-        const NetworkStatus netStatus = mayapGetNetworkStatus();
+        const NetworkStatus netStatus = mayapGetRawNetworkStatus();
         const int mqttState = MayapRealtimeInternal::socketTransport.state();
         const uint32_t retryInMs = MayapRealtimeInternal::linkBackoff.ready(now)
             ? 0U

@@ -1357,6 +1357,7 @@ void mayapNetworkBegin();
 void mayapNetworkUpdate(uint32_t now);
 void mayapSetConnectivityMode(ConnectivityMode mode);
 NetworkStatus mayapGetNetworkStatus();
+NetworkStatus mayapGetRawNetworkStatus();
 // Cong 1 "Doi Wi-Fi": chi co tac dung khi dang o che do ONLINE. Mo AP cau hinh
 // (giong giu nut BOOT) va tu ket noi thu SSID/mat khau moi nguoi dung luu qua
 // web phu; ket qua doc qua mayapGetWifiPortalStatus().

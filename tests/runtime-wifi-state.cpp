@@ -3,21 +3,28 @@
 #include <cstdio>
 #include <cstdarg>
 enum class NetworkStateCode : uint8_t { Offline, NotConfigured, Connecting, Connected };
+enum class ConnectivityMode : uint8_t { Offline, Online };
+struct NetworkStatus { ConnectivityMode requestedMode; NetworkStateCode state; bool credentialsConfigured,connected; int8_t rssiDbm; };
+static volatile uint8_t requestedMode=static_cast<uint8_t>(ConnectivityMode::Online);
 static uint32_t clockMs=0;
 uint32_t millis() { return clockMs; }
 void mayapSerialPrintf(bool,const char*,...) {}
 bool credentialsConfigured() { return true; }
 struct { uint32_t localIP() const { return 1234; } } WiFi;
+namespace MayapNetworkInternal {}
 #include "actual-wifi-globals.inc"
 #include "actual-wifi-publish.inc"
+#include "actual-wifi-getters.inc"
 void sample(uint32_t time,bool raw) {
  clockMs=time; publish(raw?NetworkStateCode::Connected:NetworkStateCode::Connecting,raw,raw?-50:-127);
 }
 int main() {
- sample(0,true); sample(250,true); sample(500,true); sample(750,true);
+ sample(0,true); assert(!mayapGetNetworkStatus().connected && mayapGetNetworkStatus().state==NetworkStateCode::Connecting);
+ assert(mayapGetRawNetworkStatus().connected); sample(250,true); sample(500,true); sample(750,true);
  assert(publishedConnected);
  // Short driver glitch must not appear in HMI/Fault/Web snapshot.
  sample(1000,false); assert(publishedConnected);
+ assert(!mayapGetRawNetworkStatus().connected && mayapGetNetworkStatus().connected);
  sample(1250,false); sample(1500,false); sample(1750,true); assert(publishedConnected);
  // Continuous four-second failure is published once, not on the first poll.
  sample(2000,false);
@@ -34,5 +41,18 @@ int main() {
  }
  // Offline is a deliberate setting, not a flap: immediate publication.
  clockMs=3000000; publish(NetworkStateCode::Offline,false); assert(!publishedConnected);
- std::puts("Production Wi-Fi flap publication PASS");
+ // Deep recovery/owner drain can skip station polls: down grace still expires.
+ sample(4000000,true); sample(4000250,true); sample(4000500,true); sample(4000750,true);
+ sample(4001000,false); clockMs=4005000; tickStableWifi(); assert(!publishedConnected);
+ // Ticking a stale positive snapshot cannot qualify a reconnect.
+ sample(5000000,true); clockMs=5001000; tickStableWifi(); assert(!publishedConnected);
+ // Millis wrap is deterministic.
+ publish(NetworkStateCode::Offline,false);
+ sample(0xFFFFFF00U,true); sample(0xFFFFFFFAU,true); sample(244,true); sample(494,true); assert(publishedConnected);
+ sample(1000,false); sample(5000,false); assert(!publishedConnected);
+ // Multi-hour failure and Wi-Fi connected/Internet dead do not invent Wi-Fi edges.
+ for(uint32_t t=6000;t<8*3600000U;t+=250) { sample(t,false); assert(!publishedConnected); }
+ sample(8*3600000U,true);sample(8*3600000U+250,true);sample(8*3600000U+500,true);sample(8*3600000U+750,true);
+ for(uint32_t t=8*3600000U+1000;t<9*3600000U;t+=250) { sample(t,true); assert(publishedConnected); }
+ std::puts("Production Wi-Fi flap publication: raw admission, router reboot, 1000 reconnects, 8h loss, Internet-only failure and wrap PASS");
 }

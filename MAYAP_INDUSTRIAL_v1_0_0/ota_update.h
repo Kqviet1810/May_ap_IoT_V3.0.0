@@ -12,7 +12,7 @@
 // Nap firmware qua Wi-Fi bang Arduino IDE (Sketch > Upload, chon cong mang
 // hien qua mDNS thay vi cong USB) - tien loi khi may da lap dat kin, kho thao
 // vo de cam lai cap USB moi lan can cap nhat. Chi mo dich vu khi dang ONLINE
-// va da ket noi Wi-Fi that (dua vao mayapGetNetworkStatus() cua network_
+// va da ket noi Wi-Fi that (dua vao mayapGetRawNetworkStatus() cua network_
 // service.h, KHONG tu mo Wi-Fi rieng) - goi mayapOtaUpdate() tu otaTask
 // RIENG (xem .ino), KHONG chung voi networkTask: networkTask co the blocking
 // toi vai giay moi lan MQTT/Cloud Push lam viec, neu OTA nam chung vong lap
@@ -168,7 +168,7 @@ inline void mayapOtaUpdate(uint32_t now) {
     return;
   }
 
-  const NetworkStatus status = mayapGetNetworkStatus();
+  const NetworkStatus status = mayapGetRawNetworkStatus();
   const bool shouldRun =
       windowOpen && status.requestedMode == ConnectivityMode::Online && status.connected &&
       mayapFirmwareMaintenanceReady() && !mayapFirmwareMaintenanceActive();

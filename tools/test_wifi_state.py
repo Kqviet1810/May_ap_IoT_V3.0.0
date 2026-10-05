@@ -14,5 +14,6 @@ with tempfile.TemporaryDirectory() as name:
     if policy.exists(): globals=policy.read_text()+'\n'+globals
     (out/'actual-wifi-globals.inc').write_text(globals)
     (out/'actual-wifi-publish.inc').write_text(function('inline void publish('))
+    (out/'actual-wifi-getters.inc').write_text(function('inline NetworkStatus mayapGetNetworkStatus(')+'\n'+function('inline NetworkStatus mayapGetRawNetworkStatus(')+'\n'+function('inline void tickStableWifi('))
     subprocess.run(['g++','-std=c++11','-Wall','-Wextra','-Werror','-I',str(out),str(root/'tests/runtime-wifi-state.cpp'),'-o',str(out/'test')],check=True)
     subprocess.run([str(out/'test')],check=True)

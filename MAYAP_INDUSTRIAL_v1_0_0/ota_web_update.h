@@ -420,7 +420,7 @@ inline void mayapFirmwareWebUpdate(uint32_t now) {
     return;
   }
 
-  const NetworkStatus netStatus = mayapGetNetworkStatus();
+  const NetworkStatus netStatus = mayapGetRawNetworkStatus();
   if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) return;
 
   const bool checkNow = __atomic_load_n(&checkNowRequestFlag, __ATOMIC_ACQUIRE) != 0U;

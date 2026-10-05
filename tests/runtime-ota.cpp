@@ -13,7 +13,7 @@ static esp_reset_reason_t resetReason = ESP_RST_POWERON;
 esp_reset_reason_t esp_reset_reason() { return resetReason; }
 enum class ConnectivityMode { Offline, Online };
 struct NetworkStatus { ConnectivityMode requestedMode=ConnectivityMode::Online; bool connected=true; } network;
-NetworkStatus mayapGetNetworkStatus() { return network; }
+NetworkStatus mayapGetRawNetworkStatus() { return network; }
 static bool safe=true, maintenance=false;
 bool mayapFirmwareMaintenanceReady() { return safe; }
 bool mayapFirmwareMaintenanceActive() { return maintenance; }

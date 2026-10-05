@@ -60,6 +60,7 @@ static uint8_t pinResetRequestFlag=0;
 static unsigned resetRequests=0;
 static bool resetDeferred=false, resetSuccess=true;
 NetworkStatus mayapGetNetworkStatus() { return network; }
+NetworkStatus mayapGetRawNetworkStatus() { return network; }
 bool sendResetPin() {
   requestDeferred=resetDeferred;
   if (resetDeferred) return false;

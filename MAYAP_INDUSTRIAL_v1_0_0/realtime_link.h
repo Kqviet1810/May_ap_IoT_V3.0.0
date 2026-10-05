@@ -1475,7 +1475,7 @@ inline void mayapWebLinkUpdate(uint32_t now) {
     connectionAnnounced = false;
     return;
   }
-  const NetworkStatus status = mayapGetNetworkStatus();
+  const NetworkStatus status = mayapGetRawNetworkStatus();
   if (status.requestedMode != ConnectivityMode::Online || !status.connected) {
     if (socketTransport.busy()) socketTransport.disconnect();
     connectionAnnounced = false; linkBackoff.reset(now); return;

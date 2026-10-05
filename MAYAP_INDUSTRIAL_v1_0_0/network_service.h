@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "service_recovery.h"
+#include "wifi_stable_state.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -48,6 +49,11 @@ static volatile bool publishedConfigured = false;
 static volatile bool publishedConnected = false;
 static volatile int8_t publishedRssiDbm = -127;
 static uint32_t publishedLocalIp = 0U;
+
+static volatile bool rawConnected = false;
+static volatile uint8_t rawState = static_cast<uint8_t>(NetworkStateCode::Offline);
+static volatile int8_t rawRssiDbm = -127;
+static MayapNetwork::StableWifiState stableWifi;
 
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
@@ -112,16 +118,43 @@ inline bool saveCredentials(const char *ssid, const char *password) {
 
 inline void publish(NetworkStateCode state, bool connected,
                     int8_t rssiDbm = -127) {
-  // Only the radio owner queries driver/interface state. Other tasks read
-  // bounded snapshots, including realtime presence and diagnostics.
-  __atomic_store_n(&publishedLocalIp,
-      connected ? static_cast<uint32_t>(WiFi.localIP()) : 0U, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedConfigured, credentialsConfigured(),
-                   __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedConnected, connected, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedRssiDbm, rssiDbm, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedState, static_cast<uint8_t>(state),
-                   __ATOMIC_RELEASE);
+  const bool oldRaw = __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE);
+  __atomic_store_n(&rawConnected, connected, __ATOMIC_RELEASE);
+  __atomic_store_n(&rawState, static_cast<uint8_t>(state), __ATOMIC_RELEASE);
+  __atomic_store_n(&rawRssiDbm, rssiDbm, __ATOMIC_RELEASE);
+  if (oldRaw != connected)
+    mayapSerialPrintf(false, "[WIFI-RAW] connected=%u state=%u\n",
+        connected, static_cast<unsigned>(state));
+
+  // Explicit OFFLINE/unconfigured is immediate. Involuntary loss is debounced.
+  const bool forced = state == NetworkStateCode::Offline ||
+                      state == NetworkStateCode::NotConfigured;
+  if (forced) stableWifi.reset();
+  const bool stable = forced ? false : stableWifi.update(millis(), connected);
+  const bool oldStable = __atomic_load_n(&publishedConnected, __ATOMIC_ACQUIRE);
+  if (stable != oldStable)
+    mayapSerialPrintf(false, "[WIFI-STABLE] connected=%u raw=%u\n", stable, connected);
+  // Keep the last useful RSSI/IP during the short down grace, never for I/O.
+  if (!stable || connected) {
+    __atomic_store_n(&publishedLocalIp,
+        stable ? static_cast<uint32_t>(WiFi.localIP()) : 0U, __ATOMIC_RELEASE);
+    __atomic_store_n(&publishedRssiDbm, stable ? rssiDbm : -127, __ATOMIC_RELEASE);
+  }
+  __atomic_store_n(&publishedConfigured, credentialsConfigured(), __ATOMIC_RELEASE);
+  __atomic_store_n(&publishedConnected, stable, __ATOMIC_RELEASE);
+  __atomic_store_n(&publishedState, static_cast<uint8_t>(
+      stable ? NetworkStateCode::Connected :
+          (state == NetworkStateCode::Connected ? NetworkStateCode::Connecting : state)), __ATOMIC_RELEASE);
+}
+
+// Called by networkTask even when deep recovery/isolation skips station service.
+// A pending offline transition must still expire while the owners are draining.
+inline void tickStableWifi() {
+  // Replayed snapshots may expire down grace, never confirm an online sample.
+  if (__atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE)) return;
+  publish(static_cast<NetworkStateCode>(__atomic_load_n(&rawState, __ATOMIC_ACQUIRE)),
+      __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE),
+      __atomic_load_n(&rawRssiDbm, __ATOMIC_ACQUIRE));
 }
 
 inline void stopRadio() {
@@ -825,6 +858,16 @@ inline NetworkStatus mayapGetNetworkStatus() {
       &publishedConfigured, __ATOMIC_ACQUIRE);
   status.connected = __atomic_load_n(&publishedConnected, __ATOMIC_ACQUIRE);
   status.rssiDbm = __atomic_load_n(&publishedRssiDbm, __ATOMIC_ACQUIRE);
+  return status;
+}
+
+// Transport admission must never use the presentation grace period.
+inline NetworkStatus mayapGetRawNetworkStatus() {
+  using namespace MayapNetworkInternal;
+  NetworkStatus status = mayapGetNetworkStatus();
+  status.connected = __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE);
+  status.state = static_cast<NetworkStateCode>(__atomic_load_n(&rawState, __ATOMIC_ACQUIRE));
+  status.rssiDbm = __atomic_load_n(&rawRssiDbm, __ATOMIC_ACQUIRE);
   return status;
 }
 
