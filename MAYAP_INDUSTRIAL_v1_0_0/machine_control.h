@@ -4841,7 +4841,10 @@ class MachineController {
     }
     autotune_.configure(config_.targetTemp);
     autotune_.start(now, temperature_);
+    // CAPTURE_POWER starts from the real production LKG PID + Phase-1 path.
+    // No gains/config are changed and no requested duty is used as evidence.
     pid_.reset();
+    startupHeat_.reset();
     autoTuneBaselinePid_.reset();
     autoTuneCandidatePower_ = autoTuneBaselinePower_ = 0.0f;
     heaterBurst_.reset();
@@ -4849,10 +4852,10 @@ class MachineController {
     message = "AUTO TUNE DA BAT DAU";
     eventLog_.push(now, EventType::AutoTuneStart,
                    static_cast<uint16_t>(EventCode::AutoTuneStarted));
-    mayapSerialPrintf(false, "[TUNE] PREHEAT power=%u%% PV=%.3f relay=%u%% band=%.2fC\n",
-                     std::min<uint8_t>(AUTOTUNE_PREHEAT_POWER_PERCENT, config_.maxHeaterPower),
-                     temperature_, std::min<uint8_t>(config_.autotuneRelayPowerPercent, config_.maxHeaterPower),
-                     config_.autotuneBandC);
+    mayapSerialPrintf(false,
+                     "[TUNE] PRECHECK PV=%.3f LKG Kp=%.3f Ki=%.5f Kd=%.3f max=%u%%\n",
+                     temperature_, config_.kp, config_.ki, config_.kd,
+                     config_.maxHeaterPower);
     return true;
   }
 
@@ -5421,32 +5424,52 @@ class MachineController {
     }
     MachineConfig tuned{};
     const bool candidateReady = autotune_.running() && newSensorSample_ &&
-        autotune_.update(now, temperature_, config_, tuned);
+        autotune_.update(now, temperature_, config_, tuned,
+                         startupHeat_.predictedPeak());
     if (candidateReady) {
-      autotune_.beginValidation(now, temperature_);
-      pid_.reset();
+      // Leave the signed step through a bounded return to Last Known Good.
+      // Candidate remains RAM-only until validation ACCEPT + persistent readback.
+      pid_.applyConfigBumpless(now, config_.targetTemp, temperature_, config_);
       autoTuneBaselinePid_.reset();
-      autoTuneCandidatePower_ = autoTuneBaselinePower_ = 0.0f;
+      autoTuneCandidatePower_ = autoTuneBaselinePower_ = pid_.output();
       heaterBurst_.reset();
+      autotune_.beginValidation(now, temperature_);
       mayapSerialPrintf(false,
-          "[TUNE] CANDIDATE Kp=%.3f Ki=%.5f Kd=%.3f Ti=%.1f Td=%.1f; VALIDATING\n",
-          tuned.kp, tuned.ki, tuned.kd, tuned.kp/tuned.ki, tuned.kd/tuned.kp);
+          "[TUNE] CANDIDATE model=%s Kp=%.3f Ki=%.5f Kd=%.3f Ti=%.1f tauC=%.1f; SETTLING\n",
+          thermalPlantModelModeName(autotune_.model().mode),
+          tuned.kp, tuned.ki, tuned.kd, autotune_.result().Ti,
+          autotune_.result().tauC);
+    }
+    if (previousPhase != AutoTunePhase::Validating &&
+        autotune_.phase() == AutoTunePhase::Validating) {
+      // Candidate takes over with the LKG settle output as its initial actuator
+      // value; applyConfigBumpless back-calculates only transient PID state.
+      pid_.applyConfigBumpless(now, autotune_.candidate().targetTemp,
+                               temperature_, autotune_.candidate());
+      autoTuneCandidatePower_ = pid_.output();
     }
     if (autotune_.cycleSerial() != previousCycle) {
-      const auto &cycle = autotune_.lastCycle();
-      mayapSerialPrintf(false, "[TUNE] CYCLE n=%lu high=%.3f low=%.3f A=%.3f Pu=%.1f heat_s=%.1f cool_s=%.1f\n",
-          static_cast<unsigned long>(autotune_.cycleSerial()), cycle.high, cycle.low, cycle.amplitude,
-          cycle.periodMs * 0.001f, cycle.heatMs * 0.001f, cycle.coolMs * 0.001f);
+      const auto &model = autotune_.model();
+      mayapSerialPrintf(false,
+          "[TUNE] MODEL mode=%s u0=%.4f du=%+.4f slope0=%+.6f theta=%.1f kPrime=%.7f conf=%.3f\n",
+          thermalPlantModelModeName(model.mode), autotune_.baselineFraction(),
+          model.actualStep, model.baselineSlope, model.thetaSec,
+          model.kPrime, model.confidence);
     }
     if (autotune_.validationSerial() != previousValidation)
-      mayapSerialPrintf(false, "[TUNE] VALIDATING cycles=%u quality=%s\n",
-          autotune_.cycleCount(), autoTuneReasonName(autotune_.rejection()));
+      mayapSerialPrintf(false,
+          "[TUNE] VALIDATING tauC=%.1f Ti=%.1f candidate Kp=%.3f Ki=%.5f Kd=%.1f\n",
+          autotune_.result().tauC, autotune_.result().Ti,
+          autotune_.candidate().kp, autotune_.candidate().ki,
+          autotune_.candidate().kd);
     if (autotune_.phase() != previousPhase && autotune_.running())
       mayapSerialPrintf(false, "[TUNE] %s power=%.1f%% PV=%.3f\n",
           autoTunePhaseName(autotune_.phase()), autotune_.power(), temperature_);
     if (autotune_.state() == AutoTuneState::Failed) {
       heaterBurst_.reset();
       pid_.reset();
+      autoTuneBaselinePid_.reset();
+      autoTuneCandidatePower_ = autoTuneBaselinePower_ = 0.0f;
       postCoolUntil_ = now + POST_COOL_MS;
       heatRestartNotBefore_ = now + HEAT_RESTART_LOCKOUT_MS;
       eventLog_.push(now, EventType::AutoTuneEnd,
@@ -5469,9 +5492,11 @@ class MachineController {
         eventLog_.push(now, EventType::AutoTuneEnd,
                        static_cast<uint16_t>(EventCode::AutoTuneSuccess),
                        static_cast<int16_t>(lroundf(config_.kp * 10.0f)));
-        mayapSerialPrintf(false, "[TUNE] RESULT phase=ACCEPTED Ku=%.3f Pu=%.1f Kp=%.3f Ki=%.5f Kd=%.3f scale=%.3f\n",
-                         autotune_.result().ku, autotune_.result().periodSec,
-                         config_.kp, config_.ki, config_.kd, autotune_.result().gainScale);
+        mayapSerialPrintf(false,
+                         "[TUNE] RESULT phase=ACCEPTED model=%s Kp=%.3f Ki=%.5f Kd=%.1f tauC=%.1f Ti=%.1f\n",
+                         thermalPlantModelModeName(autotune_.model().mode),
+                         config_.kp, config_.ki, config_.kd,
+                         autotune_.result().tauC, autotune_.result().Ti);
       } else {
         autotune_.abort(AutoTuneReason::SaveFailed);
         latchStorageFault("AUTOTUNE SAVE");
@@ -5979,6 +6004,7 @@ class MachineController {
   // ----------------------------- Heating/Output -------------------------------
   void updateHeatingAndOutputs(uint32_t now) {
     trackAdaptiveEnergy(now);
+    autotune_.observeActual(now, outputs_.state().heaterSsr, temperature_);
     startupHeat_.observe(now, outputs_.state().heaterSsr);
     if (testModeActive_) { startupHeat_.reset(); heaterBurst_.reset(); updateTestModeOutputs(now); return; }
     const InputState &in = inputs_.state();
@@ -6132,8 +6158,16 @@ class MachineController {
 
     const float effectiveLimit = updateAdaptiveBalance(now, normalSsrPermit && actuatorReady, fanStable, req.ventFan);
     req.ventFan = req.ventFan || adaptiveCoolingRequested();
+    const bool tunePermit = !faults_.ssrInhibited() &&
+                            !faults_.masterDropRequired() &&
+                            !storageFaultLatched_ && !storageDegraded_ &&
+                            !abnormalResetLatched_ && autotune_.running() &&
+                            in.autoMode && in.heaterEnable &&
+                            sensorUsable_ && fanStable &&
+                            !highTemperatureActive_ && !emergencyActive_;
     float commandedPower = 0.0f;
     if (autotune_.validating()) {
+      // Candidate trial: production PID -> production PDM -> OutputArbiter.
       startupHeat_.reset();
       if (newSensorSample_) {
         const MachineConfig &candidate = autotune_.candidate();
@@ -6143,7 +6177,59 @@ class MachineController {
             config_.targetTemp, temperature_, config_, true);
       }
       commandedPower = autoTuneCandidatePower_;
+    } else if (autotune_.validationSettling()) {
+      // Active recovery: restore the exact LKG PID + production Phase-1
+      // startup/braking route. Do not heater-off and wait passively.
+      if (newSensorSample_) {
+        MachineConfig actuatorConfig = config_;
+        actuatorConfig.maxHeaterPower = static_cast<uint8_t>(effectiveLimit);
+        float ceiling = effectiveLimit;
+        bool freezePositiveIntegral = false;
+        if (config_.controlMode == ControlMode::Pid) {
+          const auto decision = startupHeat_.decide(now, config_.targetTemp,
+              temperature_, effectiveLimit);
+          ceiling = decision.ceiling;
+          freezePositiveIntegral = decision.freezePositiveIntegral;
+        }
+        pidPower_ = pid_.updateOnNewSample(now, config_.targetTemp,
+            temperature_, actuatorConfig, true, ceiling,
+            freezePositiveIntegral);
+        autoTuneBaselinePower_ = autoTuneBaselinePid_.updateOnNewSample(now,
+            config_.targetTemp, temperature_, actuatorConfig, true,
+            ceiling, freezePositiveIntegral);
+      }
+      if (config_.controlMode == ControlMode::Pid && startupHeat_.sampleStale(now)) {
+        pid_.reset();
+        pidPower_ = 0.0f;
+      }
+      commandedPower = std::min(pidPower_, effectiveLimit);
+      startupHeat_.requested(commandedPower);
+    } else if (autotune_.capturePowerActive()) {
+      // CAPTURE_POWER is the exact LKG + production Phase-1 startup/braking
+      // route. PID/PDM dithering is measured only by actual SSR ON-time.
+      if (newSensorSample_) {
+        MachineConfig actuatorConfig = config_;
+        actuatorConfig.maxHeaterPower = static_cast<uint8_t>(effectiveLimit);
+        float ceiling = effectiveLimit;
+        bool freezePositiveIntegral = false;
+        if (config_.controlMode == ControlMode::Pid) {
+          const auto decision = startupHeat_.decide(now, config_.targetTemp,
+              temperature_, effectiveLimit);
+          ceiling = decision.ceiling;
+          freezePositiveIntegral = decision.freezePositiveIntegral;
+        }
+        pidPower_ = pid_.updateOnNewSample(now, config_.targetTemp,
+            temperature_, actuatorConfig, true, ceiling, freezePositiveIntegral);
+      }
+      if (config_.controlMode == ControlMode::Pid && startupHeat_.sampleStale(now)) {
+        pid_.reset();
+        pidPower_ = 0.0f;
+      }
+      commandedPower = std::min(pidPower_, effectiveLimit);
+      startupHeat_.requested(commandedPower);
     } else if (autotune_.running()) {
+      // MANUAL_BASELINE / IDENTIFY_STEP / MODEL_READY own only the bounded
+      // heater command; production PDM and OutputArbiter still own actuation.
       startupHeat_.reset();
       commandedPower = autotune_.power();
     } else if (normalSsrPermit && actuatorReady) {
@@ -6174,13 +6260,6 @@ class MachineController {
     }
     newSensorSample_ = false;
 
-    const bool tunePermit = !faults_.ssrInhibited() &&
-                            !faults_.masterDropRequired() &&
-                            !storageFaultLatched_ && !storageDegraded_ &&
-                            !abnormalResetLatched_ && autotune_.running() &&
-                            in.autoMode && in.heaterEnable &&
-                            sensorUsable_ && fanStable &&
-                            !highTemperatureActive_ && !emergencyActive_;
     const bool masterPermit = normalMasterPermit || tunePermit;
     const bool ssrPermit = (normalSsrPermit || tunePermit) && masterPermit;
     req.heatMaster = masterPermit;

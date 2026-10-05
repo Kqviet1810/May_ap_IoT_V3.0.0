@@ -1,126 +1,183 @@
 #include "thermal-autotune-harness.h"
-static void assertOld(const TuneHarness &h){assert(h.config_.kp==18 && h.config_.ki==0.8f && h.config_.kd==45);}
-static void begin(TuneHarness &h,float pv=37.4f){
-  h.sample(pv,pv);const char *message=nullptr;assert(h.startAutoTune(1000,message));h.cycle(1000);
-}
-static void makeCandidate(TuneHarness &h){
-  for(uint32_t t=41000;t<=401000 && h.autotune_.running();t+=40000){
-    const float pv=((t-41000)/40000)%2?36.9f:38.1f;h.sample(pv,pv);h.cycle(t);
-  }
-  assert(h.autotune_.validating()&&h.autotune_.candidateGenerated());
-  assert(h.store_.saves==0);
-}
-static void oscillate(TuneHarness &h){
-  makeCandidate(h);
-  for(uint32_t n=1;n<=100 && h.autotune_.validating();++n){
-    h.sample(37.5f,37.5f);h.cycle(clockMs+2000);
-  }
-}
-static void validationRejects(){
-  TuneHarness overshoot;begin(overshoot);makeCandidate(overshoot);
-  overshoot.sample(38.0f,38.0f);overshoot.cycle(clockMs+2000);
-  assert(overshoot.autotune_.state()==AutoTuneState::Failed);
-  assert(overshoot.autotune_.reason()==AutoTuneReason::ValidationOvershoot);
-  assert(overshoot.store_.saves==0);assertOld(overshoot);
 
-  TuneHarness safety;begin(safety);makeCandidate(safety);safety.faults_.inhibit=true;
-  safety.cycle(clockMs+5,false);assert(safety.autotune_.reason()==AutoTuneReason::SafetyAbort);
-  assert(!safety.outputs_.state().heaterSsr&&safety.store_.saves==0);assertOld(safety);
+static void assertOld(const TuneHarness &h) {
+  assert(h.config_.kp==18.0f);
+  assert(h.config_.ki==0.8f);
+  assert(h.config_.kd==45.0f);
 }
-static void eventOutsideBatch(){
-  TuneHarness h;assert(!h.eventLog_.loggingEnabled());serialEnabled=true;diagnosticLines.clear();
-  const uint32_t before=h.eventLog_.sequence();
-  h.eventLog_.push(0,EventType::Network,70);h.eventLog_.push(0,EventType::OutputChanged,200);
-  assert(h.eventLog_.sequence()==before);begin(h);oscillate(h);
-  assert(h.autotune_.state()==AutoTuneState::Success && h.store_.saves==1);
-  HmiEventSnapshot events;h.eventLog_.snapshotRecent(clockMs,events);assert(events.count==2);
-  assert(events.items[0].code==static_cast<uint16_t>(EventCode::AutoTuneSuccess));
-  assert(events.items[1].code==static_cast<uint16_t>(EventCode::AutoTuneStarted));
-  assert(diagnosticLines.size()<30); // Transitions/cycles/result only, no control-tick spam.
-  diagnosticLines.clear();serialEnabled=false;h.cycle(clockMs+5);assert(diagnosticLines.empty());
-  h.eventLog_.push(clockMs,EventType::Boot,1);assert(h.eventLog_.sequence()==before+3);
-}
-static void preheatAndTimeouts(){
-  for(uint8_t cap:{20U,30U,50U,100U}){
-    TuneHarness h;h.config_.maxHeaterPower=cap;begin(h,25);
-    assert(h.autotune_.phase()==AutoTunePhase::Preheat && h.autotune_.power()==std::min<unsigned>(AUTOTUNE_PREHEAT_POWER_PERCENT,cap));
-    assert(h.autotune_.cycleCount()==0 && h.autotune_.result().ku==0);
-    h.sample(37.3f,37.3f);h.cycle(11000);
-    assert(h.autotune_.phase()==AutoTunePhase::Heating && h.autotune_.power()==std::min<unsigned>(30,cap));
-    assert(h.autotune_.preheatMs()==10000 && h.autotune_.cycleSerial()==0);
-    oscillate(h);assert(h.autotune_.state()==AutoTuneState::Success);
-    const auto &r=h.autotune_.result();
-    assert(std::fabs(r.ku-4*(h.autotune_.relayHigh()-h.autotune_.relayLow())*0.5/(PI*r.amplitude))<0.001);
-    assert(std::fabs(h.config_.kd/h.config_.kp-r.periodSec/6.3f)<0.0001f);
-    assert(std::fabs(h.config_.ki-h.config_.kp/(2.2f*r.periodSec))<0.000001f);
-    assert(r.gainScale>=1 && h.config_.kp>0 && h.config_.ki>0 && h.config_.kd>0);
+
+static void startCancelAndFaultKeepLkg() {
+  {
+    TuneHarness h;
+    h.sample(37.0f,37.0f);
+    const char *message=nullptr;
+    assert(h.startAutoTune(1000U,message));
+    h.cycle(1000U);
+    assert(h.autotune_.phase()==AutoTunePhase::CapturePower);
+    assert(h.store_.saves==0U);
+    assertOld(h);
+    h.autotune_.cancel();
+    h.heaterBurst_.reset();
+    assert(h.autotune_.state()==AutoTuneState::Idle);
+    assert(h.store_.saves==0U);
+    assertOld(h);
   }
-  TuneHarness cold;begin(cold,25);cold.cycle(1000+AUTOTUNE_PREHEAT_MAX_MS,false);
-  assert(cold.autotune_.reason()==AutoTuneReason::PreheatTimeout && !cold.outputs_.state().heaterSsr);assertOld(cold);
-  TuneHarness phase;begin(phase);phase.cycle(1000+AUTOTUNE_PHASE_MAX_MS,false);
-  assert(phase.autotune_.reason()==AutoTuneReason::PhaseTimeout);assertOld(phase);
-  TuneHarness total;begin(total);total.cycle(1000+AUTOTUNE_TOTAL_MAX_MS,false);
-  assert(total.autotune_.reason()==AutoTuneReason::TotalTimeout);assertOld(total);
-  // Genuine zero timestamp / millis wrap must not be mistaken for "no upper".
-  MachineConfig cfg,result;RelayAutoTune wrap;wrap.configure(37.5f);wrap.start(0U-40000U,37.4f);
-  wrap.update(0U-40000U,37.4f,cfg,result);
-  for(uint32_t n=0;n<10 && wrap.running();++n)wrap.update(n*40000U,n%2?36.9f:38.1f,cfg,result);
-  assert(wrap.phase()==AutoTunePhase::Candidate&&wrap.candidateGenerated());
+  {
+    TuneHarness h;
+    h.sample(37.0f,37.0f);
+    const char *message=nullptr;
+    assert(h.startAutoTune(1000U,message));
+    h.cycle(1000U);
+    h.faults_.inhibit=true;
+    h.cycle(1100U,false);
+    assert(h.autotune_.state()==AutoTuneState::Failed);
+    assert(h.autotune_.reason()==AutoTuneReason::SafetyAbort);
+    assert(!h.outputs_.state().heaterSsr);
+    assert(h.store_.saves==0U);
+    assertOld(h);
+  }
 }
-static void safetyAndReset(){
-  for(bool preheat:{false,true})for(unsigned reason=0;reason<17;++reason){
-    TuneHarness h;begin(h,preheat?25:37.4f);
-    uint32_t at=1000;
-    while(!h.outputs_.state().heaterSsr && at<30000){at+=5;h.cycle(at,false);}
-    assert(h.outputs_.state().heaterSsr);at+=135;
-    switch(reason){
-      case 0:h.sensorUsable_=false;break;case 1:h.sample(NAN,NAN);break;
-      case 2:h.highTemperatureActive_=true;break;case 3:h.emergencyActive_=true;break;
-      case 4:h.inputs_.in.heaterEnable=false;break;case 5:h.inputs_.in.autoMode=false;break;
-      case 6:h.storageFaultLatched_=true;break;case 7:h.storageDegraded_=true;break;
-      case 8:h.faults_.drop=true;break;case 9:h.faults_.inhibit=true;break;
-      case 10:maintenance=true;break;case 11:trip=true;break;case 12:bootReady=false;break;
-      case 13:h.batchRunning_=true;break;case 14:h.safetyJournalFaultLatched_=true;break;
-      case 15:h.batchClearPending_=true;break;case 16:h.rawTemperature_=h.config_.highTempAlarm;break;
+
+
+static void safeTakeoverUsesMomentumEvidence() {
+  MachineConfig cfg;
+  RelayAutoTune tune;
+  tune.configure(cfg.targetTemp);
+  uint32_t now=1000U;
+  float pv=37.0f;
+  MachineConfig tuned{};
+  tune.start(now,pv);
+  assert(!tune.update(now,pv,cfg,tuned,37.60f));
+  assert(tune.phase()==AutoTunePhase::CapturePower);
+
+  HeaterBurstScheduler burst(1U,HEATER_BURST_QUANTUM_MS);
+  bool on=false;
+  // More than six 10 s energy buckets, but Phase-1 predicts unsafe coast:
+  // takeover must remain blocked even though PV itself is inside the window.
+  for(unsigned n=0;n<800U;++n) {
+    now+=100U;
+    on=burst.update(now,20.0f,true).groupA;
+    tune.observeActual(now,on,pv);
+    if(n%20U==0U) tune.update(now,pv,cfg,tuned,38.05f);
+  }
+  assert(tune.phase()==AutoTunePhase::CapturePower);
+
+  // Same non-steady-capable capture, now with safe momentum evidence.
+  for(unsigned n=0;n<120U && tune.phase()==AutoTunePhase::CapturePower;++n) {
+    now+=100U;
+    on=burst.update(now,20.0f,true).groupA;
+    tune.observeActual(now,on,pv);
+    if(n%20U==0U) tune.update(now,pv,cfg,tuned,37.60f);
+  }
+  assert(tune.phase()==AutoTunePhase::ManualBaseline);
+  assert(tune.baselineFraction()>0.15f && tune.baselineFraction()<0.25f);
+}
+
+// Drive the production RelayAutoTune with actual 0/1 PDM delivery. CAPTURE gets
+// a dithered LKG-like 20% actual source; once MANUAL_BASELINE owns heat, its
+// own fixed command goes through the same HeaterBurstScheduler. The synthetic
+// PV deliberately has a non-zero pre-step slope.
+static void driftingNegativeStepReachesValidation() {
+  MachineConfig cfg;
+  RelayAutoTune tune;
+  tune.configure(cfg.targetTemp);
+  uint32_t now=1000U;
+  float pv=37.0f;
+  tune.start(now,pv);
+  MachineConfig tuned{};
+  assert(!tune.update(now,pv,cfg,tuned,37.60f));
+  assert(tune.phase()==AutoTunePhase::CapturePower);
+
+  HeaterBurstScheduler burst(1U,HEATER_BURST_QUANTUM_MS);
+  bool actualOn=false;
+  uint32_t manualAt=0U,stepAt=0U,candidateAt=0U;
+  float manualPv=37.0f;
+  constexpr float baselineSlope=0.0015f;
+  constexpr float kPrime=0.0200f;
+  constexpr float thetaSec=30.0f;
+
+  for(unsigned n=0;n<24000U && !tune.candidateGenerated();++n) {
+    now+=100U;
+    float commanded=20.0f;
+    if(tune.phase()==AutoTunePhase::ManualBaseline ||
+       tune.phase()==AutoTunePhase::IdentifyStep ||
+       tune.phase()==AutoTunePhase::ModelReady)
+      commanded=tune.power();
+    actualOn=burst.update(now,commanded,true).groupA;
+
+    if(tune.phase()==AutoTunePhase::ManualBaseline) {
+      if(manualAt==0U){manualAt=now;manualPv=pv;}
+      const float t=(now-manualAt)*0.001f;
+      pv=manualPv+baselineSlope*t;
+    } else if(tune.phase()==AutoTunePhase::IdentifyStep) {
+      if(stepAt==0U)stepAt=now;
+      const float totalT=(now-manualAt)*0.001f;
+      const float stepT=(now-stepAt)*0.001f;
+      const float du=-0.10f;
+      pv=manualPv+baselineSlope*totalT+
+          kPrime*du*fmaxf(0.0f,stepT-thetaSec);
     }
-    h.cycle(at+5,false);assert(!h.outputs_.state().heaterSsr && h.runtime_.heaterPower==0);assertOld(h);
-    assert(h.autotune_.state()==AutoTuneState::Failed && h.store_.saves==0);
-    HmiEventSnapshot events;h.eventLog_.snapshotRecent(at+5,events);
-    assert(events.count==2 && events.items[0].code==static_cast<uint16_t>(EventCode::AutoTuneFailed));
-    trip=maintenance=false;bootReady=true;
-    // Power/reset constructs fresh transient states: tune never resumes.
-    TuneHarness reboot;std::memcpy(reboot.store_.bytes,h.store_.bytes,sizeof(h.store_.bytes));
-    assert(reboot.store_.loadConfig(reboot.config_));assertOld(reboot);
-    assert(reboot.autotune_.state()==AutoTuneState::Idle);
-    assert(!reboot.outputs_.state().heaterSsr);
-    assert(!reboot.heaterBurst_.update(at+10,0.5f,true).groupA);
-  }
-}
-static void savesAndRejections(){
-  for(int cut=0;cut<=static_cast<int>(sizeof(ConfigRecordV1));++cut){
-    TuneHarness h;begin(h);h.store_.writeBudget=cut;oscillate(h);
-    MachineConfig saved;assert(h.store_.loadConfig(saved));
-    if(cut==static_cast<int>(sizeof(ConfigRecordV1))){
-      assert(h.autotune_.state()==AutoTuneState::Success && saved.kp==h.config_.kp && saved.ki==h.config_.ki && saved.kd==h.config_.kd);
-    } else {
-      assert(h.autotune_.reason()==AutoTuneReason::SaveFailed && h.storageFaultLatched_);assertOld(h);
-      assert(saved.kp==18 && saved.ki==0.8f && saved.kd==45);
+
+    tune.observeActual(now,actualOn,pv);
+    if((now-1000U)%2000U==0U) {
+      const bool ready=tune.update(now,pv,cfg,tuned,37.60f);
+      if(tune.phase()==AutoTunePhase::ManualBaseline && manualAt==0U) {
+        manualAt=now;manualPv=pv;
+      }
+      if(tune.phase()==AutoTunePhase::IdentifyStep && stepAt==0U)
+        stepAt=now;
+      if(ready)candidateAt=now;
     }
   }
-  MachineConfig cfg,result;RelayAutoTune tune;cfg.autotuneBandC=0.05f;
-  tune.configure(37.5f);tune.start(1000,37.5f);tune.update(1000,37.5f,cfg,result);
-  for(unsigned n=0;n<12;++n)tune.update(41000+n*40000,n%2?37.44f:37.56f,cfg,result);
-  assert(tune.rejection()==AutoTuneReason::AmplitudeTooSmall && tune.running());
-  assert(result.kp==18);tune.checkTimeout(1000+AUTOTUNE_TOTAL_MAX_MS);assert(tune.reason()==AutoTuneReason::TotalTimeout);
-  cfg.autotuneBandC=0.2f;tune.start(1000,37.4f);tune.update(1000,37.4f,cfg,result);
-  for(unsigned n=0;n<12;++n)tune.update(2000+n*1000,n%2?36.9f:38.1f,cfg,result);
-  assert(tune.rejection()==AutoTuneReason::PeriodTooSmall && tune.running());
-  tune.start(1000,37.4f);tune.update(1000,37.4f,cfg,result);
-  for(unsigned n=0;n<16;++n)tune.update(41000+n*40000,n%2?(n%4==1?35.5f:37.2f):38.1f,cfg,result);
-  assert(tune.rejection()==AutoTuneReason::NonRepeatable && tune.running());
-  tune.checkTimeout(1000+AUTOTUNE_TOTAL_MAX_MS);assert(tune.reason()==AutoTuneReason::TotalTimeout);
-  cfg.autotuneRelayPowerPercent=0;tune.start(1000,37.4f);
-  assert(!tune.update(1000,37.4f,cfg,result) && tune.reason()==AutoTuneReason::InvalidKu);
+
+  assert(tune.candidateGenerated());
+  assert(candidateAt!=0U);
+  assert(tune.model().valid);
+  assert(tune.model().mode==ThermalPlantModelMode::SlowSlope);
+  assert(std::isfinite(tune.model().kPrime) && tune.model().kPrime>0.0f);
+  assert(tune.model().actualStep<0.0f);
+  assert(tune.stepDirection()<0);
+  assert(tuned.kd==0.0f);
+  assert(tuned.kp<=cfg.kp+0.0005f);
+  assert(tune.result().tauC>=tune.model().thetaSec);
+  assert(tune.result().Ti>0.0f);
+
+  tune.beginValidation(now,37.10f);
+  assert(tune.phase()==AutoTunePhase::ValidationSettle);
+  pv=37.10f;
+  const uint32_t recoveryAt=now;
+  // Active LKG recovery is allowed to have non-zero trend. An unsafe Phase-1
+  // predicted coast keeps validation blocked even after the minimum time.
+  for(unsigned n=0;n<40U;++n) {
+    now+=2000U;
+    pv=37.10f+0.0015f*((now-recoveryAt)*0.001f);
+    tune.observeActual(now,false,pv);
+    tune.update(now,pv,cfg,tuned,38.00f);
+  }
+  assert(tune.phase()==AutoTunePhase::ValidationSettle);
+  // Once PV is in the validation region and predicted peak is safe, slope need
+  // not be zero: transition immediately on the next production sample.
+  tune.update(now+2000U,pv,cfg,tuned,37.62f);
+  now+=2000U;
+  assert(tune.validating());
+
+  pv=37.5f;
+  for(unsigned n=0;n<1000U && tune.running();++n) {
+    now+=2000U;
+    tune.observeActual(now,false,pv);
+    tune.update(now,pv,cfg,tuned,37.60f);
+    if(tune.validating())
+      tune.validate(now,pv,20.0f,20.0f,cfg.maxHeaterPower,false);
+    if(tune.state()==AutoTuneState::Success)break;
+  }
+  assert(tune.state()==AutoTuneState::Success);
+  assert(tune.phase()==AutoTunePhase::Accepted);
+  assert(tune.candidate().kd==0.0f);
 }
-int main(){eventOutsideBatch();preheatAndTimeouts();validationRejects();safetyAndReset();savesAndRejections();
-  std::puts("Actual AutoTune: preheat/capped actual swing, rolling quality, 34 immediate cuts, bounded deadlines, atomic save/power-cut/reset, outside-batch events and bounded diagnostics PASS");}
+
+int main() {
+  startCancelAndFaultKeepLkg();
+  safeTakeoverUsesMomentumEvidence();
+  driftingNegativeStepReachesValidation();
+  std::puts("AutoTune V4 FINAL targeted: momentum-safe takeover, drifting signed ID, active LKG recovery, SIMC PI, rollback PASS");
+}

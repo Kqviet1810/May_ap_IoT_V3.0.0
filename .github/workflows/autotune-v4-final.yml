@@ -1,0 +1,77 @@
+name: AutoTune V4 Final Qualification
+
+on:
+  push:
+    branches:
+      - codex/autotune-v4-final-scratch
+
+permissions:
+  contents: read
+
+env:
+  MAYAP_FQBN: esp32:esp32:esp32s3:USBMode=hwcdc,CDCOnBoot=cdc,PartitionScheme=default_8MB,FlashSize=8M,PSRAM=disabled
+  ARDUINO_CLI_VERSION: '1.5.1'
+  ARDUINO_CLI_SHA256: '28a8e119c498a25607821c36cb2dc49e8463941b261a0d99091baa7bc692dd2b'
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read qualification stage
+        shell: bash
+        run: echo "AUTOTUNE_STAGE=$(cat .autotune-v4-stage)" >> "$GITHUB_ENV"
+
+      - name: Targeted safe-takeover recovery rollback tests
+        if: env.AUTOTUNE_STAGE == 'TARGETED'
+        run: python3 tools/test_thermal_control.py --sanitize --autotune-targeted-only --report-dir /tmp/mayap-autotune-final
+
+      - name: Locked 12-case subset
+        if: env.AUTOTUNE_STAGE == 'SUBSET'
+        run: python3 tools/test_thermal_control.py --sanitize --autotune-subset --report-dir /tmp/mayap-autotune-final
+
+      - name: Full AutoTune qualification and sanitizer regressions
+        if: env.AUTOTUNE_STAGE == 'FULL'
+        run: python3 tools/test_thermal_control.py --sanitize --autotune-full --report-dir /tmp/mayap-autotune-final
+
+      - name: Static and storage regressions
+        if: env.AUTOTUNE_STAGE == 'FULL'
+        run: |
+          python3 tools/check_reliability.py
+          python3 tools/check_attiny_protocol.py
+          python3 tools/test_single_eeprom.py --sanitize --check-regression
+          g++ -std=c++11 -Wall -Wextra -Werror -fsanitize=address,undefined tests/boot-policy.cpp -o /tmp/mayap-boot-test
+          /tmp/mayap-boot-test
+          python3 tools/test_runtime_buses.py --sanitize
+
+      - name: Install Arduino CLI
+        if: env.AUTOTUNE_STAGE == 'FULL'
+        shell: bash
+        run: |
+          archive="arduino-cli_${ARDUINO_CLI_VERSION}_Linux_64bit.tar.gz"
+          curl -fL --retry 3 --retry-delay 2 -o "$archive" "https://github.com/arduino/arduino-cli/releases/download/v${ARDUINO_CLI_VERSION}/$archive"
+          echo "${ARDUINO_CLI_SHA256}  $archive" | sha256sum -c -
+          tar -xzf "$archive" arduino-cli
+          sudo install -m 0755 arduino-cli /usr/local/bin/arduino-cli
+
+      - name: Install ESP32 core and libraries
+        if: env.AUTOTUNE_STAGE == 'FULL'
+        run: |
+          arduino-cli core update-index --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli core install esp32:esp32@3.3.11 --additional-urls https://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
+          arduino-cli lib install U8g2@2.36.19 ArduinoJson@7.4.3
+
+      - name: Firmware build ESP32-S3 N8 no-PSRAM
+        if: env.AUTOTUNE_STAGE == 'FULL'
+        run: |
+          arduino-cli compile             --fqbn "${MAYAP_FQBN}"             --build-property "compiler.cpp.extra_flags=-DMAYAP_DIAGNOSTIC_SERIAL=1 -DMAYAP_SERIAL_INPUT_SIM=0 -DMAYAP_BUILD_REVISION=${GITHUB_SHA:0:12}"             --output-dir ./build-final             MAYAP_INDUSTRIAL_v1_0_0
+          ls -lh build-final/*.bin build-final/*.elf
+
+      - name: Upload qualification report
+        if: always() && (env.AUTOTUNE_STAGE == 'SUBSET' || env.AUTOTUNE_STAGE == 'FULL')
+        uses: actions/upload-artifact@v4
+        with:
+          name: autotune-v4-final-${{ env.AUTOTUNE_STAGE }}-${{ github.sha }}
+          path: /tmp/mayap-autotune-final
+          if-no-files-found: warn
