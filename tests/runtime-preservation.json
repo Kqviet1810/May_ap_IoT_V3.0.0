@@ -63,7 +63,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "e4db21c2785717501a883b55b19099bc179c70869fa9a28cb25fd431d36a4d65",
+      "sha256": "767707040f75128d688e8a2b89a38cb29825c7f69d7a1ad77e95a863f7030fde",
       "signature": "class MachineController {"
     },
     {
@@ -458,5 +458,5 @@
   "alarmDeliveryReview": "2026-10-05: bounded Cloud-only fault edge mailbox, event-aware TLS lease and alarm priority. FaultManager safety fingerprint is preserved by removing only the three conditional notification hooks; all PID, output, controller, storage and safety bodies remain protected. Config changes only Cloud queue 8->16 and fault tracking 16->48. TLS memory thresholds are unchanged. D1 durable receipts and per-recipient bounded Push retries replace HTTP-status-only delivery acknowledgment.",
   "turningRtcReviewNote": "2026-10-05: only reject zero/unavailable automatic deadline while awaiting RTC anchor; homing/manual persistence from main retained. No thermal, motor safety or EEPROM schema changes.",
   "wifiStateReviewNote": "2026-10-05: reviewed config declaration and OTA admission accessor changes only: raw Wi-Fi for network I/O, stable presentation for controller/HMI faults. OTA interlocks, schemas, PID, Adaptive, heater safety and signed transactions unchanged.",
-  "e405PortalReviewNote": "2026-10-05: only E405 predicate accepts terminal Failed portal and requires published Connecting state; control, PID, thermal/output safety, turning, ATtiny and transactions unchanged."
+  "e405PortalReviewNote": "2026-10-05: only E405 predicate accepts terminal Failed portal and requires published Connecting state; control, PID, thermal/output safety, turning, ATtiny and transactions unchanged. Missing sensor startup now publishes SensorFault display during existing grace; no grace/safety timer changes."
 }

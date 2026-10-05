@@ -20,6 +20,7 @@ test('boot home release is sensor-resolved and independent of Wi-Fi', () => {
   assert.match(ino, /sensorStartupResolved/);
   assert.match(ino, /sensorResolved[\s\S]{0,300}localTaskStability\.held\(now, homeDelay\)/);
   assert.doesNotMatch(hmi, /mayapBootHomeReleased\(\) \|\|/);
+  assert.match(machine, /runtime_\.sensorStartupGrace && sensor_\.startupResolved\(\) && !sensor_\.online\(\)\)[\s\S]{0,250}state = "MAT CAM BIEN"/);
 });
 
 test('E405 is a local non-sounding reminder with periodic HMI presentation', () => {

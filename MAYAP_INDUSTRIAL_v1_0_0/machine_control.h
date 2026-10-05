@@ -7143,6 +7143,10 @@ class MachineController {
       stateCode = MachineStateCode::SystemFault;
     } else if (batchClearPending_) {
       state = "CHO XOA DU LIEU"; stateCode = MachineStateCode::SystemFault;
+    } else if (runtime_.sensorStartupGrace && sensor_.startupResolved() && !sensor_.online()) {
+      // Startup Missing is already conclusive for presentation. Keep the
+      // existing thermal grace and fault timers independent of this label.
+      state = "MAT CAM BIEN"; stateCode = MachineStateCode::SensorFault;
     } else if (runtime_.sensorStartupGrace) {
       state = "KHOI TAO CAM BIEN"; stateCode = MachineStateCode::Boot;
     } else if (!sensorUsable_) {
