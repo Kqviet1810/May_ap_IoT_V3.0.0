@@ -162,14 +162,16 @@ self.addEventListener('push', (event) => {
     icon: data.icon || './icons/icon-192.png',
     badge: data.badge || './icons/badge-72.png',
     data: data.data || {},
-    tag: data.data?.alarmType ? `mayap-${data.data.deviceId || ''}-${data.data.alarmType}` : undefined,
+    tag: data.data?.alarmType ? `mayap-${data.data.deviceId || ''}-${data.data.alarmType}-${data.data.state || 'active'}` : undefined,
     // Canh bao ACTIVE thay the ban cu cung loai (khong xep chong nhieu thong
     // bao "van con loi X" giong nhau); tin RESOLVED luon la thong bao rieng
     // (khong ghi de) de nguoi dung con thay ro da tung co canh bao.
     renotify: data.data?.state === 'active',
   };
 
-  event.waitUntil(self.registration.showNotification(title, options));
+  const shown=self.registration.showNotification(title, options);
+  if(data.data?.eventId) shown.then(()=>console.info(`[push] displayed event=${data.data.eventId} age_ms=${Date.now()-Number(data.data.ts || Date.now())}`)).catch(()=>{});
+  event.waitUntil(shown);
 });
 
 self.addEventListener('notificationclick', (event) => {

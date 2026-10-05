@@ -4,6 +4,8 @@
 #include "service_recovery.h"
 #include "network_io_guard.h"
 #include "bounded_http.h"
+#include "cloud_fault_events.h"
+#include "cloud_alarm_receipt.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
@@ -92,6 +94,7 @@ static MachineConfig processingConfig{};
 // cung reset ve nhanh nhat cho ca 3.
 static BackoffTimer cloudBackoff{};
 static bool registered = false;
+static uint32_t lastHeartbeatAt=0U;
 
 // Co hieu "dat lai ma PIN web ve mac dinh" phat tu HMI (controlTask) toi
 // networkTask - dung chung idiom voi portalRequestFlag cua network_service.h
@@ -105,8 +108,12 @@ static volatile uint8_t pinResetRequestFlag = 0U;
 // -------------------------------- Hang doi gui ----------------------------------
 // Chi networkTask dung (ca ghi lan doc) - moi logic quyet dinh gui gi cung
 // chay trong mayapCloudAlertUpdate(), khong co task nao khac cham vao.
+static uint32_t eventSequence=0U;
+static uint32_t eventBootHigh=0U,eventBootLow=0U;
 struct OutboxItem {
-  bool used = false;
+  uint32_t sequence=0U,detectedAt=0U;
+  bool used = false,attempted=false;
+  BackoffTimer retry{};
   char alarmType[24] = "";
   NotifyLevel severity = NotifyLevel::Info;
   bool resolved = false;
@@ -123,7 +130,7 @@ static bool requestDeferred = false;
 static uint32_t outboxDropped = 0U, outboxCriticalDropped = 0U;
 
 inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolved,
-                       const char *message, bool hasReadings, float temperature, float humidity) {
+                       const char *message, bool hasReadings, float temperature, float humidity, uint32_t detectedAt=0U) {
   if (!alarmType || !alarmType[0] || !message || !message[0]) return false;
   // Coalesce repeat notifications for the SAME state only. Keep an active
   // alarm and its recovery as distinct events (especially critical faults).
@@ -131,53 +138,45 @@ inline bool enqueueRaw(const char *alarmType, NotifyLevel severity, bool resolve
     const uint8_t p = (outboxTail + CLOUD_OUTBOX_SIZE - 1U - n) % CLOUD_OUTBOX_SIZE;
     OutboxItem &pending = outbox[p];
     if (!pending.used || strcmp(pending.alarmType, alarmType)) continue;
-    if (pending.resolved == resolved && pending.severity == severity) {
+    if (!pending.attempted && pending.resolved == resolved && pending.severity == severity) {
       snprintf(pending.message, sizeof(pending.message), "%s", message);
       pending.hasReadings = hasReadings; pending.temperature = temperature; pending.humidity = humidity;
       return true;
     }
     break; // Never coalesce across this alarm's opposite transition.
   }
-  if (outboxCount >= CLOUD_OUTBOX_SIZE) {
-    uint8_t victim = CLOUD_OUTBOX_SIZE;
-    for (uint8_t n = 0U; n < outboxCount; ++n) {
-      if (outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE].severity != NotifyLevel::Critical) { victim = n; break; }
+  if (outboxCount >= CLOUD_OUTBOX_SIZE || (severity!=NotifyLevel::Critical && outboxCount>=CLOUD_OUTBOX_SIZE-4U)) {
+    ++outboxDropped; // admission backpressure, not eviction of a queued event
+    static uint32_t lastPressureLog=0U;
+    if(lastPressureLog==0U || static_cast<uint32_t>(millis()-lastPressureLog)>=30000U) {
+      lastPressureLog=millis();
+      mayapSerialPrintf(false,"[CLOUD] outbox backpressure=%lu; fault edges retained\n",static_cast<unsigned long>(outboxDropped));
     }
-    ++outboxDropped;
-    if (victim == CLOUD_OUTBOX_SIZE) {
-      if (severity != NotifyLevel::Critical) return false;
-      victim = 0U; ++outboxCriticalDropped;
-    }
-    for (uint8_t n = victim; n + 1U < outboxCount; ++n)
-      outbox[(outboxHead + n) % CLOUD_OUTBOX_SIZE] = outbox[(outboxHead + n + 1U) % CLOUD_OUTBOX_SIZE];
-    outboxTail = (outboxTail + CLOUD_OUTBOX_SIZE - 1U) % CLOUD_OUTBOX_SIZE;
-    outbox[outboxTail].used = false;
-    --outboxCount;
-    mayapSerialPrintf(false, "[CLOUD] outbox loss=%lu critical=%lu\n",
-      static_cast<unsigned long>(outboxDropped), static_cast<unsigned long>(outboxCriticalDropped));
+    return false;
   }
   OutboxItem &item = outbox[outboxTail];
   snprintf(item.alarmType, sizeof(item.alarmType), "%s", alarmType);
+  item.sequence=++eventSequence;item.detectedAt=detectedAt?detectedAt:millis();
   item.severity = severity;
   item.resolved = resolved;
   snprintf(item.message, sizeof(item.message), "%s", message);
   item.hasReadings = hasReadings;
   item.temperature = temperature;
   item.humidity = humidity;
-  item.used = true;
+  item.used = true;item.attempted=false;item.retry.reset(millis());
   outboxTail = static_cast<uint8_t>((outboxTail + 1U) % CLOUD_OUTBOX_SIZE);
   ++outboxCount;
   return true;
 }
 
-inline void enqueueLevel(const char *alarmType, NotifyLevel level, const char *body) {
+inline bool enqueueLevel(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
-  enqueueRaw(alarmType, level, false, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
+  return enqueueRaw(alarmType, level, false, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
 }
 
-inline void enqueueResolved(const char *alarmType, NotifyLevel level, const char *body) {
+inline bool enqueueResolved(const char *alarmType, NotifyLevel level, const char *body) {
   const bool hasReadings = knownRuntimeValid;
-  enqueueRaw(alarmType, level, true, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
+  return enqueueRaw(alarmType, level, true, body, hasReadings, processingRuntime.temperature, processingRuntime.humidity);
 }
 
 // --------------------------- Noi dung loi (Vietnamese) --------------------------
@@ -268,64 +267,33 @@ inline void alarmTypeForFault(uint16_t code, char *out, size_t outLen) {
 }
 
 inline void checkFaults(uint32_t now) {
-  bool seen[CLOUD_ACTIVE_TRACK_SIZE]{};
-  const uint8_t count = processingRuntime.activeFaultDisplayCount;
-  for (uint8_t i = 0; i < count; ++i) {
-    const HmiFaultItem &item = processingRuntime.activeFaults[i];
-    const bool conditionLive = (item.flags & 0x01U) != 0U;
-    if (!conditionLive) continue;
-
-    int16_t slot = -1;
-    for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-      if (faultTrack[s].used && faultTrack[s].code == item.code) { slot = static_cast<int16_t>(s); break; }
-    }
-    if (slot < 0) {
-      for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-        if (!faultTrack[s].used) { slot = static_cast<int16_t>(s); break; }
-      }
-    }
-    if (slot < 0) continue;  // bang theo doi day (rat hiem) - bo qua ky nay
-
-    seen[slot] = true;
-    FaultTrack &track = faultTrack[static_cast<uint8_t>(slot)];
-    const NotifyLevel level = levelForSeverity(item.severity);
-    const uint32_t interval = repeatIntervalForSeverity(item.severity);
-    char alarmType[24];
-    alarmTypeForFault(item.code, alarmType, sizeof(alarmType));
-    char body[160];
-
-    if (!track.used) {
-      track.used = true;
-      track.code = item.code;
-      track.severity = item.severity;
-      track.firstSentAt = now;
-      track.lastSentAt = now;
-      // KHONG kem "ma loi X" - nguoi dung thuong khong can biet ma noi bo,
-      // chi can biet DANG XAY RA CHUYEN GI (xem faultSummaryText).
-      snprintf(body, sizeof(body), "%s", faultSummaryText(item.code));
-      enqueueLevel(alarmType, level, body);
-    } else if (timeReached(now, track.lastSentAt + interval)) {
-      track.lastSentAt = now;
-      snprintf(body, sizeof(body), "Vẫn còn: %s", faultSummaryText(item.code));
-      enqueueLevel(alarmType, level, body);
-    }
+  MayapCloudFaultEvents::Event edge;
+  // Drain at most one mailbox capacity per update; backpressure never waits
+  // in controlTask and a blocked HTTPS request cannot erase a short fault.
+  for(uint8_t n=0;n<MayapCloudFaultEvents::CAPACITY && MayapCloudFaultEvents::peek(edge);++n) {
+    int16_t slot=-1;
+    for(uint8_t i=0;i<CLOUD_ACTIVE_TRACK_SIZE;++i)
+      if(faultTrack[i].used && faultTrack[i].code==edge.code){slot=i;break;}
+    if(slot<0) for(uint8_t i=0;i<CLOUD_ACTIVE_TRACK_SIZE;++i)
+      if(!faultTrack[i].used){slot=i;break;}
+    if(slot<0) break;
+    char type[24],body[160];alarmTypeForFault(edge.code,type,sizeof(type));
+    snprintf(body,sizeof(body),"%s%s",edge.active?"":"Đã hết: ",faultSummaryText(edge.code));
+    if(!enqueueRaw(type,levelForSeverity(edge.severity),!edge.active,body,true,
+        processingRuntime.temperature,processingRuntime.humidity,edge.at)) break;
+    FaultTrack &track=faultTrack[slot];
+    track.used=edge.active;track.code=edge.code;track.severity=edge.severity;
+    track.firstSentAt=track.lastSentAt=now;
+    MayapCloudFaultEvents::consume(edge);
   }
-
-  for (uint8_t s = 0; s < CLOUD_ACTIVE_TRACK_SIZE; ++s) {
-    if (faultTrack[s].used && !seen[s]) {
-      char alarmType[24];
-      alarmTypeForFault(faultTrack[s].code, alarmType, sizeof(alarmType));
-      char body[160];
-      // Bao ro rang la DA HET (khac han luc moi bao - xem enqueueLevel o
-      // tren), khong chi lap lai y y mo ta loi kem "ma loi X" nhu truoc -
-      // nguoi dung de nham la dang bao lai loi cu chu khong phai da het.
-      // "Da het:" dung DAU cau, khong phai cuoi - nguoi dung thuong chi doc
-      // vai chu dau tien cua thong bao, can biet NGAY la loi da qua chua
-      // phai doc het ca mo ta loi cu roi moi thay chu "da khoi phuc" o cuoi.
-      snprintf(body, sizeof(body), "Đã hết: %s", faultSummaryText(faultTrack[s].code));
-      enqueueResolved(alarmType, levelForSeverity(faultTrack[s].severity), body);
-      faultTrack[s] = FaultTrack{};
-    }
+  static uint32_t reportedOverflow=0U;
+  const uint32_t overflow=__atomic_load_n(&MayapCloudFaultEvents::overflow,__ATOMIC_RELAXED);
+  if(overflow!=reportedOverflow){reportedOverflow=overflow;mayapSerialPrintf(false,"[CLOUD] fault mailbox overflow=%lu state-resync pending\n",static_cast<unsigned long>(overflow));}
+  for(auto &track:faultTrack) if(track.used && timeReached(now,track.lastSentAt+repeatIntervalForSeverity(track.severity))) {
+    char type[24],body[160];alarmTypeForFault(track.code,type,sizeof(type));
+    snprintf(body,sizeof(body),"Vẫn còn: %s",faultSummaryText(track.code));
+    if(enqueueRaw(type,levelForSeverity(track.severity),false,body,true,
+        processingRuntime.temperature,processingRuntime.humidity)) track.lastSentAt=now;
   }
 }
 
@@ -339,9 +307,8 @@ inline void checkTransitions(uint32_t now) {
     lastBatchRunning = processingRuntime.batchRunning;
     haveLastBatchRunning = true;
   } else if (processingRuntime.batchRunning != lastBatchRunning) {
-    lastBatchRunning = processingRuntime.batchRunning;
-    enqueueLevel(processingRuntime.batchRunning ? "BATCH_STARTED" : "BATCH_ENDED", NotifyLevel::Info,
-        processingRuntime.batchRunning ? "Đã bắt đầu mẻ ấp mới." : "Đã kết thúc mẻ ấp.");
+    if(enqueueLevel(processingRuntime.batchRunning ? "BATCH_STARTED" : "BATCH_ENDED", NotifyLevel::Info,
+        processingRuntime.batchRunning ? "Đã bắt đầu mẻ ấp mới." : "Đã kết thúc mẻ ấp.")) lastBatchRunning=processingRuntime.batchRunning;
   }
 }
 
@@ -362,9 +329,8 @@ inline void checkPowerRestored(uint32_t now) {
   // khong ap gi thi khong can lam phien (cung nguyen tac voi canh bao mat
   // ket noi phia Worker, chi bao khi dang co me).
   if (!processingRuntime.batchRunning && !processingRuntime.resumeConfirmationRequired) return;
-  powerRestoreReported = true;
   if (processingRuntime.resumeConfirmationRequired) {
-    enqueueLevel("POWER_RESTORED", NotifyLevel::Warning,
+    powerRestoreReported=enqueueLevel("POWER_RESTORED", NotifyLevel::Warning,
         "Đã có điện lại. Mẻ ấp đang CHỜ XÁC NHẬN trên máy để chạy tiếp.");
   } else {
     char body[160];
@@ -372,7 +338,7 @@ inline void checkPowerRestored(uint32_t now) {
         "Đã có điện lại. Mẻ ấp đã tự chạy tiếp (ngày %u/%u).",
         static_cast<unsigned>(processingRuntime.currentDay),
         static_cast<unsigned>(processingConfig.totalIncubationDays));
-    enqueueLevel("POWER_RESTORED", NotifyLevel::Info, body);
+    powerRestoreReported=enqueueLevel("POWER_RESTORED", NotifyLevel::Info, body);
   }
 }
 
@@ -393,25 +359,22 @@ inline void checkLightAfterBatch(uint32_t now) {
   const bool condition = processingRuntime.batchRunning && processingRuntime.lightOn;
   if (condition) {
     if (!lightAfterBatchActive) {
-      lightAfterBatchActive = true;
-      lightAfterBatchLastSentAt = now;
-      enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+      lightAfterBatchActive=enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
           "Đèn đang bật trong lúc mẻ ấp đang chạy - kiểm tra nếu không cần thiết.");
+      if(lightAfterBatchActive) lightAfterBatchLastSentAt=now;
     } else if (timeReached(now, lightAfterBatchLastSentAt + CLOUD_LIGHT_AFTER_BATCH_REPEAT_MS)) {
-      lightAfterBatchLastSentAt = now;
-      enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
-          "Vẫn còn: đèn đang bật trong lúc mẻ ấp đang chạy.");
+      if(enqueueLevel("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+          "Vẫn còn: đèn đang bật trong lúc mẻ ấp đang chạy.")) lightAfterBatchLastSentAt=now;
     }
   } else if (lightAfterBatchActive) {
-    lightAfterBatchActive = false;
     // Noi RO nguyen nhan het canh bao, khong bao chung chung "den da tat HOAC
     // me ap da ket thuc" - nguoi dung doc xong khong biet thuc te vua xay ra
     // chuyen gi. Tai day van con du du lieu de biet chinh xac ve nao dung.
     if (!processingRuntime.lightOn) {
-      enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+      lightAfterBatchActive=!enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
           "Đã hết: đèn đã được tắt.");
     } else {
-      enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
+      lightAfterBatchActive=!enqueueResolved("LIGHT_ON_DURING_BATCH", NotifyLevel::Warning,
           "Đã hết: mẻ ấp đã kết thúc (đèn vẫn đang bật).");
     }
   }
@@ -430,16 +393,15 @@ inline void checkTurnCycleMissed(uint32_t now) {
   if (!processingConfig.turningEnabled || !processingRuntime.batchRunning) {
     turnMissedHaveCount = false;
     if (turnMissedActive) {
-      turnMissedActive = false;
       // KHONG bao "da hoat dong binh thuong tro lai" o day - canh bao het
       // vi me ap dung/nguoi dung tat tu dong dao, KHONG phai vi co cau dao
       // da chay lai duoc. Bao dung su that de nguoi dung khong hieu nham la
       // may da tu khac phuc xong (nhanh "da chay lai that" nam ben duoi).
       if (!processingRuntime.batchRunning) {
-        enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+        turnMissedActive=!enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
             "Đã hết: mẻ ấp đã kết thúc (chưa kiểm tra được cơ cấu đảo).");
       } else {
-        enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+        turnMissedActive=!enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
             "Đã hết: đã tắt tự động đảo (chưa kiểm tra được cơ cấu đảo).");
       }
     }
@@ -450,10 +412,10 @@ inline void checkTurnCycleMissed(uint32_t now) {
     turnMissedCountChangedAt = now;
     turnMissedHaveCount = true;
     if (turnMissedActive) {
-      turnMissedActive = false;
       // Day moi la phuc hoi THAT: dem so lan dao thanh cong vua tang tro lai.
-      enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+      turnMissedActive=!enqueueResolved("TURN_CYCLE_STALLED", NotifyLevel::Warning,
           "Đã hết: đảo trứng đã chạy lại bình thường.");
+      if(turnMissedActive) turnMissedHaveCount=false;
     }
     return;
   }
@@ -461,8 +423,7 @@ inline void checkTurnCycleMissed(uint32_t now) {
       60000UL * TURN_MISSED_MULTIPLIER;
   if (!turnMissedActive && staleLimitMs > 0U &&
       timeReached(now, turnMissedCountChangedAt + staleLimitMs)) {
-    turnMissedActive = true;
-    enqueueLevel("TURN_CYCLE_STALLED", NotifyLevel::Warning,
+    turnMissedActive=enqueueLevel("TURN_CYCLE_STALLED", NotifyLevel::Warning,
         "Không ghi nhận đảo trứng thành công quá lâu - kiểm tra cơ cấu đảo.");
   }
 }
@@ -476,8 +437,7 @@ inline void checkBatchSchedule(uint32_t now) {
   if (!processingRuntime.batchRunning) {
     batchNearingEndSent = false;
     if (batchOverdueActive) {
-      batchOverdueActive = false;
-      enqueueResolved("BATCH_OVERDUE", NotifyLevel::Info, "Mẻ ấp đã kết thúc.");
+      batchOverdueActive=!enqueueResolved("BATCH_OVERDUE", NotifyLevel::Info, "Mẻ ấp đã kết thúc.");
     }
     return;
   }
@@ -487,22 +447,20 @@ inline void checkBatchSchedule(uint32_t now) {
 
   if (!batchNearingEndSent && total > current &&
       static_cast<uint8_t>(total - current) <= BATCH_NEARING_END_DAYS_LEFT) {
-    batchNearingEndSent = true;
     char body[160];
     snprintf(body, sizeof(body),
         "Còn %u ngày đến ngày dự kiến nở (ngày %u/%u).",
         static_cast<unsigned>(total - current), static_cast<unsigned>(current),
         static_cast<unsigned>(total));
-    enqueueLevel("BATCH_NEARING_END", NotifyLevel::Info, body);
+    batchNearingEndSent=enqueueLevel("BATCH_NEARING_END", NotifyLevel::Info, body);
   }
   if (!batchOverdueActive && current > total) {
-    batchOverdueActive = true;
     char body[160];
     snprintf(body, sizeof(body),
         "Quá hạn %u ngày (ngày %u/%u) - kiểm tra tình trạng trứng.",
         static_cast<unsigned>(current - total), static_cast<unsigned>(current),
         static_cast<unsigned>(total));
-    enqueueLevel("BATCH_OVERDUE", NotifyLevel::Warning, body);
+    batchOverdueActive=enqueueLevel("BATCH_OVERDUE", NotifyLevel::Warning, body);
   }
 }
 
@@ -518,8 +476,7 @@ inline void checkWifiSignal(uint32_t now) {
   if (!onlineAndWeak) {
     wifiWeakTracking = false;
     if (wifiWeakActive) {
-      wifiWeakActive = false;
-      enqueueResolved("WIFI_SIGNAL_WEAK", NotifyLevel::Info, "Đã hết: tín hiệu Wi-Fi đã ổn định trở lại.");
+      wifiWeakActive=!enqueueResolved("WIFI_SIGNAL_WEAK", NotifyLevel::Info, "Đã hết: tín hiệu Wi-Fi đã ổn định trở lại.");
     }
     return;
   }
@@ -529,12 +486,11 @@ inline void checkWifiSignal(uint32_t now) {
     return;
   }
   if (!wifiWeakActive && timeReached(now, wifiWeakSinceAt + WIFI_RSSI_WEAK_DURATION_MS)) {
-    wifiWeakActive = true;
     char body[160];
     snprintf(body, sizeof(body),
         "Tín hiệu Wi-Fi yếu kéo dài (%d dBm) - nên đặt máy gần router hơn.",
         static_cast<int>(status.rssiDbm));
-    enqueueLevel("WIFI_SIGNAL_WEAK", NotifyLevel::Warning, body);
+    wifiWeakActive=enqueueLevel("WIFI_SIGNAL_WEAK", NotifyLevel::Warning, body);
   }
 }
 
@@ -566,13 +522,14 @@ inline bool beginCloudRequest(HTTPClient &http, WiFiClientSecure &client, const 
 }
 
 inline bool postJson(const char *path, const JsonDocument &doc, const char *logTag,
-                     String *responseBody = nullptr, int *responseCode = nullptr) {
+                     String *responseBody = nullptr, int *responseCode = nullptr, bool urgent = false) {
   requestDeferred = true;
-  if (lastRequestFinishedAt != 0U &&
+  if (!urgent && lastRequestFinishedAt != 0U &&
       elapsedMs(millis(), lastRequestFinishedAt) < CLOUD_MIN_SEND_GAP_MS) {
     if (responseCode) *responseCode = 0;
     return false;
   }
+  if (urgent && (ESP.getFreeHeap()<73728U || mayapTlsBusy())) mayapRequestCloudTlsYield(millis(),true);
   MayapTlsOperation tlsOperation(MayapTlsKind::Cloud);
   if (!tlsOperation) {
     static uint32_t lastAdmissionLogAt = 0U;
@@ -669,7 +626,7 @@ inline bool sendRegister() {
   doc["device_name"] = mayapDeviceIdText();
   String response;
   int code = 0;
-  if (!postJson("/api/device/register", doc, "register", &response, &code)) {
+  if (!postJson("/api/device/register", doc, "register", &response, &code,outboxCount!=0U)) {
     if (code == 403) {
       mayapSetProvisioningState(MayapProvisioningState::ServerDenied);
     } else if (code == 401) {
@@ -717,7 +674,7 @@ inline bool sendHeartbeat() {
   return postJson("/api/device/heartbeat", doc, "heartbeat");
 }
 
-inline bool sendAlarm(const OutboxItem &item) {
+inline bool sendAlarm(OutboxItem &item) {
   JsonDocument doc;
   doc["device_id"] = mayapDeviceIdText();
   doc["device_key"] = mayapDeviceSecret();
@@ -729,34 +686,46 @@ inline bool sendAlarm(const OutboxItem &item) {
     doc["temperature"] = item.temperature;
     doc["humidity"] = item.humidity;
   }
-  return postJson("/api/device/alarm", doc, "alarm");
+  char eventId[40];
+  snprintf(eventId,sizeof(eventId),"%08lx%08lx-%08lx",static_cast<unsigned long>(eventBootHigh),
+      static_cast<unsigned long>(eventBootLow),static_cast<unsigned long>(item.sequence));
+  doc["event_id"]=eventId;doc["detected_uptime_ms"]=item.detectedAt;
+  String response;
+  const bool sent=postJson("/api/device/alarm",doc,"alarm",&response,nullptr,true);
+  item.attempted=item.attempted || !requestDeferred;
+  if(!sent) return false;
+  const bool accepted=mayapDurableAlarmReceipt(response.c_str(),eventId);
+  mayapSerialPrintf(false,"[CLOUD] event=%s age=%lums durable_ack=%u\n",eventId,
+      static_cast<unsigned long>(elapsedMs(millis(),item.detectedAt)),accepted?1U:0U);
+  return accepted;
 }
 
 inline void drainOutbox(uint32_t now) {
-  if (outboxCount == 0U) return;
-  if (!timeReached(now, lastSendAt + CLOUD_MIN_SEND_GAP_MS)) return;
-  if (!cloudBackoff.ready(now)) return;  // lan goi truoc vua that bai
-  const NetworkStatus status = mayapGetNetworkStatus();
-  if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
-
-  lastSendAt = now;
-  OutboxItem &item = outbox[outboxHead];
-  const bool ok = sendAlarm(item);
-  if (ok) {
-    cloudBackoff.onSuccess();
-    item.used = false;
-    outboxHead = static_cast<uint8_t>((outboxHead + 1U) % CLOUD_OUTBOX_SIZE);
-    --outboxCount;
-  } else {
-    // That bai (mang chap chon, Worker loi tam thoi...): giu nguyen dau hang
-    // doi (khong mat tin), nhung lui backoff truoc khi cho phep thu lai -
-    // khong dap HTTPS lien tuc moi CLOUD_MIN_SEND_GAP_MS trong khi mang dang
-    // that su mat trong nhieu gio.
-    if (!requestDeferred) cloudBackoff.onFailure(millis());
+  if(outboxCount==0U) return;
+  uint8_t selected=0U;
+  // A critical edge may pass routine messages but never its own predecessor.
+  for(uint8_t n=0;n<outboxCount;++n) {
+    const OutboxItem &candidate=outbox[(outboxHead+n)%CLOUD_OUTBOX_SIZE];
+    if(candidate.severity!=NotifyLevel::Critical || (candidate.attempted && !candidate.retry.ready(now))) continue;
+    bool predecessor=false;
+    for(uint8_t p=0;p<n;++p) if(!strcmp(outbox[(outboxHead+p)%CLOUD_OUTBOX_SIZE].alarmType,candidate.alarmType)){predecessor=true;break;}
+    if(!predecessor){selected=n;break;}
   }
+  OutboxItem &item=outbox[(outboxHead+selected)%CLOUD_OUTBOX_SIZE];
+  if(item.severity!=NotifyLevel::Critical && !timeReached(now,lastSendAt+CLOUD_MIN_SEND_GAP_MS)) return;
+  if(item.attempted && !item.retry.ready(now)) return;
+  const NetworkStatus status=mayapGetNetworkStatus();
+  if(!(status.requestedMode==ConnectivityMode::Online && status.connected)) return;
+  const bool ok=sendAlarm(item);
+  if(!requestDeferred) lastSendAt=millis();
+  if(ok) {
+    item.retry.onSuccess();
+    for(uint8_t n=selected;n+1U<outboxCount;++n)
+      outbox[(outboxHead+n)%CLOUD_OUTBOX_SIZE]=outbox[(outboxHead+n+1U)%CLOUD_OUTBOX_SIZE];
+    outboxTail=(outboxTail+CLOUD_OUTBOX_SIZE-1U)%CLOUD_OUTBOX_SIZE;
+    outbox[outboxTail].used=false;--outboxCount;
+  } else if(!requestDeferred) item.retry.onFailure(millis());
 }
-
-static uint32_t lastHeartbeatAt = 0U;
 
 inline void serviceHeartbeat(uint32_t now) {
   if (!timeReached(now, lastHeartbeatAt + CLOUD_HEARTBEAT_INTERVAL_MS)) return;
@@ -807,6 +776,7 @@ inline void servicePinReset() {
 // ================================ API cong khai ================================
 
 inline void mayapCloudAlertBegin() {
+  MayapCloudInternal::eventBootHigh=esp_random();MayapCloudInternal::eventBootLow=esp_random();
   // Khong can khoi tao gi truoc: moi client HTTPS la ngan han, tao khi can goi.
 }
 
@@ -861,7 +831,7 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     if (configValid) processingConfig = knownConfig;
     portEXIT_CRITICAL(&cloudMux);
     if (valid) {
-      checkFaults(now);
+
       checkTransitions(now);
       if (configValid) {
         checkPowerRestored(now);
@@ -872,6 +842,8 @@ inline void mayapCloudAlertUpdate(uint32_t now) {
     }
     checkWifiSignal(now);
   }
+
+  checkFaults(now);
 
   // Explicit user request gets first admission, not a permanently occupied
   // send gap left by routine heartbeat/alarm traffic.

@@ -574,6 +574,9 @@ class FaultManager {
     FaultState &state = slot(code);
     const FaultDescriptor &desc = faultDescriptor(code);
     if (condition) {
+#ifdef MAYAP_CLOUD_FAULT_EVENTS
+      if (!state.condition) mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),true,now);
+#endif
       state.condition = true;
       state.detail = detail;
       state.lastAt = now;
@@ -594,6 +597,9 @@ class FaultManager {
       return;
     }
 
+#ifdef MAYAP_CLOUD_FAULT_EVENTS
+    if (state.condition) mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(desc.severity),false,now);
+#endif
     state.condition = false;
     if (!state.active) return;
     if (desc.latching && !state.acknowledged) return;
@@ -622,6 +628,9 @@ class FaultManager {
   bool clearRecovered(FaultCode code, uint32_t now) {
     FaultState *state = find(code);
     if (!state || !state->active) return false;
+#ifdef MAYAP_CLOUD_FAULT_EVENTS
+    if (state->condition) mayapCloudRecordFault(static_cast<uint16_t>(code),static_cast<uint8_t>(faultDescriptor(code).severity),false,now);
+#endif
     state->condition = false;
     state->acknowledged = true;
     clearState(*state, now);

@@ -257,10 +257,10 @@ constexpr float HEALTH_TEMP_TREND_LOOKAHEAD_MIN = 5.0f; // canh bao neu <=5 phut
 // hieu suy giam som cua chip nho truoc khi hong han.
 constexpr uint8_t HEALTH_EEPROM_RETRY_WARN_COUNT = 5U;
 
-constexpr uint8_t CLOUD_OUTBOX_SIZE = 8U;
+constexpr uint8_t CLOUD_OUTBOX_SIZE = 16U;
 // >= HMI_FAULT_DISPLAY_CAPACITY (so loi dang active toi da doc duoc tu runtime
 // snapshot moi lan), du du de theo doi tat ca dong thoi.
-constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 16U;
+constexpr uint8_t CLOUD_ACTIVE_TRACK_SIZE = 48U;
 
 // HMI chi duoc bien dich trong firmware tong; da loai bo demo doc lap.
 #define MAYAP_HMI_OWNS_I2C_BUS 0

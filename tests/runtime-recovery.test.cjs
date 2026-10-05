@@ -28,6 +28,7 @@ test('runtime recovery preserves Adaptive Boot, local safety, schemas, protocol 
     if (entry.filter === 'supervisor') {
       source = source.replace(/    MayapRecovery::Service failedService[\s\S]*?(?=    const esp_err_t result = esp_task_wdt_reset\(\);)/, '');
     }
+    if (entry.filter === 'cloudFaultEvents') source = source.replace(/^#ifdef MAYAP_CLOUD_FAULT_EVENTS\n[\s\S]*?^#endif\n/gm, '');
     if (entry.filter === 'config') source = source.replace(/^void mayapI2cReport\(uint8_t address, bool ok\);\n|^uint32_t mayapI2cRecoveryEpoch\(\);\n/gm, '');
     assert.equal(crypto.createHash('sha256').update(source).digest('hex'), entry.sha256, entry.file + ' ' + (entry.signature || ''));
   }

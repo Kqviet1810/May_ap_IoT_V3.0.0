@@ -42,14 +42,19 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     ota = (root / 'MAYAP_INDUSTRIAL_v1_0_0/ota_update.h').read_text(encoding='utf-8')
     ota = '\n'.join(line for line in ota.splitlines() if not line.startswith('#include'))
     (out / 'actual-ota.inc').write_text(ota, encoding='utf-8')
-    for name in ('attiny_bus', 'gpio_interrupts', 'serial_diagnostics', 'network_io_guard', 'bounded_http'):
+    for name in ('attiny_bus', 'gpio_interrupts', 'serial_diagnostics', 'network_io_guard', 'bounded_http', 'cloud_fault_events', 'cloud_alarm_receipt'):
         source = (root / ('MAYAP_INDUSTRIAL_v1_0_0/' + name + '.h')).read_text(encoding='utf-8')
         source = '\n'.join(line for line in source.splitlines() if not line.startswith('#include'))
         (out / ('actual-' + name + '.inc')).write_text(source, encoding='utf-8')
     cloud = (root / 'MAYAP_INDUSTRIAL_v1_0_0/cloud_alert_link.h').read_text(encoding='utf-8')
-    start = cloud.index('struct OutboxItem {')
-    end = cloud.index('inline void enqueueLevel(', start)
-    (out / 'actual-cloud-outbox.inc').write_text(cloud[start:end], encoding='utf-8')
+    start = cloud.index('static uint32_t eventSequence=')
+    end = cloud.index('inline bool enqueueLevel(', start)
+    (out / 'actual-cloud-outbox.inc').write_text(cloud[start:end].replace('static uint32_t eventBootHigh=0U,eventBootLow=0U;', '').replace('static BackoffTimer alarmBackoff{};', ''), encoding='utf-8')
+    (out / 'actual-cloud-faults.inc').write_text(cloud[cloud.index('inline const char *faultSummaryText('):cloud.index('// --------------------------- Su kien mot lan')], encoding='utf-8')
+    (out / 'actual-cloud-enqueue.inc').write_text(cloud[cloud.index('inline bool enqueueLevel('):cloud.index('// --------------------------- Noi dung loi')], encoding='utf-8')
+    (out / 'actual-cloud-oneshots.inc').write_text(cloud[cloud.index('static bool lastBatchRunning'):cloud.index('// --------------------- Canh bao: den van bat')], encoding='utf-8')
+    begin=cloud.index('inline void drainOutbox(')
+    (out / 'actual-cloud-drain.inc').write_text(cloud[begin:cloud.index('inline void serviceHeartbeat(',begin)], encoding='utf-8')
     start = cloud.index('inline void servicePinReset()')
     end = cloud.index('}  // namespace MayapCloudInternal', start)
     (out / 'actual-cloud-pin-reset.inc').write_text(cloud[start:end], encoding='utf-8')
@@ -148,12 +153,12 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
                  'mayapBootAcknowledgeHomeFrame'):
         mailbox += re.search(r'inline (?:bool|void) ' + name + r'\(\) \{[^}]*\}', boot)[0] + '\n'
     (out / 'actual-boot-mailbox.inc').write_text(mailbox, encoding='utf-8')
-    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation'):
+    for test in ('runtime-buses', 'runtime-network', 'runtime-ota', 'runtime-attiny', 'runtime-attiny-state', 'runtime-stability', 'runtime-cloud-alert', 'runtime-websocket', 'runtime-esp-tls-poll', 'runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation'):
         executable = out / (test + ('.exe' if __import__('os').name == 'nt' else ''))
         command = [args.cxx, '-std=c++11', '-Wall', '-Wextra', '-Werror', '-I', str(out),
                    str(root / ('tests/' + test + '.cpp')), '-o', str(executable)]
-        if test == 'runtime-transactions': command[1] = '-std=c++17'
-        if test in ('runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation'):
+        if test in ('runtime-transactions','runtime-cloud-alert'): command[1] = '-std=c++17'
+        if test in ('runtime-web-connect', 'runtime-transactions', 'runtime-online-isolation','runtime-cloud-alert'):
             command += ['-I', str(json_include)]
         if args.sanitize:
             command += ['-fsanitize=address,undefined', '-fno-omit-frame-pointer']

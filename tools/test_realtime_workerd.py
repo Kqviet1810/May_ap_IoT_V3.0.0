@@ -107,7 +107,7 @@ def main():
         state = Path(temporary)
         now = int(time.time() * 1000)
         ddl = (ROOT / 'cloudflare/schema.sql').read_text()
-        for name in ['0003_telemetry_history', '0004_accounts', '0005_account_picture']:
+        for name in ['0003_telemetry_history', '0004_accounts', '0005_account_picture', '0007_alarm_delivery']:
             ddl += '\n' + (ROOT / f'cloudflare/migrations/{name}.sql').read_text()
         ddl += f"""
 INSERT INTO users(google_sub,created_at,last_login_at) VALUES('fixture-owner',{now},{now});
@@ -147,6 +147,16 @@ INSERT INTO user_devices(user_sub,device_id,role,created_at) VALUES('fixture-own
                     request = urllib.request.Request(base + '/api/device/realtime-session', data=json.dumps({'device_id': DEVICE, 'control_client_id': 'w-integration123'}).encode(), headers={'Origin':'https://web.test','Authorization':'Bearer '+TOKEN,'Content-Type':'application/json'})
                     with urllib.request.urlopen(request, timeout=5) as response:
                         return json.load(response)
+                # Actual D1 atomic receipt and retry after a lost device response.
+                def alarm_receipt():
+                    body={'device_id':DEVICE,'device_key':KEY,'event_id':'integration-0001',
+                          'alarm_type':'FAULT_130','state':'active','severity':'critical','message':'heater switch off'}
+                    request=urllib.request.Request(base+'/api/device/alarm',data=json.dumps(body).encode(),
+                        headers={'Content-Type':'application/json'})
+                    with urllib.request.urlopen(request,timeout=5) as response:return json.load(response)
+                receipt=alarm_receipt()
+                assert receipt.get('durable') and receipt.get('event_id')=='integration-0001',receipt
+                assert alarm_receipt().get('duplicate') is True
                 assert ws('/realtime/device/' + DEVICE, {}).status == 401
                 d = ws('/realtime/device/' + DEVICE, {'Authorization':'Bearer '+KEY,'X-Mayap-Boot':'123'})
                 assert d.status == 101, d.status

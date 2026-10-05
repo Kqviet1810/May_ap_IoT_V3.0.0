@@ -9,13 +9,19 @@ static uint8_t tlsBusy = 0U;
 static uint32_t deferred = 0U;
 static uint32_t cloudYieldUntil = 0U, cloudYieldRetryAt = 0U;
 static uint8_t cloudActive = 0U;
+static uint32_t cloudUrgentRetryAt=0U;
 }
 // Cloud requests a bounded RAM handoff; only the realtime owner closes its
 // socket. A failed Cloud task cannot keep realtime paused indefinitely.
-inline bool mayapRequestCloudTlsYield(uint32_t now) {
+inline bool mayapRequestCloudTlsYield(uint32_t now, bool urgent = false) {
   using namespace MayapNetworkIoInternal;
   const uint32_t retry = __atomic_load_n(&cloudYieldRetryAt, __ATOMIC_ACQUIRE);
-  if (retry != 0U && static_cast<int32_t>(now - retry) < 0) return false;
+  const uint32_t until=__atomic_load_n(&cloudYieldUntil,__ATOMIC_ACQUIRE);
+  if(until!=0U && static_cast<int32_t>(now-until)<0) return true; // same transaction
+  if (!urgent && retry != 0U && static_cast<int32_t>(now - retry) < 0) return false;
+  const uint32_t urgentRetry=__atomic_load_n(&cloudUrgentRetryAt,__ATOMIC_ACQUIRE);
+  if(urgent && urgentRetry!=0U && static_cast<int32_t>(now-urgentRetry)<0) return false;
+  __atomic_store_n(&cloudUrgentRetryAt,now+20000U,__ATOMIC_RELEASE);
   __atomic_store_n(&cloudYieldUntil, now + 15000U, __ATOMIC_RELEASE);
   __atomic_store_n(&cloudYieldRetryAt, now + 60000U, __ATOMIC_RELEASE);
   return true;
@@ -28,6 +34,7 @@ inline bool mayapCloudTlsYieldRequested(uint32_t now) {
 }
 inline void mayapReleaseCloudTlsYield() {
   __atomic_store_n(&MayapNetworkIoInternal::cloudYieldUntil, 0U, __ATOMIC_RELEASE);
+  __atomic_store_n(&MayapNetworkIoInternal::cloudUrgentRetryAt, 0U, __ATOMIC_RELEASE);
 }
 enum class MayapTlsKind : uint8_t { Mqtt, Cloud, Ota };
 inline bool mayapTlsBusy() {

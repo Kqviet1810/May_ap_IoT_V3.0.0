@@ -1,3 +1,4 @@
+import { findAlarmEvent, queueAlarmEvent, scheduleAlarmDelivery, maintainAlarmDeliveries } from './alarm-delivery.js';
 import { hashDeviceKey, verifyDeviceKey, randomToken, isValidDeviceId } from './auth.js';
 import {
   getDeviceByDeviceId,
@@ -250,7 +251,7 @@ async function handleRotateDeviceKey(request, env) {
 }
 
 // -------------------------- Endpoint: bao dong / canh bao --------------------------
-async function handleAlarm(request, env) {
+async function handleAlarm(request, env, ctx) {
   const body = await readJson(request);
   const deviceId = String(body?.device_id || '').trim();
   const deviceKey = String(body?.device_key || '');
@@ -271,70 +272,41 @@ async function handleAlarm(request, env) {
   if (!valid) return json(env, { success: false, error: 'device_key sai' }, 401);
 
   const now = Date.now();
-  await touchDevice(env.DB, deviceId, 'online', now);
-
-  // Rao chong spam phia server: chi chan khi TRANG THAI khong doi va con qua
-  // moi (chuyen active<->resolved luon duoc phep gui ngay, vi la tin quan trong).
-  const priorState = await getAlarmState(env.DB, deviceId, alarmType);
-  const stateActive = state === 'active';
-  const unchanged = priorState && Boolean(priorState.active) === stateActive;
-  const tooSoon = priorState?.last_sent_at && now - priorState.last_sent_at < MIN_ALARM_COOLDOWN_MS;
-  const throttle = unchanged && tooSoon;
-
-  let notificationSent = 0;
-  if (!throttle) {
-    const subscriptions = await getSubscriptionsForDevice(env.DB, deviceId);
-    const notification = buildNotificationPayload({
-      deviceId,
-      deviceName: device.device_name,
-      alarmType,
-      severity,
-      state,
-      message,
-      temperature,
-      humidity,
-    });
-
-    // Gui song song toi tat ca subscription cua thiet bi (Promise.all) thay vi
-    // tuan tu tung cai mot - 1 endpoint cham/treo (vd may push service dang
-    // qua tai) truoc day se lam nghen ca hang doi, khien nhung nguoi con lai
-    // duoc lien ket voi cung thiet bi nhan thong bao tre theo.
-    const results = await Promise.all(subscriptions.map((sub) => sendWebPush(env, sub, notification)));
-    const staleEndpoints = [];
-    results.forEach((result, i) => {
-      if (result.ok) {
-        notificationSent += 1;
-      } else if (result.gone) {
-        // Subscription het han/bi thu hoi phia trinh duyet - don dep de lan
-        // sau khong con thu gui vao mot endpoint da chet.
-        staleEndpoints.push(subscriptions[i].endpoint);
-      }
-    });
-    await Promise.all(staleEndpoints.map((endpoint) => deleteSubscriptionByEndpoint(env.DB, endpoint)));
-
-    await upsertAlarmState(env.DB, {
-      deviceId,
-      alarmType,
-      active: stateActive,
-      firstSentAt: now,
-      lastSentAt: now,
-      lastMessage: message,
-    });
+  const suppliedId=body?.event_id;
+  if (suppliedId !== undefined && !/^[a-zA-Z0-9_-]{1,64}$/.test(String(suppliedId)))
+    return json(env,{success:false,error:'INVALID_EVENT_ID'},400);
+  const eventId=suppliedId || crypto.randomUUID();
+  const existing=await findAlarmEvent(env,deviceId,eventId);
+  if (existing) {
+    const saved=JSON.parse(existing.payload).data;
+    if (saved.alarmType!==alarmType || saved.state!==state || saved.message!==message)
+      return json(env,{success:false,error:'EVENT_ID_CONFLICT'},409);
+    scheduleAlarmDelivery(env,ctx);
+    return json(env,{success:true,durable:true,event_id:eventId,duplicate:true});
   }
-
-  await insertAlarmLog(env.DB, {
-    deviceId,
-    alarmType,
-    severity,
-    state,
-    message,
-    temperature,
-    humidity,
-    notificationSent: notificationSent > 0,
-    now,
-  });
-
-  return json(env, { success: true, notification_sent: notificationSent, throttled: throttle });
+  await touchDevice(env.DB,deviceId,'online',now);
+  const priorState=await getAlarmState(env.DB,deviceId,alarmType);
+  const unchanged=priorState && Boolean(priorState.active)===(state==='active');
+  if (unchanged && now-Number(priorState.last_sent_at || 0)<MIN_ALARM_COOLDOWN_MS) {
+    // New firmware retains the event and retries; older firmware preserves its
+    // previous throttle semantics. Already-durable duplicates bypass this gate.
+    return json(env,{success:!suppliedId,durable:false,throttled:true},suppliedId?429:200);
+  }
+  const notification=buildNotificationPayload({deviceId,deviceName:device.device_name,alarmType,severity,state,message,temperature,humidity});
+  notification.data.eventId=eventId;notification.data.message=message;
+  notification.data.receivedAt=now;
+  notification.data.detectedUptimeMs=Number.isInteger(body?.detected_uptime_ms) ? body.detected_uptime_ms : null;
+  const event=await queueAlarmEvent(env,{deviceId,eventId,alarmType,notification,now});
+  const persisted=JSON.parse(event.payload).data;
+  if(persisted.alarmType!==alarmType || persisted.state!==state || persisted.message!==message)
+    return json(env,{success:false,error:'EVENT_ID_CONFLICT'},409);
+  // The receipt above remains valid even if ancillary history updates fail.
+  try {
+    await upsertAlarmState(env.DB,{deviceId,alarmType,active:state==='active',firstSentAt:now,lastSentAt:now,lastMessage:message});
+    await insertAlarmLog(env.DB,{deviceId,alarmType,severity,state,message,temperature,humidity,notificationSent:false,now});
+  } catch(error) {console.error('[alarm] history failed',String(error?.message || error));}
+  scheduleAlarmDelivery(env,ctx);
+  return json(env,{success:true,durable:true,event_id:event.event_id});
 }
 
 // -------------------------- Endpoint: dang ky / huy Push subscription --------------------------
@@ -677,37 +649,12 @@ async function sendDeviceLifecycleAlarm(env, device, { state, message }) {
     message,
   });
 
-  let notificationSent = 0;
-  const results = await Promise.all(subscriptions.map((sub) => sendWebPush(env, sub, notification)));
-  const staleEndpoints = [];
-  results.forEach((result, i) => {
-    if (result.ok) {
-      notificationSent += 1;
-    } else if (result.gone) {
-      staleEndpoints.push(subscriptions[i].endpoint);
-    }
-  });
-  await Promise.all(staleEndpoints.map((endpoint) => deleteSubscriptionByEndpoint(env.DB, endpoint)));
-
-  await upsertAlarmState(env.DB, {
-    deviceId: device.device_id,
-    alarmType: 'DEVICE_OFFLINE',
-    active: state === 'active',
-    firstSentAt: now,
-    lastSentAt: now,
-    lastMessage: message,
-  });
-  await insertAlarmLog(env.DB, {
-    deviceId: device.device_id,
-    alarmType: 'DEVICE_OFFLINE',
-    severity: 'critical',
-    state,
-    message,
-    temperature: null,
-    humidity: null,
-    notificationSent: notificationSent > 0,
-    now,
-  });
+  const prior=await getAlarmState(env.DB,device.device_id,'DEVICE_OFFLINE');
+  if (prior && Boolean(prior.active)===(state==='active')) return;
+  const eventId=`lifecycle-${state}-${device.last_seen || 0}`;
+  notification.data.eventId=eventId;notification.data.message=message;
+  await queueAlarmEvent(env,{deviceId:device.device_id,eventId,alarmType:'DEVICE_OFFLINE',notification,now});
+  await upsertAlarmState(env.DB,{deviceId:device.device_id,alarmType:'DEVICE_OFFLINE',active:state==='active',firstSentAt:now,lastSentAt:now,lastMessage:message});
 }
 
 async function checkDeviceConnectivity(env) {
@@ -715,17 +662,18 @@ async function checkDeviceConnectivity(env) {
 
   const staleDevices = await getStaleOnlineDevices(env.DB, staleBefore);
   for (const device of staleDevices) {
-    await setDeviceStatus(env.DB, device.device_id, 'offline');
+    // Mark offline only after its alarm was persisted successfully.
     // Chi gui push khi device dang co me ap chay tai lan heartbeat GAN NHAT
     // (batch_running ghi kem moi heartbeat - xem touchDeviceHeartbeat trong
     // db.js) - khong co me nao dang chay thi mat mang/mat dien khong can bao,
     // theo yeu cau: chi quan tam khi dang ap that su.
-    if (!device.batch_running) continue;
+    if (!device.batch_running) {await setDeviceStatus(env.DB,device.device_id,'offline');continue;}
     const thresholdSeconds = Math.round(DEVICE_OFFLINE_THRESHOLD_MS / 1000);
     await sendDeviceLifecycleAlarm(env, device, {
       state: 'active',
       message: `Mất kết nối trên ${thresholdSeconds} giây - kiểm tra nguồn điện hoặc Wi-Fi ngay.`,
     });
+    await setDeviceStatus(env.DB,device.device_id,'offline');
   }
 
   const recoveredDevices = await getRecoveredOfflineDevices(env.DB, staleBefore);
@@ -743,9 +691,9 @@ async function checkDeviceConnectivity(env) {
 
 export default {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkDeviceConnectivity(env));
+    ctx.waitUntil((async()=>{await checkDeviceConnectivity(env);await maintainAlarmDeliveries(env);})());
   },
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
 
     if (request.method === 'OPTIONS') {
@@ -769,7 +717,7 @@ export default {
         return await handleResetPin(request, env);
       }
       if (url.pathname === '/api/device/alarm' && request.method === 'POST') {
-        return await handleAlarm(request, env);
+        return await handleAlarm(request, env, ctx);
       }
       if (['/api/device/verify-pin','/api/device/mqtt-session','/api/device/sign-mqtt','/api/device/session-check'].includes(url.pathname)) {
         return json(env, { success:false, error:'ACCOUNT_UPGRADE_REQUIRED' }, 410);

@@ -23,6 +23,7 @@ export async function sendWebPush(env, subscriptionRow, notification) {
   const message = {
     data: JSON.stringify(notification),
     options: {
+      urgency: notification.data?.severity === 'critical' ? 'high' : 'normal',
       ttl: 3600, // 1h la du: canh bao cu hon 1h khong con y nghia gui tiep
     },
   };
@@ -35,16 +36,18 @@ export async function sendWebPush(env, subscriptionRow, notification) {
   const endpointHost = (() => { try { return new URL(subscription.endpoint).host; } catch (_) { return '?'; } })();
   try {
     const payload = await buildPushPayload(message, subscription, vapid);
-    const res = await fetch(subscription.endpoint, payload);
+    const res = await fetch(subscription.endpoint, { ...payload, signal: AbortSignal.timeout(4000) });
     if (res.ok) {
       console.log(`[push] OK host=${endpointHost} status=${res.status}`);
-      return { ok: true };
+      return { ok: true, status: res.status };
     }
     const rawBody = await res.text().catch(() => '');
     const body = rawBody.slice(0, 300);
     console.error(`[push] FAIL host=${endpointHost} status=${res.status} body=${body}`);
     if (res.status === 404 || res.status === 410) return { ok: false, gone: true, status: res.status, error: body };
-    return { ok: false, gone: false, status: res.status, error: body };
+    const retrySeconds=Number(res.headers.get('Retry-After'));
+    return { ok: false, gone: false, status: res.status, error: body,
+      retryAfterMs: Number.isFinite(retrySeconds) && retrySeconds>0 ? retrySeconds*1000 : 0 };
   } catch (error) {
     console.error(`[push] THROW host=${endpointHost} error=${String(error && error.message ? error.message : error)}`);
     return { ok: false, gone: false, status: 0, error: String(error && error.message ? error.message : error) };

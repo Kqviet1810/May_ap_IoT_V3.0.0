@@ -49,7 +49,8 @@ struct HTTPClient {
   }
 };
 #include "actual-bounded_http.inc"
-constexpr uint8_t CLOUD_OUTBOX_SIZE=8;
+struct BackoffTimer {void reset(uint32_t){}};
+constexpr uint8_t CLOUD_OUTBOX_SIZE=16;
 namespace MayapCloudInternal {
 enum class NotifyLevel : uint8_t { Info, Warning, Critical, System };
 #include "actual-cloud-outbox.inc"
@@ -133,7 +134,7 @@ int main() {
   assert(socketTransport.closes==1&&!connectionAnnounced&&reconnectAttempts==0);
   realtimeYieldPoll(clockMs+1000);
   assert(socketTransport.closes==1&&reconnectAttempts==0);
-  assert(!mayapRequestCloudTlsYield(clockMs+1000)); // no reconnect storm
+  assert(mayapRequestCloudTlsYield(clockMs+1000)); // joins the same lease; no new disconnect
   ESP.free=85000;
   { MayapTlsOperation cloud(MayapTlsKind::Cloud); assert(cloud);
     assert(mayapCloudTlsYieldRequested(clockMs+16000)); }
@@ -154,11 +155,16 @@ int main() {
   clockMs+=60000;
   const uint32_t savedClock=clockMs;
   clockMs=0xfffffff0U;
-  MayapNetworkIoInternal::cloudYieldRetryAt=0U;
+  MayapNetworkIoInternal::cloudYieldUntil=MayapNetworkIoInternal::cloudYieldRetryAt=MayapNetworkIoInternal::cloudUrgentRetryAt=0U;
   assert(mayapRequestCloudTlsYield(clockMs));
   assert(mayapCloudTlsYieldRequested(clockMs+1000U));
   assert(!mayapCloudTlsYieldRequested(clockMs+15000U));
   assert(!mayapRequestCloudTlsYield(clockMs+20000U));
+  assert(mayapRequestCloudTlsYield(clockMs+20000U,true));
+  assert(!mayapCloudTlsYieldRequested(clockMs+35000U));
+  assert(!mayapRequestCloudTlsYield(clockMs+35000U,true));
+  mayapReleaseCloudTlsYield();
+  assert(mayapRequestCloudTlsYield(clockMs+35000U,true)); // fresh critical event after success
   clockMs=savedClock;
   MayapNetworkIoInternal::cloudYieldUntil=MayapNetworkIoInternal::cloudYieldRetryAt=0U;
   ESP.free=73728;
@@ -246,14 +252,14 @@ int main() {
   assert(enqueueRaw("FAULT_501",NotifyLevel::Warning,false,"again",false,0,0));
   assert(outboxCount==3 && !outbox[0].resolved && outbox[1].resolved && !outbox[2].resolved);
   outboxHead=outboxTail=outboxCount=0;
-  for(unsigned i=0;i<8;++i) {
+  for(unsigned i=0;i<CLOUD_OUTBOX_SIZE;++i) {
     char key[24]; std::snprintf(key,sizeof(key),"CRITICAL_%u",i);
     assert(enqueueRaw(key,NotifyLevel::Critical,false,"critical",false,0,0));
   }
   assert(!enqueueRaw("ROUTINE",NotifyLevel::Info,false,"routine",false,0,0));
-  assert(outboxCount==8 && outboxCriticalDropped==0);
-  assert(enqueueRaw("CRITICAL_NEW",NotifyLevel::Critical,false,"critical",false,0,0));
-  assert(outboxCount==8 && outboxCriticalDropped==1);
+  assert(outboxCount==CLOUD_OUTBOX_SIZE && outboxCriticalDropped==0);
+  assert(!enqueueRaw("CRITICAL_NEW",NotifyLevel::Critical,false,"critical",false,0,0));
+  assert(outboxCount==CLOUD_OUTBOX_SIZE && outboxCriticalDropped==0);
 
   pendingEventSnapshot.sourceSequence=12; pendingEventSnapshot.count=12;
   for(unsigned i=0;i<12;++i) pendingEventSnapshot.items[i].sequence=12-i;
