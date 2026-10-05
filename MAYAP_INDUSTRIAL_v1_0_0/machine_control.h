@@ -5425,7 +5425,7 @@ class MachineController {
     MachineConfig tuned{};
     const bool candidateReady = autotune_.running() && newSensorSample_ &&
         autotune_.update(now, temperature_, config_, tuned,
-                         startupHeat_.predictedPeak());
+                         startupHeat_.predictedPeak(), config_.highTempAlarm);
     if (candidateReady) {
       // Leave the signed step through a bounded return to Last Known Good.
       // Candidate remains RAM-only until validation ACCEPT + persistent readback.

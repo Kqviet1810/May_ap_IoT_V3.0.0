@@ -471,7 +471,9 @@ class RelayAutoTune {
   }
 
   bool update(uint32_t now,float input,const MachineConfig &cfg,
-              MachineConfig &tunedOut,float phase1PredictedPeak=NAN) {
+              MachineConfig &tunedOut,float phase1PredictedPeak=NAN,
+              float highLimit=NAN) {
+    if(!isfinite(highLimit)) highLimit=target_+0.7f;
     if(!running())return false;
     if(!isfinite(input)){abort(AutoTuneReason::SensorAbort);return false;}
     recordPv(now,input);
@@ -504,11 +506,11 @@ class RelayAutoTune {
       // a 120 s fixed-power baseline cannot coast into High.
       const float slope=safetySlope();
       const float slopePeak=input+fmaxf(0.0f,slope)*TAKEOVER_FORECAST_SEC;
-      const float safePeak=fminf(cfg.highTempAlarm-TAKEOVER_HIGH_MARGIN_C,
+      const float safePeak=fminf(highLimit-TAKEOVER_HIGH_MARGIN_C,
                                  target_+TAKEOVER_MAX_PEAK_ABOVE_SP_C);
       const float predicted=isfinite(phase1PredictedPeak)
           ? fmaxf(phase1PredictedPeak,slopePeak) : slopePeak;
-      const float headroom=cfg.highTempAlarm-input;
+      const float headroom=highLimit-input;
       const float safeHoldLimit=fminf(
           static_cast<float>(cfg.maxHeaterPower)*0.01f,
           TAKEOVER_MAX_HOLD_FRACTION);
@@ -535,7 +537,7 @@ class RelayAutoTune {
 
     if(phase_==AutoTunePhase::ManualBaseline){
       power_=u0_*100.0f;
-      if(!thermalGuard(input,cfg,false)){
+      if(!thermalGuard(input,highLimit,false)){
         reject(AutoTuneReason::ThermalGuard);
         return false;
       }
@@ -570,7 +572,7 @@ class RelayAutoTune {
         const float maximum=static_cast<float>(cfg.maxHeaterPower)*0.01f;
         const float positiveMagnitude=fminf(MAX_STEP_FRACTION,maximum-actualMean);
         if(positiveMagnitude<MIN_STEP_FRACTION ||
-           cfg.highTempAlarm-input<POSITIVE_MIN_HEADROOM_C ||
+           highLimit-input<POSITIVE_MIN_HEADROOM_C ||
            safetySlope()>POSITIVE_MAX_RISING_SLOPE){
           reject(AutoTuneReason::InsufficientSafeExcitation);
           return false;
@@ -593,7 +595,7 @@ class RelayAutoTune {
 
     if(phase_==AutoTunePhase::IdentifyStep){
       power_=u1_*100.0f;
-      if(!thermalGuard(input,cfg,stepDirection_>0)){
+      if(!thermalGuard(input,highLimit,stepDirection_>0)){
         reject(AutoTuneReason::ThermalGuard);
         return false;
       }
@@ -674,7 +676,7 @@ class RelayAutoTune {
 
     if(phase_==AutoTunePhase::ValidationSettle){
       power_=0.0f; // MachineController actively restores LKG + Phase-1 here.
-      const float safePeak=fminf(cfg.highTempAlarm-RECOVERY_HIGH_MARGIN_C,
+      const float safePeak=fminf(highLimit-RECOVERY_HIGH_MARGIN_C,
                                  target_+RECOVERY_MAX_PEAK_ABOVE_SP_C);
       const bool peakSafe=!isfinite(phase1PredictedPeak) ||
                           phase1PredictedPeak<=safePeak;
@@ -943,12 +945,12 @@ class RelayAutoTune {
     return dt>0.0f?(pv_[pvCount_-1U]-pv_[0])/dt:0.0f;
   }
 
-  bool thermalGuard(float input,const MachineConfig &cfg,bool positive)const{
-    const float headroom=cfg.highTempAlarm-input;
+  bool thermalGuard(float input,float highLimit,bool positive)const{
+    const float headroom=highLimit-input;
     if(headroom<=GUARD_MARGIN_TO_HIGH_C)return false;
     const float slope=safetySlope();
     const float slopePeak=input+fmaxf(0.0f,slope)*GUARD_FORECAST_SEC;
-    if(slopePeak>=cfg.highTempAlarm-GUARD_MARGIN_TO_HIGH_C)return false;
+    if(slopePeak>=highLimit-GUARD_MARGIN_TO_HIGH_C)return false;
     if(slope>GUARD_RISING_SLOPE && headroom<GUARD_RISING_HEADROOM_C)
       return false;
     if(positive &&

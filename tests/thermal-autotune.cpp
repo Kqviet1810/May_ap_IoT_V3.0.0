@@ -47,7 +47,7 @@ static void safeTakeoverUsesMomentumEvidence() {
   float pv=37.0f;
   MachineConfig tuned{};
   tune.start(now,pv);
-  assert(!tune.update(now,pv,cfg,tuned,37.60f));
+  assert(!tune.update(now,pv,cfg,tuned,37.60f,38.20f));
   assert(tune.phase()==AutoTunePhase::CapturePower);
 
   HeaterBurstScheduler burst(1U,HEATER_BURST_QUANTUM_MS);
@@ -58,7 +58,7 @@ static void safeTakeoverUsesMomentumEvidence() {
     now+=100U;
     on=burst.update(now,20.0f,true).groupA;
     tune.observeActual(now,on,pv);
-    if(n%20U==0U) tune.update(now,pv,cfg,tuned,38.05f);
+    if(n%20U==0U) tune.update(now,pv,cfg,tuned,38.05f,38.20f);
   }
   assert(tune.phase()==AutoTunePhase::CapturePower);
 
@@ -67,7 +67,7 @@ static void safeTakeoverUsesMomentumEvidence() {
     now+=100U;
     on=burst.update(now,20.0f,true).groupA;
     tune.observeActual(now,on,pv);
-    if(n%20U==0U) tune.update(now,pv,cfg,tuned,37.60f);
+    if(n%20U==0U) tune.update(now,pv,cfg,tuned,37.60f,38.20f);
   }
   assert(tune.phase()==AutoTunePhase::ManualBaseline);
   assert(tune.baselineFraction()>0.15f && tune.baselineFraction()<0.25f);
@@ -85,7 +85,7 @@ static void driftingNegativeStepReachesValidation() {
   float pv=37.0f;
   tune.start(now,pv);
   MachineConfig tuned{};
-  assert(!tune.update(now,pv,cfg,tuned,37.60f));
+  assert(!tune.update(now,pv,cfg,tuned,37.60f,38.20f));
   assert(tune.phase()==AutoTunePhase::CapturePower);
 
   HeaterBurstScheduler burst(1U,HEATER_BURST_QUANTUM_MS);
@@ -120,7 +120,7 @@ static void driftingNegativeStepReachesValidation() {
 
     tune.observeActual(now,actualOn,pv);
     if((now-1000U)%2000U==0U) {
-      const bool ready=tune.update(now,pv,cfg,tuned,37.60f);
+      const bool ready=tune.update(now,pv,cfg,tuned,37.60f,38.20f);
       if(tune.phase()==AutoTunePhase::ManualBaseline && manualAt==0U) {
         manualAt=now;manualPv=pv;
       }
@@ -152,12 +152,12 @@ static void driftingNegativeStepReachesValidation() {
     now+=2000U;
     pv=37.10f+0.0015f*((now-recoveryAt)*0.001f);
     tune.observeActual(now,false,pv);
-    tune.update(now,pv,cfg,tuned,38.00f);
+    tune.update(now,pv,cfg,tuned,38.00f,38.20f);
   }
   assert(tune.phase()==AutoTunePhase::ValidationSettle);
   // Once PV is in the validation region and predicted peak is safe, slope need
   // not be zero: transition immediately on the next production sample.
-  tune.update(now+2000U,pv,cfg,tuned,37.62f);
+  tune.update(now+2000U,pv,cfg,tuned,37.62f,38.20f);
   now+=2000U;
   assert(tune.validating());
 
@@ -165,7 +165,7 @@ static void driftingNegativeStepReachesValidation() {
   for(unsigned n=0;n<1000U && tune.running();++n) {
     now+=2000U;
     tune.observeActual(now,false,pv);
-    tune.update(now,pv,cfg,tuned,37.60f);
+    tune.update(now,pv,cfg,tuned,37.60f,38.20f);
     if(tune.validating())
       tune.validate(now,pv,20.0f,20.0f,cfg.maxHeaterPower,false);
     if(tune.state()==AutoTuneState::Success)break;
