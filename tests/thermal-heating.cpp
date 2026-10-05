@@ -45,26 +45,29 @@ int main(){
   Harness h;h.temperature_=29;h.warm();h.config_.targetTemp=30;
   h.cycle(16000);assert(h.runtime_.heaterPower>=0 && h.runtime_.heaterPower<100);
   assert(std::fabs(h.runtime_.heaterPower-h.pid_.output())<0.001f); // requested %, not instantaneous SSR
-  // Autotune actual controller route: 30% total passes through the scheduler.
-  Harness tune;tune.batchRunning_=false;tune.autotune_.configure(37.5f);tune.autotune_.start(1000,37.4f);
-  MachineConfig result;tune.temperature_=37.4f;
-  tune.autotune_.update(1000,37.4f,tune.config_,result);tune.warm();
+  // AutoTune CAPTURE_POWER uses the LKG PID + production Phase-1 route,
+  // never a direct fixed-duty GPIO bypass.
+  Harness tune;tune.batchRunning_=false;tune.temperature_=36.5f;
+  tune.autotune_.configure(37.5f);tune.autotune_.start(1000,36.5f);
+  MachineConfig result;
+  tune.warm();
   unsigned energy=0;
-  for(uint32_t t=16000;t<616000;t+=50){
-    tune.cycle(t,false);
+  for(uint32_t t=16000;t<136000;t+=50){
+    tune.cycle(t,t%2000==0);
     energy+=tune.outputs_.state().heaterSsr;
-    assert(tune.runtime_.heaterPower==30);
+    assert(std::isfinite(tune.runtime_.heaterPower));
+    assert(tune.runtime_.heaterPower>=0 && tune.runtime_.heaterPower<=tune.config_.maxHeaterPower);
   }
-  const double delivered=100.0*energy/12000;
-  assert(std::fabs(delivered-30)<0.2);
-  tune.faults_.inhibit=true;tune.cycle(616001,false);assertOff(tune);
+  assert(energy>0 && energy<2400); // real PDM path, neither permanently OFF nor bypassed ON
+  tune.faults_.inhibit=true;tune.cycle(136001,false);assertOff(tune);
+
   for(unsigned reason=0;reason<15;++reason){
-    Harness guarded;guarded.batchRunning_=false;guarded.temperature_=37.4f;
-    guarded.autotune_.configure(37.5f);guarded.autotune_.start(1000,37.4f);
-    guarded.autotune_.update(1000,37.4f,guarded.config_,result);guarded.warm();
-    // Advance until a 30% burst is physically ON, then cut inside that burst.
+    Harness guarded;guarded.batchRunning_=false;guarded.temperature_=36.5f;
+    guarded.autotune_.configure(37.5f);guarded.autotune_.start(1000,36.5f);
+    guarded.warm();
+    // Advance until LKG/Phase-1/PDM has a physical heat pulse, then cut inside it.
     uint32_t at=15000;
-    while(!guarded.outputs_.state().heaterSsr && at<25000)guarded.cycle(at+=50,false);
+    while(!guarded.outputs_.state().heaterSsr && at<60000)guarded.cycle(at+=50,at%2000==0);
     assert(guarded.outputs_.state().heaterSsr);
     switch(reason){
       case 0:guarded.inputs_.in.heaterEnable=false;break;
@@ -87,5 +90,5 @@ int main(){
     trip=maintenance=false;
   }
   h.testModeActive_=true;h.cycle(17000);assert(h.testCalls==1);assertOff(h);
-  std::puts("Actual heating route: 16 PID + 15 autotune safety/permit cuts, no windup/backlog, pickup/fan/storage/OTA/boot/trip, total requested %, autotune PDM PASS");
+  std::puts("Actual heating route: PID + AutoTune LKG/Phase1 capture through PDM, 15 tune safety cuts, no bypass/backlog PASS");
 }
