@@ -416,7 +416,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/thermal_observer.h",
-      "sha256": "6fe4e2d5fbf859cb081131e7d45fad06a307cad1211f280fff6ffb423bc54b6c"
+      "sha256": "40ed4ae0650fa42cd270eb204e03e8645334827a4804f0cdad655de585f59773"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/adaptive_thermal_balance.h",
