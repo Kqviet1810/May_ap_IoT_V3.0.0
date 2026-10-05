@@ -5,23 +5,9 @@
 #include <string.h>
 
 namespace MayapWebRealtime {
-constexpr uint32_t WIFI_SAVE_GRACE_MS = 25000U;
 constexpr uint32_t BOOTSTRAP_MIN_INTERVAL_MS = 2000U;
 constexpr uint32_t BOOTSTRAP_HEARTBEAT_MS = 30000U;
 constexpr size_t BOOTSTRAP_PACKET_BUDGET = 512U;
-
-// Called only by the MQTT owner. No timers, allocation or blocking work.
-class PerformanceGrace {
- public:
-  bool update(uint32_t now, bool active) {
-    if (active) { waiting_ = false; return true; }
-    if (!waiting_) { waiting_ = true; idleSince_ = now; }
-    return static_cast<uint32_t>(now - idleSince_) < WIFI_SAVE_GRACE_MS;
-  }
- private:
-  bool waiting_ = false;
-  uint32_t idleSince_ = 0U;
-};
 
 struct BootstrapState {
   int32_t temperature = 0, humidity = 0;

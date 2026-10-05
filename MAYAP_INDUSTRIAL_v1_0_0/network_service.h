@@ -57,11 +57,8 @@ static MayapNetwork::StableWifiState stableWifi;
 
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
-// Only networkTask mutates the Wi-Fi driver. Realtime posts desired power mode
-// through this atomic mailbox instead of calling esp_wifi_* itself.
-static volatile uint8_t requestedHighPerformance = 1U;
+// Mains-powered controller: only networkTask applies fixed awake STA policy.
 static bool wifiPowerModeAppliedValid = false;
-static bool wifiHighPerformanceApplied = true;
 // Backoff RIENG cua STA Wi-Fi, doc lap voi backoff cua MQTT (realtime_link.h)
 // va Cloud Push (cloud_alert_link.h) - loi/reset o tang nao khong dung cham
 // tang khac. Khong con dung 2 bien lastRetryAt/lastStartAttemptAt + hang so co
@@ -188,23 +185,12 @@ inline bool startStation(uint32_t now) {
   return true;
 }
 
-inline void applyRequestedWifiPowerMode() {
-  if (!WiFi.isConnected()) {
-    wifiPowerModeAppliedValid = false;
-    return;
-  }
-  const bool highPerformance =
-      __atomic_load_n(&requestedHighPerformance, __ATOMIC_ACQUIRE) != 0U;
-  if (wifiPowerModeAppliedValid &&
-      wifiHighPerformanceApplied == highPerformance) return;
-  const wifi_ps_type_t wanted =
-      highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM;
-  if (esp_wifi_set_ps(wanted) != ESP_OK) {
-    wifiPowerModeAppliedValid = false;
-    return;
-  }
-  wifiHighPerformanceApplied = highPerformance;
+inline void applyWifiPowerMode() {
+  if (!WiFi.isConnected()) { wifiPowerModeAppliedValid = false; return; }
+  if (wifiPowerModeAppliedValid) return;
+  if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) return;
   wifiPowerModeAppliedValid = true;
+  mayapSerialPrintf(false, "[WIFI-RECOVERY] power=PERFORMANCE (fixed mains policy)\n");
 }
 
 // ------------------------------ Cong 1 doi Wi-Fi -----------------------------
@@ -871,11 +857,6 @@ inline NetworkStatus mayapGetRawNetworkStatus() {
   return status;
 }
 
-inline void mayapRequestWifiHighPerformance(bool highPerformance) {
-  __atomic_store_n(&MayapNetworkInternal::requestedHighPerformance,
-                   highPerformance ? 1U : 0U, __ATOMIC_RELEASE);
-}
-
 inline bool mayapWifiPortalExclusiveRequested() {
   using namespace MayapNetworkInternal;
   return __atomic_load_n(&portalRequestFlag, __ATOMIC_ACQUIRE) != 0U;
@@ -913,7 +894,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       deepPhase = DeepPhase::Quiesce;
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 1U, __ATOMIC_RELEASE);
       publish(online ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
-      mayapSerialPrintf(false, "[WIFI] quiesce owners before explicit radio stop\n");
+      mayapSerialPrintf(false, "[WIFI-RECOVERY] quiesce owners before explicit radio stop\n");
       return true;
     }
     if (!deepPolicy.cooldownReady(now)) {
@@ -949,7 +930,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
       if (!portal) mayapRadioQuiesceEnd();
       publish(stillOnline ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
-      mayapSerialPrintf(false, "[WIFI] radio stopped after owner quiesce\n");
+      mayapSerialPrintf(false, "[WIFI-RECOVERY] radio stopped after owner quiesce\n");
       return false;
     }
 
@@ -1102,7 +1083,7 @@ inline void mayapNetworkUpdate(uint32_t now) {
     if (rssi > 0) rssi = 0;
     publish(NetworkStateCode::Connected, true,
             static_cast<int8_t>(rssi));
-    applyRequestedWifiPowerMode();
+    applyWifiPowerMode();
     // Dong bo gio qua NTP (xem serviceNtpSync() o tren) - chi khi mang STA
     // that su on dinh (khong phai luc cong Wi-Fi dang test SSID moi).
     serviceNtpSync(now);

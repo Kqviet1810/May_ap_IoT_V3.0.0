@@ -65,19 +65,13 @@ with tempfile.TemporaryDirectory(prefix='mayap-runtime-') as temporary:
     start = realtime.index('inline void serviceEventLogPublish()')
     end = realtime.index('}  // namespace MayapRealtimeInternal', start)
     (out / 'actual-event-publish.inc').write_text(realtime[start:end], encoding='utf-8')
-    start = realtime.index('inline void applyWifiPowerMode(')
-    end = realtime.index('// --------------------------- Hop thu cau hinh/runtime', start)
-    power = realtime[start:end]
-    start = realtime.index('inline void serviceWifiPowerMode()')
-    end = realtime.index('inline void serviceConfigPublish()', start)
-    (out / 'actual-wifi-power.inc').write_text(power + realtime[start:end], encoding='utf-8')
     start = realtime.index('  if (mayapCloudTlsYieldRequested(now))')
     end = realtime.index('  const NetworkStatus status', start)
     (out / 'actual-cloud-yield.inc').write_text(realtime[start:end], encoding='utf-8')
     parts = []
     for begin, end in (('inline bool publishBootstrap(', 'struct TerminalResult {'),
                        ('inline void handleSessionMessage(', 'inline void realtimeMessageCallback('),
-                       ('inline void serviceSessionTimeout(', 'inline void serviceWifiPowerMode()'),
+                       ('inline void serviceSessionTimeout(', 'inline void serviceConfigPublish()'),
                        ('inline void serviceSnapshotPublish(', 'inline void serviceEventLogPublish(')):
         start = realtime.index(begin)
         stop = realtime.index(end, start)

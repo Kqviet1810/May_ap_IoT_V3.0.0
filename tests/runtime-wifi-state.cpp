@@ -10,13 +10,17 @@ static uint32_t clockMs=0;
 uint32_t millis() { return clockMs; }
 void mayapSerialPrintf(bool,const char*,...) {}
 bool credentialsConfigured() { return true; }
-struct { uint32_t localIP() const { return 1234; } } WiFi;
+struct { bool connected=false; bool isConnected() const { return connected; } uint32_t localIP() const { return 1234; } } WiFi;
+constexpr int WIFI_PS_NONE=0, ESP_OK=0;
+static bool wifiPowerModeAppliedValid=false;
+static unsigned powerCalls=0; static int powerResult=ESP_OK;
+int esp_wifi_set_ps(int mode) { assert(mode==WIFI_PS_NONE); ++powerCalls; return powerResult; }
 namespace MayapNetworkInternal {}
 #include "actual-wifi-globals.inc"
 #include "actual-wifi-publish.inc"
 #include "actual-wifi-getters.inc"
 void sample(uint32_t time,bool raw) {
- clockMs=time; publish(raw?NetworkStateCode::Connected:NetworkStateCode::Connecting,raw,raw?-50:-127);
+ clockMs=time; WiFi.connected=raw; publish(raw?NetworkStateCode::Connected:NetworkStateCode::Connecting,raw,raw?-50:-127);
 }
 int main() {
  sample(0,true); assert(!mayapGetNetworkStatus().connected && mayapGetNetworkStatus().state==NetworkStateCode::Connecting);
@@ -54,5 +58,11 @@ int main() {
  for(uint32_t t=6000;t<8*3600000U;t+=250) { sample(t,false); assert(!publishedConnected); }
  sample(8*3600000U,true);sample(8*3600000U+250,true);sample(8*3600000U+500,true);sample(8*3600000U+750,true);
  for(uint32_t t=8*3600000U+1000;t<9*3600000U;t+=250) { sample(t,true); assert(publishedConnected); }
+ // Fixed owner-only power policy: one successful application per association,
+ // bounded retry on failure, never modem sleep regardless of browser activity.
+ WiFi.connected=true; applyWifiPowerMode(); applyWifiPowerMode(); assert(powerCalls==1);
+ WiFi.connected=false; applyWifiPowerMode(); assert(powerCalls==1 && !wifiPowerModeAppliedValid);
+ WiFi.connected=true; powerResult=-1; applyWifiPowerMode(); assert(!wifiPowerModeAppliedValid);
+ powerResult=ESP_OK; applyWifiPowerMode(); applyWifiPowerMode(); assert(powerCalls==3);
  std::puts("Production Wi-Fi flap publication: raw admission, router reboot, 1000 reconnects, 8h loss, Internet-only failure and wrap PASS");
 }

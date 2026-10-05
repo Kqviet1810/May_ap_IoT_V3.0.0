@@ -99,7 +99,9 @@ if "healthRestartRequested" in ino or "HealthMonitor," in ino:
 require(ino, "mayapOnlineIoEnter", "atomic Online admission before owner I/O")
 require(network, "mayapOnlineOwnersDrained()", "radio mutation requires owner drain ACKs")
 require(network, "safe STA reconnect", "runtime Wi-Fi recovery is non-destructive")
-require(network, "mayapRequestWifiHighPerformance", "Wi-Fi power mailbox")
+require(network, "esp_wifi_set_ps(WIFI_PS_NONE)", "fixed mains Wi-Fi power policy")
+if "WIFI_PS_MIN_MODEM" in network or "serviceWifiPowerMode" in realtime:
+    raise SystemExit("FAIL: dynamic Wi-Fi power-save policy reintroduced")
 if "WiFi.disconnect(true, false)" in network:
     raise SystemExit("FAIL: destructive STA teardown reintroduced")
 if "esp_wifi_set_ps(" in realtime or "esp_wifi_get_ps(" in realtime:

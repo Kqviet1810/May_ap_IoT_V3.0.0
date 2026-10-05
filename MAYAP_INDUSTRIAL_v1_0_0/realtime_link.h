@@ -8,7 +8,6 @@
 #include "protocol_limits.h"
 #include "web_realtime_policy.h"
 #include <ArduinoJson.h>
-#include <esp_wifi.h>
 #include <mbedtls/md.h>
 #include <time.h>
 
@@ -66,23 +65,9 @@ static bool connectionAnnounced = false;
 static bool webSessionActive = false;
 struct WebClientLease { char id[40] = ""; uint32_t expiresAt = 0U; };
 static WebClientLease webClientLeases[8];
-static bool highPerfWifiApplied = false;  // cache yeu cau gui sang networkTask
-static bool wifiPowerModeValid = false;
-static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
 static MayapWebRealtime::BootstrapCadence bootstrapCadence;
 static uint32_t lastSnapshotPublishAt = 0U;
 static bool forceSnapshotPublish = false;
-
-inline void applyWifiPowerMode(bool highPerformance) {
-  if (wifiPowerModeValid && highPerfWifiApplied == highPerformance) return;
-  // Realtime is not a Wi-Fi driver owner. It only posts the desired policy;
-  // networkTask applies esp_wifi_set_ps after the radio is stable.
-  mayapRequestWifiHighPerformance(highPerformance);
-  highPerfWifiApplied = highPerformance;
-  wifiPowerModeValid = true;
-  mayapSerialPrintf(false, "[WEBLINK] WiFi power request -> %s\n",
-                    highPerformance ? "PERFORMANCE" : "SAVE");
-}
 
 // --------------------------- Hop thu cau hinh/runtime --------------------------
 // Ghi boi controlTask qua mayapWebSetConfig/mayapWebSetRuntime; doc boi
@@ -1368,15 +1353,6 @@ inline void serviceSessionTimeout(uint32_t now) {
   webSessionActive = active;
 }
 
-// Realtime only computes the policy. networkTask is the sole Wi-Fi driver
-// writer; session churn is absorbed by the nonblocking 25-second grace.
-inline void serviceWifiPowerMode() {
-  // Radio/portal recovery stays awake. Only an established STA may sleep.
-  const bool performance = wifiPerformanceGrace.update(millis(),
-    webSessionActive || !mayapGetNetworkStatus().connected);
-  applyWifiPowerMode(performance);
-}
-
 inline void serviceConfigPublish() {
   portENTER_CRITICAL(&webMux);
   const bool dirty = configDirty;
@@ -1457,7 +1433,6 @@ inline void mayapWebLinkBegin() {
   using namespace MayapRealtimeInternal;
   WebSocketTransport::logVersionsOnce();
   ensureIdentity(); socketTransport.setCallback(realtimeMessageCallback);
-  wifiPowerModeValid = false; applyWifiPowerMode(true);
 }
 // Historical API name maps the existing recovery enum slot onto WebSocket.
 inline void mayapMqttRecover(uint32_t now) {
@@ -1466,7 +1441,7 @@ inline void mayapMqttRecover(uint32_t now) {
 }
 inline void mayapWebLinkUpdate(uint32_t now) {
   using namespace MayapRealtimeInternal;
-  serviceSessionTimeout(now); serviceWifiPowerMode();
+  serviceSessionTimeout(now);
   if (mayapCloudTlsYieldRequested(now)) {
     if (socketTransport.busy()) {
       socketTransport.disconnect();
