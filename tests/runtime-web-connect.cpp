@@ -103,21 +103,11 @@ int main() {
   session("browser-0001", true, true, true);
   assert(configDirty && eventSnapshotDirty); // Existing Web remains compatible.
 
-  PerformanceGrace grace;
-  assert(grace.update(clockMs, webSessionActive));
   session("browser-0002", true);
-  session("browser-0001", false); // Another foreground tab holds PERFORMANCE.
-  assert(webSessionActive && grace.update(clockMs, webSessionActive));
-  session("browser-0002", false);
-  assert(!webSessionActive && grace.update(clockMs, webSessionActive));
-  clockMs += 24999; assert(grace.update(clockMs, false));
-  session("browser-0001", true); assert(grace.update(clockMs, true));
-  session("browser-0001", false); assert(grace.update(clockMs, false));
-  clockMs += 25000; assert(!grace.update(clockMs, false)); // Hidden long enough -> SAVE.
-  session("browser-0002", true); assert(grace.update(clockMs, true)); // Return -> PERFORMANCE.
-  clockMs += 15001; serviceSessionTimeout(clockMs);
-  assert(!webSessionActive && grace.update(clockMs, false)); // Lost inactive packet: TTL + grace.
-  clockMs += 25000; assert(!grace.update(clockMs, false));
+  session("browser-0001", false); assert(webSessionActive);
+  session("browser-0002", false); assert(!webSessionActive);
+  session("browser-0002", true);
+  clockMs += 15001; serviceSessionTimeout(clockMs); assert(!webSessionActive);
   for (unsigned i = 0; i < 8; ++i) {
     char id[40]; snprintf(id, sizeof(id), "browser-%04u", i);
     session(id, true); assert(webSessionActive);
@@ -132,30 +122,23 @@ int main() {
   // the five-minute deadline. A second visible browser remains independent.
   const uint32_t hiddenStart = UINT32_MAX - 100000U;
   clockMs = hiddenStart;
-  PerformanceGrace warmGrace;
   for (uint32_t elapsed = 0; elapsed < 300000U; elapsed += 15000U) {
     clockMs = hiddenStart + elapsed;
     session("hidden-00001", true, false, false, false, false,
             300000U - elapsed < 45000U ? 300000U - elapsed : 45000U);
     session("visible-0001", true, false, false, false, false, 45000U);
     serviceSessionTimeout(clockMs);
-    assert(webSessionActive && warmGrace.update(clockMs, webSessionActive));
+    assert(webSessionActive);
   }
   clockMs = hiddenStart + 300000U;
   session("hidden-00001", false); serviceSessionTimeout(clockMs);
-  assert(webSessionActive && warmGrace.update(clockMs, webSessionActive));
+  assert(webSessionActive);
   session("visible-0001", false);
-  assert(!webSessionActive && warmGrace.update(clockMs, false));
-  clockMs += 24999U; assert(warmGrace.update(clockMs, false));
-  clockMs += 1U; assert(!warmGrace.update(clockMs, false));
-  session("hidden-00001", true); assert(warmGrace.update(clockMs, webSessionActive));
+  assert(!webSessionActive);
+  session("hidden-00001", true); assert(webSessionActive);
   // Fully suspended browser: TTL still expires without any Web timer.
   clockMs += 15000U; serviceSessionTimeout(clockMs);
-  assert(!webSessionActive && warmGrace.update(clockMs, false));
-  clockMs += 25000U; assert(!warmGrace.update(clockMs, false));
-  PerformanceGrace rollover;
-  assert(rollover.update(UINT32_MAX - 1000, false));
-  assert(rollover.update(500, false)); assert(!rollover.update(25000, false));
+  assert(!webSessionActive);
   // Controller completion/ACK can precede its 200 ms runtime mailbox update.
   // The forced sample still says OFF; the next real ON sample must not wait
   // for the usual one-second telemetry cadence before reaching the browser.
@@ -192,5 +175,5 @@ int main() {
   webSessionActive = true; ++clockMs; serviceSnapshotPublish(clockMs);
   assert(snapshots.size() == 9 && snapshots.back().light);
   std::puts("Actual snapshot: ACK before runtime, immediate real lamp edges, unchanged temperature/PWM cadence, queue retry, hidden lease and rollover PASS");
-  std::printf("Actual Web bootstrap/session: %zu-byte packet, retained, bounded cadence/retry, lazy sync, 8 leases, 300s warm renewals, independent visible browser, TTL, 25s grace and clock rollover OK\n", packetSize);
+  std::printf("Actual Web bootstrap/session: %zu-byte packet, retained, bounded cadence/retry, lazy sync, 8 leases, 300s warm renewals, independent visible browser, TTL and clock rollover OK\n", packetSize);
 }

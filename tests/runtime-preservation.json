@@ -58,12 +58,12 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/config.h",
-      "sha256": "743b79474ee8487f6ee93e48c192b30f3544b78860595e2dd9764e170f949ad8",
+      "sha256": "2744712bfbd714381b88a9fe4a0c7e66ced5aa7f660a60585bcde214713136ef",
       "filter": "config"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
-      "sha256": "a28475322021bc19b36c550888a5e9dc9eacba0048e4cbbe28d919f0e40eb81d",
+      "sha256": "198d86eb8cefc3bc0b6c77db9cd2541778a2f7911de5ed95c53f6a402edd7943",
       "signature": "class MachineController {"
     },
     {
@@ -151,7 +151,7 @@
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/ota_web_update.h",
-      "sha256": "bd6c0bd6c89ea89b8bba11f506ec55443c5f409320b23c8b480e6cfc8519a8c6",
+      "sha256": "2271c81a9d971eff255c51ed668582f7ae305e6344d8066a8d4b8dff49bfe43b",
       "signature": "inline void mayapFirmwareWebUpdate("
     },
     {
@@ -394,7 +394,7 @@
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
       "signature": "void updateTurning(",
-      "sha256": "f273133813a60c4b2c11661fb3471b4265fe30c8708005220a2f733a9ee766a7"
+      "sha256": "1dcf55e47447576ff76e8e93c854963a981efae05d22d1428a12865bd31038ff"
     },
     {
       "file": "MAYAP_INDUSTRIAL_v1_0_0/machine_control.h",
@@ -454,5 +454,7 @@
   "notesRemovalReview": "2026-10-04: remove Notes/custom Reminders runtime and transport, preserve UI only; reserved EEPROM addresses are not erased or repurposed; unrelated control and safety unchanged.",
   "cloudTlsHandoffReview": "2026-10-05: network-only RAM handoff for physical Cloud alert starvation at 69904-71476 bytes. Keep TLS admission at 73728 bytes and largest block at 24576; request owner-side WebSocket closure with 15-second idle lease and 60-second retry spacing. Preserve lease through registration/send gaps; prioritize alarm outbox before heartbeat and release after non-deferred completion with empty outbox. Actual guard, realtime yield and Cloud dispatch bodies are host-tested. Controller, thermal/PID, sensor, safety, EEPROM/HMI and authentication fingerprints unchanged.",
   "onlineIsolationReview": "2026-10-04: narrowly reviewed removal of dormant heap reboot branch, auxiliary task-create reboot and unbounded auxiliary startup readiness; health heap now requests Online pause only. Radio gate atomically closes admission and requires socket/TLS/OTA closure ACKs before mutation. FaultDescriptor change is comment-only; controlTask/PID/heater/output/sensor/turning, RTC/EEPROM, OTA success and real control/WDT/panic safety remain protected. HMI task placement moves from network core 0 to local core 1 at unchanged priority 2, below control 5/supervisor 6; HMI behavior and local trip thresholds are unchanged.",
-  "alarmDeliveryReview": "2026-10-05: bounded Cloud-only fault edge mailbox, event-aware TLS lease and alarm priority. FaultManager safety fingerprint is preserved by removing only the three conditional notification hooks; all PID, output, controller, storage and safety bodies remain protected. Config changes only Cloud queue 8->16 and fault tracking 16->48. TLS memory thresholds are unchanged. D1 durable receipts and per-recipient bounded Push retries replace HTTP-status-only delivery acknowledgment."
+  "alarmDeliveryReview": "2026-10-05: bounded Cloud-only fault edge mailbox, event-aware TLS lease and alarm priority. FaultManager safety fingerprint is preserved by removing only the three conditional notification hooks; all PID, output, controller, storage and safety bodies remain protected. Config changes only Cloud queue 8->16 and fault tracking 16->48. TLS memory thresholds are unchanged. D1 durable receipts and per-recipient bounded Push retries replace HTTP-status-only delivery acknowledgment.",
+  "turningRtcReviewNote": "2026-10-05: only reject zero/unavailable automatic deadline while awaiting RTC anchor; homing/manual persistence from main retained. No thermal, motor safety or EEPROM schema changes.",
+  "wifiStateReviewNote": "2026-10-05: reviewed config declaration and OTA admission accessor changes only: raw Wi-Fi for network I/O, stable presentation for controller/HMI faults. OTA interlocks, schemas, PID, Adaptive, heater safety and signed transactions unchanged."
 }

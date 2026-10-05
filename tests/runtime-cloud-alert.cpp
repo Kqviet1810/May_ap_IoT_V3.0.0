@@ -33,6 +33,7 @@ struct Config{uint8_t totalIncubationDays=21;} processingConfig;
 #include "actual-cloud-faults.inc"
 enum class ConnectivityMode{Offline,Online};
 struct NetworkStatus {ConnectivityMode requestedMode=ConnectivityMode::Online;bool connected=true;} net;
+NetworkStatus mayapGetRawNetworkStatus(){return net;}
 NetworkStatus mayapGetNetworkStatus(){return net;}
 std::vector<std::string> sent;
 bool deferred=false,success=true;

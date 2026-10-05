@@ -714,7 +714,7 @@ inline void drainOutbox(uint32_t now) {
   OutboxItem &item=outbox[(outboxHead+selected)%CLOUD_OUTBOX_SIZE];
   if(item.severity!=NotifyLevel::Critical && !timeReached(now,lastSendAt+CLOUD_MIN_SEND_GAP_MS)) return;
   if(item.attempted && !item.retry.ready(now)) return;
-  const NetworkStatus status=mayapGetNetworkStatus();
+  const NetworkStatus status=mayapGetRawNetworkStatus();
   if(!(status.requestedMode==ConnectivityMode::Online && status.connected)) return;
   const bool ok=sendAlarm(item);
   if(!requestDeferred) lastSendAt=millis();
@@ -730,7 +730,7 @@ inline void drainOutbox(uint32_t now) {
 inline void serviceHeartbeat(uint32_t now) {
   if (!timeReached(now, lastHeartbeatAt + CLOUD_HEARTBEAT_INTERVAL_MS)) return;
   if (!cloudBackoff.ready(now)) return;
-  const NetworkStatus status = mayapGetNetworkStatus();
+  const NetworkStatus status = mayapGetRawNetworkStatus();
   if (!(status.requestedMode == ConnectivityMode::Online && status.connected)) return;
   lastHeartbeatAt = now;
   if (sendHeartbeat()) {
@@ -743,7 +743,7 @@ inline void serviceHeartbeat(uint32_t now) {
 inline void serviceRegister(uint32_t now) {
   if (registered) return;
   if (!cloudBackoff.ready(now)) return;
-  const NetworkStatus status = mayapGetNetworkStatus();
+  const NetworkStatus status = mayapGetRawNetworkStatus();
   if (status.requestedMode != ConnectivityMode::Online) return;
   if (!status.connected) {
     mayapSetProvisioningState(MayapProvisioningState::CloudOffline);
@@ -759,7 +759,7 @@ inline void serviceRegister(uint32_t now) {
 
 inline void servicePinReset() {
   if (!__atomic_exchange_n(&pinResetRequestFlag, 0U, __ATOMIC_ACQ_REL)) return;
-  const NetworkStatus netStatus = mayapGetNetworkStatus();
+  const NetworkStatus netStatus = mayapGetRawNetworkStatus();
   if (netStatus.requestedMode != ConnectivityMode::Online || !netStatus.connected) {
     mayapSerialPrintf(false, "[CLOUD] reset-pin bi huy: khong online luc yeu cau\n");
     return;

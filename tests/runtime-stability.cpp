@@ -60,6 +60,7 @@ static uint8_t pinResetRequestFlag=0;
 static unsigned resetRequests=0;
 static bool resetDeferred=false, resetSuccess=true;
 NetworkStatus mayapGetNetworkStatus() { return network; }
+NetworkStatus mayapGetRawNetworkStatus() { return network; }
 bool sendResetPin() {
   requestDeferred=resetDeferred;
   if (resetDeferred) return false;
@@ -94,18 +95,6 @@ bool publishLogEntry(const HmiEventItem &item) {
   published.push_back(item.sequence); return true;
 }
 #include "actual-event-publish.inc"
-static bool highPerfWifiApplied=false, wifiPowerModeValid=false;
-static bool webSessionActive=true;
-#include "../MAYAP_INDUSTRIAL_v1_0_0/web_realtime_policy.h"
-using MayapCloudInternal::mayapGetNetworkStatus;
-static MayapWebRealtime::PerformanceGrace wifiPerformanceGrace;
-static bool requestedHighPerformance=false;
-static unsigned powerRequests=0;
-void mayapRequestWifiHighPerformance(bool highPerformance) {
-  requestedHighPerformance=highPerformance;
-  ++powerRequests;
-}
-#include "actual-wifi-power.inc"
 struct YieldSocket {
   bool open=true; unsigned closes=0;
   bool busy()const{return open;}
@@ -269,20 +258,5 @@ int main() {
   serviceEventLogPublish(); assert(lastPublishedEventSequence==12 && !eventSnapshotDirty);
   assert(published.size()==12);
   for(unsigned i=0;i<12;++i) assert(published[i]==i+1);
-  MayapCloudInternal::network.connected=true; // Previous PIN-reset case deliberately disconnected STA.
-  serviceWifiPowerMode(); assert(requestedHighPerformance && powerRequests==1);
-  serviceWifiPowerMode(); assert(powerRequests==1);
-  webSessionActive=false; serviceWifiPowerMode(); assert(requestedHighPerformance);
-  clockMs += 24999; serviceWifiPowerMode(); assert(requestedHighPerformance);
-  webSessionActive=true; serviceWifiPowerMode(); assert(requestedHighPerformance);
-  webSessionActive=false; serviceWifiPowerMode(); clockMs += 25000;
-  serviceWifiPowerMode(); assert(!requestedHighPerformance && powerRequests==2);
-  const unsigned savedRequests=powerRequests; serviceWifiPowerMode();
-  assert(powerRequests==savedRequests);
-  webSessionActive=true; serviceWifiPowerMode();
-  assert(requestedHighPerformance && powerRequests==3);
-  webSessionActive=false; MayapCloudInternal::network.connected=false;
-  clockMs+=30000; serviceWifiPowerMode();
-  assert(requestedHighPerformance && powerRequests==3);
   std::puts("Actual stability helpers: TLS/bulk exclusion, admission boundaries, bounded/chunked HTTP, Serial pressure/mute, alarm coalescing, deferred PIN reset and failed log retry OK");
 }

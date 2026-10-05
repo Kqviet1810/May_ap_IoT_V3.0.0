@@ -2,6 +2,7 @@
 
 #include "config.h"
 #include "service_recovery.h"
+#include "wifi_stable_state.h"
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
@@ -49,13 +50,18 @@ static volatile bool publishedConnected = false;
 static volatile int8_t publishedRssiDbm = -127;
 static uint32_t publishedLocalIp = 0U;
 
+// Raw connected is immediate I/O availability; association remains independent
+// while RadioGate drains owners or memory pressure pauses Online services.
+static volatile bool rawConnected = false;
+static bool rawAssociated = false;
+static volatile uint8_t rawState = static_cast<uint8_t>(NetworkStateCode::Offline);
+static volatile int8_t rawRssiDbm = -127;
+static MayapNetwork::StableWifiState stableWifi;
+
 static bool radioActive = false;
 static uint32_t connectionStartedAt = 0U;
-// Only networkTask mutates the Wi-Fi driver. Realtime posts desired power mode
-// through this atomic mailbox instead of calling esp_wifi_* itself.
-static volatile uint8_t requestedHighPerformance = 1U;
+// Mains-powered controller: only networkTask applies fixed awake STA policy.
 static bool wifiPowerModeAppliedValid = false;
-static bool wifiHighPerformanceApplied = true;
 // Backoff RIENG cua STA Wi-Fi, doc lap voi backoff cua MQTT (realtime_link.h)
 // va Cloud Push (cloud_alert_link.h) - loi/reset o tang nao khong dung cham
 // tang khac. Khong con dung 2 bien lastRetryAt/lastStartAttemptAt + hang so co
@@ -112,16 +118,49 @@ inline bool saveCredentials(const char *ssid, const char *password) {
 
 inline void publish(NetworkStateCode state, bool connected,
                     int8_t rssiDbm = -127) {
-  // Only the radio owner queries driver/interface state. Other tasks read
-  // bounded snapshots, including realtime presence and diagnostics.
-  __atomic_store_n(&publishedLocalIp,
-      connected ? static_cast<uint32_t>(WiFi.localIP()) : 0U, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedConfigured, credentialsConfigured(),
-                   __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedConnected, connected, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedRssiDbm, rssiDbm, __ATOMIC_RELEASE);
-  __atomic_store_n(&publishedState, static_cast<uint8_t>(state),
-                   __ATOMIC_RELEASE);
+  const bool associated = WiFi.isConnected();
+  connected = connected && associated;
+  if (!connected && state == NetworkStateCode::Connected)
+    state = NetworkStateCode::Connecting;
+  const bool oldRaw = __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE);
+  __atomic_store_n(&rawConnected, connected, __ATOMIC_RELEASE);
+  __atomic_store_n(&rawState, static_cast<uint8_t>(state), __ATOMIC_RELEASE);
+  __atomic_store_n(&rawRssiDbm, connected ? rssiDbm : -127, __ATOMIC_RELEASE);
+  if (oldRaw != connected || rawAssociated != associated)
+    mayapSerialPrintf(false, "[WIFI-RAW] associated=%u available=%u state=%u\n",
+        associated, connected, static_cast<unsigned>(state));
+  rawAssociated = associated;
+
+  // Explicit OFFLINE/unconfigured is immediate. Involuntary loss is debounced.
+  const bool forced = state == NetworkStateCode::Offline ||
+                      state == NetworkStateCode::NotConfigured;
+  if (forced) stableWifi.reset();
+  const bool stable = forced ? false : stableWifi.update(millis(), associated);
+  const bool oldStable = __atomic_load_n(&publishedConnected, __ATOMIC_ACQUIRE);
+  if (stable != oldStable)
+    mayapSerialPrintf(false, "[WIFI-STABLE] connected=%u raw=%u\n", stable, connected);
+  // Keep the last useful RSSI/IP during the short down grace, never for I/O.
+  if (!stable || associated) {
+    __atomic_store_n(&publishedLocalIp,
+        stable ? static_cast<uint32_t>(WiFi.localIP()) : 0U, __ATOMIC_RELEASE);
+    const int8_t stableRssi = !stable ? -127 :
+        (connected ? rssiDbm : static_cast<int8_t>(WiFi.RSSI()));
+    __atomic_store_n(&publishedRssiDbm, stableRssi, __ATOMIC_RELEASE);
+  }
+  __atomic_store_n(&publishedConfigured, credentialsConfigured(), __ATOMIC_RELEASE);
+  __atomic_store_n(&publishedConnected, stable, __ATOMIC_RELEASE);
+  __atomic_store_n(&publishedState, static_cast<uint8_t>(
+      stable ? NetworkStateCode::Connected :
+          (state == NetworkStateCode::Connected ? NetworkStateCode::Connecting : state)), __ATOMIC_RELEASE);
+}
+
+// Called by networkTask even when deep recovery/isolation skips station service.
+// A pending offline transition must still expire while the owners are draining.
+inline void tickStableWifi() {
+  // publish samples the driver afresh; owner drain is not a Wi-Fi disconnect.
+  publish(static_cast<NetworkStateCode>(__atomic_load_n(&rawState, __ATOMIC_ACQUIRE)),
+      __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE),
+      __atomic_load_n(&rawRssiDbm, __ATOMIC_ACQUIRE));
 }
 
 inline void stopRadio() {
@@ -155,23 +194,12 @@ inline bool startStation(uint32_t now) {
   return true;
 }
 
-inline void applyRequestedWifiPowerMode() {
-  if (!WiFi.isConnected()) {
-    wifiPowerModeAppliedValid = false;
-    return;
-  }
-  const bool highPerformance =
-      __atomic_load_n(&requestedHighPerformance, __ATOMIC_ACQUIRE) != 0U;
-  if (wifiPowerModeAppliedValid &&
-      wifiHighPerformanceApplied == highPerformance) return;
-  const wifi_ps_type_t wanted =
-      highPerformance ? WIFI_PS_NONE : WIFI_PS_MIN_MODEM;
-  if (esp_wifi_set_ps(wanted) != ESP_OK) {
-    wifiPowerModeAppliedValid = false;
-    return;
-  }
-  wifiHighPerformanceApplied = highPerformance;
+inline void applyWifiPowerMode() {
+  if (!WiFi.isConnected()) { wifiPowerModeAppliedValid = false; return; }
+  if (wifiPowerModeAppliedValid) return;
+  if (esp_wifi_set_ps(WIFI_PS_NONE) != ESP_OK) return;
   wifiPowerModeAppliedValid = true;
+  mayapSerialPrintf(false, "[WIFI-RECOVERY] power=PERFORMANCE (fixed mains policy)\n");
 }
 
 // ------------------------------ Cong 1 doi Wi-Fi -----------------------------
@@ -828,9 +856,14 @@ inline NetworkStatus mayapGetNetworkStatus() {
   return status;
 }
 
-inline void mayapRequestWifiHighPerformance(bool highPerformance) {
-  __atomic_store_n(&MayapNetworkInternal::requestedHighPerformance,
-                   highPerformance ? 1U : 0U, __ATOMIC_RELEASE);
+// Transport admission must never use the presentation grace period.
+inline NetworkStatus mayapGetRawNetworkStatus() {
+  using namespace MayapNetworkInternal;
+  NetworkStatus status = mayapGetNetworkStatus();
+  status.connected = __atomic_load_n(&rawConnected, __ATOMIC_ACQUIRE);
+  status.state = static_cast<NetworkStateCode>(__atomic_load_n(&rawState, __ATOMIC_ACQUIRE));
+  status.rssiDbm = __atomic_load_n(&rawRssiDbm, __ATOMIC_ACQUIRE);
+  return status;
 }
 
 inline bool mayapWifiPortalExclusiveRequested() {
@@ -870,7 +903,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       deepPhase = DeepPhase::Quiesce;
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 1U, __ATOMIC_RELEASE);
       publish(online ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
-      mayapSerialPrintf(false, "[WIFI] quiesce owners before explicit radio stop\n");
+      mayapSerialPrintf(false, "[WIFI-RECOVERY] quiesce owners before explicit radio stop\n");
       return true;
     }
     if (!deepPolicy.cooldownReady(now)) {
@@ -906,7 +939,7 @@ inline bool mayapNetworkDeepRecoveryUpdate(uint32_t now, bool externalIoBusy) {
       __atomic_store_n(&MayapServiceInternal::radioQuiesce, 0U, __ATOMIC_RELEASE);
       if (!portal) mayapRadioQuiesceEnd();
       publish(stillOnline ? NetworkStateCode::NotConfigured : NetworkStateCode::Offline, false);
-      mayapSerialPrintf(false, "[WIFI] radio stopped after owner quiesce\n");
+      mayapSerialPrintf(false, "[WIFI-RECOVERY] radio stopped after owner quiesce\n");
       return false;
     }
 
@@ -1059,7 +1092,7 @@ inline void mayapNetworkUpdate(uint32_t now) {
     if (rssi > 0) rssi = 0;
     publish(NetworkStateCode::Connected, true,
             static_cast<int8_t>(rssi));
-    applyRequestedWifiPowerMode();
+    applyWifiPowerMode();
     // Dong bo gio qua NTP (xem serviceNtpSync() o tren) - chi khi mang STA
     // that su on dinh (khong phai luc cong Wi-Fi dang test SSID moi).
     serviceNtpSync(now);

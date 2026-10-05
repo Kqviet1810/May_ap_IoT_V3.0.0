@@ -5672,6 +5672,8 @@ class MachineController {
     }
 
     if (nextTurnAt_ == 0U) scheduleNextTurnFromAnchor(now);
+    // Zero means waiting for the persisted RTC anchor, not an expired deadline.
+    if (nextTurnAt_ == 0U) return;
     if (turnPhase_ == TurnPhase::Idle && timeReached(now, nextTurnAt_)) {
       if (trayPosition_ == TrayPosition::Left) {
         requestTurn(now, TurnDirection::Right, false, true);
