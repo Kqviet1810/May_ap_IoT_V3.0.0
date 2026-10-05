@@ -1,10 +1,12 @@
 #include <cstdint>
+#include <cstddef>
 #include <cassert>
 #include <cstdio>
 #include <cstdarg>
+#include <cstring>
 enum class NetworkStateCode : uint8_t { Offline, NotConfigured, Connecting, Connected };
 enum class ConnectivityMode : uint8_t { Offline, Online };
-struct NetworkStatus { ConnectivityMode requestedMode; NetworkStateCode state; bool credentialsConfigured,connected; int8_t rssiDbm; };
+struct NetworkStatus { ConnectivityMode requestedMode; NetworkStateCode state; bool credentialsConfigured,connected; int8_t rssiDbm; char ssid[33]{}; };
 static volatile uint8_t requestedMode=static_cast<uint8_t>(ConnectivityMode::Online);
 static uint32_t clockMs=0;
 uint32_t millis() { return clockMs; }
@@ -12,6 +14,11 @@ void mayapSerialPrintf(bool,const char*,...) {}
 bool credentialsConfigured() { return true; }
 struct { bool connected=false; bool isConnected() const { return connected; } int RSSI() const { return -50; } uint32_t localIP() const { return 1234; } } WiFi;
 constexpr int WIFI_PS_NONE=0, ESP_OK=0;
+constexpr std::size_t WIFI_PORTAL_SSID_MAX=32;
+using portMUX_TYPE=int;
+#define portMUX_INITIALIZER_UNLOCKED 0
+#define portENTER_CRITICAL(mux) ((void)(mux))
+#define portEXIT_CRITICAL(mux) ((void)(mux))
 static bool wifiPowerModeAppliedValid=false;
 static unsigned powerCalls=0; static int powerResult=ESP_OK;
 int esp_wifi_set_ps(int mode) { assert(mode==WIFI_PS_NONE); ++powerCalls; return powerResult; }
@@ -31,7 +38,9 @@ void sample(uint32_t time,bool raw) {
  clockMs=time; WiFi.connected=raw; publish(raw?NetworkStateCode::Connected:NetworkStateCode::Connecting,raw,raw?-50:-127);
 }
 int main() {
+ std::snprintf(publishedSsid,sizeof(publishedSsid),"%s","CNC-WORKSHOP");
  sample(0,true); assert(!mayapGetNetworkStatus().connected && mayapGetNetworkStatus().state==NetworkStateCode::Connecting);
+ assert(std::strcmp(mayapGetNetworkStatus().ssid,"CNC-WORKSHOP")==0);
  assert(mayapGetRawNetworkStatus().connected); sample(250,true); sample(500,true); sample(750,true);
  assert(publishedConnected);
  // Short driver glitch must not appear in HMI/Fault/Web snapshot.
